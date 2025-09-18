@@ -1,0 +1,151 @@
+# Coverage configuration for Video Streaming Server
+# Comprehensive coverage configuration for production testing
+
+[run]
+# Source code to analyze
+source = .
+
+# Note: include is ignored when source is set, which is expected behavior
+
+# Files and directories to exclude from coverage
+omit = 
+    # Test files
+    tests/*
+    test_*.py
+    *_test.py
+    
+    # Virtual environments and dependencies
+    venv/*
+    .venv/*
+    env/*
+    .env/*
+    */site-packages/*
+    
+    # Build and distribution files
+    build/*
+    dist/*
+    *.egg-info/*
+    
+    # Configuration and setup files
+    setup.py
+    conftest.py
+    
+    # Generated files
+    __pycache__/*
+    *.pyc
+    *.pyo
+    *.pyd
+    .Python
+    
+    # Version control and IDE
+    .git/*
+    .vscode/*
+    .idea/*
+    
+    # Documentation
+    docs/*
+    *.md
+    
+    # External library files that appear in coverage
+    pyscript
+    shibokensupport/*
+    signature_bootstrap.py
+    
+    # Validation script that's not part of main functionality
+    validate_setup.py
+
+# Enable branch coverage
+branch = True
+
+# Parallel processing
+parallel = True
+
+# Disable dynamic contexts to prevent "No contexts were measured" warning
+dynamic_context = none
+
+[report]
+# Reporting precision
+precision = 2
+
+# Lines to exclude from coverage reporting
+exclude_lines =
+    # Standard pragma
+    pragma: no cover
+    
+    # Don't complain about missing debug-only code
+    def __repr__
+    if self\.debug
+    
+    # Don't complain if tests don't hit defensive assertion code
+    raise AssertionError
+    raise NotImplementedError
+    
+    # Don't complain about abstract methods
+    @(abc\.)?abstractmethod
+    
+    # Don't complain about main blocks
+    if __name__ == .__main__.:
+    
+    # Don't complain about type checking imports
+    if TYPE_CHECKING:
+    
+    # Don't complain about pass statements
+    pass
+    
+    # Don't complain about ellipsis
+    \.\.\.
+    
+    # Don't complain about logging statements in except blocks
+    except.*:
+        .*\.log
+    
+    # Don't complain about platform-specific code
+    if sys\.platform
+    
+    # Don't complain about click commands when run directly
+    @click\.command
+    @click\.option
+
+# Minimum coverage percentage (fail below this)
+fail_under = 90
+
+# Show missing lines in report
+show_missing = True
+
+# Skip empty files
+skip_empty = True
+
+# Skip files with no executable code
+skip_covered = False
+
+# Sort results
+sort = Cover
+
+[html]
+# HTML report configuration
+directory = htmlcov
+title = Video Streaming Server Coverage Report
+
+# Show contexts in HTML
+show_contexts = True
+
+# Skip empty files in HTML report
+skip_empty = True
+
+# Skip files that are 100% covered
+skip_covered = False
+
+[xml]
+# XML report configuration
+output = coverage.xml
+
+[json]
+# JSON report configuration  
+output = coverage.json
+pretty_print = True
+
+[paths]
+# Path mappings for combining coverage from different environments
+source =
+    .
+    */site-packages/video-streaming-server

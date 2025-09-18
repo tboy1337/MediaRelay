@@ -1,0 +1,17 @@
+# Video Streaming Server - Production Dependencies
+# Core runtime dependencies required for the application to run
+
+# Web Framework
+Flask
+Werkzeug
+waitress
+flask-limiter
+
+# Configuration Management
+python-dotenv
+click
+
+# Logging and Monitoring
+colorlog
+structlog
+psutil
