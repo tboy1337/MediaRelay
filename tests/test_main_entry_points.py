@@ -1,4 +1,4 @@
-﻿"""
+"""
 Unit tests for main entry points and CLI functionality
 ------------------------------------------------------
 Tests for command-line interface and main function behavior.

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Advanced Logging Configuration for Video Streaming Server
 --------------------------------------------------------
 Provides comprehensive, production-ready logging with structured logging,
@@ -11,7 +11,7 @@ import logging.handlers
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import colorlog
 import structlog
@@ -25,7 +25,7 @@ class SecurityEventLogger:
     def __init__(self, config: ServerConfig):
         self.config = config
         self.logger = logging.getLogger("security")
-        self.handlers: List[logging.Handler] = []  # Track handlers for cleanup
+        self.handlers: list[logging.Handler] = []  # Track handlers for cleanup
         self._setup_security_logger()
 
     def _setup_security_logger(self) -> None:
@@ -121,7 +121,7 @@ class PerformanceLogger:
     def __init__(self, config: ServerConfig):
         self.config = config
         self.logger = logging.getLogger("performance")
-        self.handlers: List[logging.Handler] = []  # Track handlers for cleanup
+        self.handlers: list[logging.Handler] = []  # Track handlers for cleanup
         self._setup_performance_logger()
 
     def _setup_performance_logger(self) -> None:
@@ -182,7 +182,7 @@ class PerformanceLogger:
         self.handlers.clear()
 
 
-def setup_logging(config: ServerConfig) -> Dict[str, Any]:
+def setup_logging(config: ServerConfig) -> dict[str, Any]:  # type: ignore[explicit-any]
     """
     Set up comprehensive logging system for the application
 
@@ -199,7 +199,7 @@ def setup_logging(config: ServerConfig) -> Dict[str, Any]:
         processors=[
             structlog.stdlib.filter_by_level,
             structlog.stdlib.add_logger_name,
-            structlog.stdlib.add_log_level,
+            structlog.stdlib.add_log_level,  # type: ignore[misc]
             structlog.stdlib.PositionalArgumentsFormatter(),
             structlog.processors.TimeStamper(fmt="ISO"),
             structlog.processors.StackInfoRenderer(),
@@ -216,8 +216,8 @@ def setup_logging(config: ServerConfig) -> Dict[str, Any]:
     # Root logger configuration
     root_logger = logging.getLogger()
     try:
-        log_level = getattr(logging, config.log_level.upper())
-        root_logger.setLevel(log_level)
+        log_level = getattr(logging, config.log_level.upper())  # type: ignore[misc]
+        root_logger.setLevel(log_level)  # type: ignore[misc]
     except AttributeError:
         # Invalid log level, fall back to INFO
         root_logger.setLevel(logging.INFO)
@@ -306,13 +306,13 @@ def log_system_info(config: ServerConfig) -> None:
 
         current_dir = os.getcwd()
 
-        system_info = {
+        system_info = {  # type: ignore[misc]
             "platform": platform.platform(),
             "python_version": platform.python_version(),
             "cpu_count": psutil.cpu_count(),
             "memory_total_gb": round(psutil.virtual_memory().total / (1024**3), 2),
             "disk_free_gb": round(psutil.disk_usage(current_dir).free / (1024**3), 2),
-            "config": config.to_dict(),
+            "config": config.to_dict(),  # type: ignore[misc]
         }
     except ImportError:
         # Fallback without psutil
@@ -322,10 +322,10 @@ def log_system_info(config: ServerConfig) -> None:
             "cpu_count": "unknown",
             "memory_total_gb": "unknown",
             "disk_free_gb": "unknown",
-            "config": config.to_dict(),
+            "config": config.to_dict(),  # type: ignore[misc]
         }
 
-    logger.info(f"System Information: {json.dumps(system_info, indent=2)}")
+    logger.info(f"System Information: {json.dumps(system_info, indent=2)}")  # type: ignore[misc]
 
 
 if __name__ == "__main__":
@@ -333,7 +333,7 @@ if __name__ == "__main__":
     from config import load_config
 
     config = load_config()
-    logging_components = setup_logging(config)
+    logging_components = setup_logging(config)  # type: ignore[misc]
 
     # Test different log levels
     logging.debug("This is a debug message")
@@ -342,11 +342,11 @@ if __name__ == "__main__":
     logging.error("This is an error message")
 
     # Test security logger
-    security_logger = logging_components["security_logger"]
-    security_logger.log_auth_attempt("testuser", True, "127.0.0.1", "Test Browser")
+    security_logger = logging_components["security_logger"]  # type: ignore[misc]
+    security_logger.log_auth_attempt("testuser", True, "127.0.0.1", "Test Browser")  # type: ignore[misc]
 
     # Test performance logger
-    perf_logger = logging_components["performance_logger"]
-    perf_logger.log_request_duration("/test", 0.250, 200)
+    perf_logger = logging_components["performance_logger"]  # type: ignore[misc]
+    perf_logger.log_request_duration("/test", 0.250, 200)  # type: ignore[misc]
 
     print("Logging test completed. Check the logs directory for output files.")

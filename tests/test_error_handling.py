@@ -1,4 +1,4 @@
-﻿"""
+"""
 Unit tests for comprehensive error handling
 ------------------------------------------
 Tests for error handling, exception cases, and edge conditions.

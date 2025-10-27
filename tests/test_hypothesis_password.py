@@ -6,7 +6,6 @@ across a wide range of inputs.
 """
 
 import string
-from typing import Set
 
 import pytest
 from hypothesis import assume, example, given, settings
@@ -101,7 +100,7 @@ class TestPasswordGenerationProperties:
         While not guaranteed by cryptographic randomness, the probability
         of collision should be astronomically low.
         """
-        passwords: Set[str] = set()
+        passwords: set[str] = set()
         num_samples = 10  # Generate 10 passwords
 
         for _ in range(num_samples):
@@ -186,7 +185,7 @@ class TestSecretKeyGenerationProperties:
 
         Collision probability should be negligible for cryptographic randomness.
         """
-        secret_keys: Set[str] = set()
+        secret_keys: set[str] = set()
         num_samples = 10
 
         for _ in range(num_samples):

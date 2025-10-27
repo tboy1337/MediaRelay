@@ -347,8 +347,9 @@ class TestFileExtensionMatchingProperties:
 
             # File extension should be consistently recognized
             file_ext = test_file.suffix.lower()
-            assert (
-                file_ext == ext_with_dot or file_ext == f".{ext}"
+            assert file_ext in (
+                ext_with_dot,
+                f".{ext}",
             ), f"Extension parsing inconsistent: {file_ext!r} vs {ext_with_dot!r}"
 
 

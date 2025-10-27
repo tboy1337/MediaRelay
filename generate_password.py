@@ -1,4 +1,4 @@
-﻿"""
+"""
 Password and Secret Key Generation Utility
 ------------------------------------------
 Utility script for generating secure passwords, their corresponding

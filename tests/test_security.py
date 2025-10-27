@@ -1,4 +1,4 @@
-﻿"""
+"""
 Security tests for Video Streaming Server
 -----------------------------------------
 Comprehensive security testing including authentication, authorization,

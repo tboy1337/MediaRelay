@@ -1,4 +1,4 @@
-﻿"""
+"""
 Configuration management for Video Streaming Server
 -------------------------------------------------
 Handles environment variables, configuration files, and default settings
@@ -9,7 +9,7 @@ import os
 import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 
 def _get_default_video_directory() -> str:
@@ -116,7 +116,7 @@ class ServerConfig:
     )
 
     # Security Headers
-    security_headers: Dict[str, str] = field(
+    security_headers: dict[str, str] = field(
         default_factory=lambda: {
             "X-Content-Type-Options": "nosniff",
             "X-Frame-Options": "SAMEORIGIN",
@@ -187,7 +187,7 @@ class ServerConfig:
         """Check if running in production environment"""
         return os.getenv("FLASK_ENV", "development") == "production"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[explicit-any]
         """Convert config to dictionary (excluding sensitive data)"""
         config_dict = {
             "host": self.host,

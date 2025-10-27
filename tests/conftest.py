@@ -1,4 +1,4 @@
-﻿"""
+"""
 Pytest configuration and shared fixtures
 ---------------------------------------
 Common test fixtures and configuration for the entire test suite.
@@ -7,8 +7,9 @@ Common test fixtures and configuration for the entire test suite.
 import os
 import shutil
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Dict, Generator
+from typing import Any
 
 import pytest
 from werkzeug.security import generate_password_hash
@@ -18,7 +19,7 @@ from streaming_server import MediaRelayServer
 
 
 @pytest.fixture(scope="session")
-def temp_video_dir() -> Generator[Path, None, None]:
+def temp_video_dir() -> Generator[Path]:
     """Create a temporary video directory with test files"""
     temp_dir = Path(tempfile.mkdtemp())
 
@@ -43,7 +44,7 @@ def temp_video_dir() -> Generator[Path, None, None]:
 
 
 @pytest.fixture(scope="session")
-def temp_log_dir() -> Generator[Path, None, None]:
+def temp_log_dir() -> Generator[Path]:
     """Create a temporary log directory"""
     temp_dir = Path(tempfile.mkdtemp())
     yield temp_dir
@@ -97,7 +98,7 @@ def authenticated_client(test_client, test_config: ServerConfig):
 
 
 @pytest.fixture
-def mock_files_data() -> Dict[str, Any]:
+def mock_files_data() -> dict[str, Any]:
     """Mock file system data for testing"""
     return {
         "files": [
@@ -127,7 +128,7 @@ def cleanup_session():
 
 
 @pytest.fixture
-def security_test_payloads() -> Dict[str, list]:
+def security_test_payloads() -> dict[str, list]:
     """Security test payloads for various attack vectors"""
     return {
         "path_traversal": [
