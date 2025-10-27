@@ -14,8 +14,13 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from config import ServerConfig
-from logging_config import (PerformanceLogger, SecurityEventLogger,
-                            get_request_logger, log_system_info, setup_logging)
+from logging_config import (
+    PerformanceLogger,
+    SecurityEventLogger,
+    get_request_logger,
+    log_system_info,
+    setup_logging,
+)
 
 
 class TestSecurityEventLogger:

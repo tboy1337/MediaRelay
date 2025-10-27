@@ -36,7 +36,7 @@ A video streaming server that allows you to securely share your personal video l
 
 ## 📋 Requirements
 
-- **Python**: 3.8 or higher
+- **Python**: 3.9 or higher
 - **Operating System**: Windows 10+, macOS 10.15+, or Linux (Ubuntu 20.04+ recommended)
 - **Memory**: Minimum 2GB RAM, 4GB+ recommended for optimal performance
 - **Storage**: 1GB for application, additional space for video content

@@ -59,7 +59,7 @@ load-plugins=pylint.extensions.check_elif,
 persistent=yes
 
 # Minimum Python version to use for version dependent checks
-py-version=3.8
+py-version=3.9
 
 # When enabled, pylint would attempt to guess common misconfiguration and emit
 # user-friendly hints instead of false-positive error messages.

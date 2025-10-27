@@ -20,8 +20,16 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from urllib.parse import unquote
 
 import click
-from flask import (Flask, Response, g, jsonify, render_template_string,
-                   request, send_from_directory, session)
+from flask import (
+    Flask,
+    Response,
+    g,
+    jsonify,
+    render_template_string,
+    request,
+    send_from_directory,
+    session,
+)
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from waitress import serve
@@ -30,8 +38,12 @@ from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 
 from config import ServerConfig, load_config
-from logging_config import (PerformanceLogger, SecurityEventLogger,
-                            log_system_info, setup_logging)
+from logging_config import (
+    PerformanceLogger,
+    SecurityEventLogger,
+    log_system_info,
+    setup_logging,
+)
 
 
 class MediaRelayServer:

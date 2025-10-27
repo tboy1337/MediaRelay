@@ -15,7 +15,7 @@ The Video Streaming Server allows you to share your personal video library over 
 
 ### What You'll Need
 
-- A computer with Python 3.8 or higher
+- A computer with Python 3.9 or higher
 - Your video files organized in folders
 - Basic network configuration knowledge (for remote access)
 - 30 minutes for initial setup

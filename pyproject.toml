@@ -1,0 +1,124 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "MediaRelay"
+version = "1.0.1"
+description = "A video streaming server that allows you to securely share your personal video library over the internet"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {file = "LICENSE.md"}
+authors = [
+    {name = "tboy1337"}
+]
+keywords = [
+    "video",
+    "streaming",
+    "server",
+    "media",
+    "flask",
+    "security",
+    "authentication"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Internet :: WWW/HTTP :: WSGI :: Application",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: OS Independent",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Environment :: Web Environment",
+    "Framework :: Flask",
+    "Typing :: Typed"
+]
+
+dependencies = [
+    "Flask",
+    "Werkzeug",
+    "waitress",
+    "flask-limiter",
+    "python-dotenv",
+    "click",
+    "colorlog",
+    "structlog",
+    "psutil"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-timeout",
+    "pytest-xdist",
+    "pytest-mock",
+    "pytest-cov",
+    "pytest-html",
+    "pytest-json-report",
+    "pytest-flask",
+    "pytest-httpx",
+    "hypothesis",
+    "pylint",
+    "mypy",
+    "black",
+    "isort",
+    "types-psutil",
+    "types-waitress"
+]
+
+[project.scripts]
+mediarelay = "streaming_server:cli"
+mediarelay-config = "config:main"
+mediarelay-genpass = "generate_password:main"
+mediarelay-validate = "validate_setup:main"
+
+[project.urls]
+Homepage = "https://github.com/tboy1337/MediaRelay"
+Documentation = "https://github.com/tboy1337/MediaRelay/tree/main/docs"
+Repository = "https://github.com/tboy1337/MediaRelay"
+Issues = "https://github.com/tboy1337/MediaRelay/issues"
+
+# Black configuration
+[tool.black]
+line-length = 88
+target-version = ['py39', 'py310', 'py311', 'py312', 'py313', 'py314']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+# isort configuration
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+skip_gitignore = true
+src_paths = [".", "tests"]
+known_first_party = ["streaming_server", "config", "logging_config", "generate_password", "validate_setup"]
