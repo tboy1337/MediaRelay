@@ -191,7 +191,7 @@ class TestSessionTimeoutProperties:
         st.integers(min_value=1, max_value=86400),  # 1 second to 1 day
         st.floats(min_value=0.0, max_value=10.0),  # Time elapsed
     )
-    @settings(max_examples=50, deadline=1000)
+    @settings(max_examples=1000, deadline=1000)
     @example(3600, 0.0)
     @example(3600, 3600.0)
     @pytest.mark.hypothesis

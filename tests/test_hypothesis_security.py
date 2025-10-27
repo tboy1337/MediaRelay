@@ -50,7 +50,7 @@ class TestPathTraversalProtection:
             )
         )
     )
-    @settings(max_examples=50, deadline=1000)
+    @settings(max_examples=1000, deadline=1000)
     @example((3, ["..", "..", ".."]))
     @example((1, [".."]))
     @pytest.mark.hypothesis
@@ -100,7 +100,7 @@ class TestPathTraversalProtection:
             st.text(min_size=1, max_size=20).map(lambda s: f"//{s}"),
         )
     )
-    @settings(max_examples=50, deadline=1000)
+    @settings(max_examples=1000, deadline=1000)
     @example("../..")
     @example("/../")
     @example("//etc")
@@ -217,7 +217,7 @@ class TestPathTraversalProtection:
             max_size=50,
         ).filter(lambda s: ".." not in s and "//" not in s)
     )
-    @settings(max_examples=50, deadline=1000)
+    @settings(max_examples=1000, deadline=1000)
     @example("test.mp4")
     @example("video")
     @pytest.mark.hypothesis
@@ -270,7 +270,7 @@ class TestPathSecurityEdgeCases:
             max_size=5,
         ).map(lambda parts: "/".join(parts))
     )
-    @settings(max_examples=50, deadline=1000)
+    @settings(max_examples=1000, deadline=1000)
     @pytest.mark.hypothesis
     @pytest.mark.security
     def test_long_paths_dont_crash(self, path: str) -> None:
@@ -301,7 +301,7 @@ class TestPathSecurityEdgeCases:
                         pass
 
     @given(st.binary(min_size=1, max_size=50).map(lambda b: b.decode("latin1")))
-    @settings(max_examples=50, deadline=1000)
+    @settings(max_examples=1000, deadline=1000)
     @pytest.mark.hypothesis
     @pytest.mark.security
     def test_special_characters_handled_safely(self, special_path: str) -> None:

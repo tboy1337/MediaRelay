@@ -21,7 +21,7 @@ class TestPortValidationProperties:
     """Property-based tests for port validation"""
 
     @given(st.integers(max_value=0))
-    @settings(max_examples=50, deadline=1000)
+    @settings(max_examples=1000, deadline=1000)
     @example(0)
     @example(-1)
     @example(-1000)
@@ -42,7 +42,7 @@ class TestPortValidationProperties:
                 )
 
     @given(st.integers(min_value=65536))
-    @settings(max_examples=50, deadline=1000)
+    @settings(max_examples=1000, deadline=1000)
     @example(65536)
     @example(70000)
     @example(100000)
@@ -87,7 +87,7 @@ class TestThreadCountValidationProperties:
     """Property-based tests for thread count validation"""
 
     @given(st.integers(max_value=0))
-    @settings(max_examples=50, deadline=1000)
+    @settings(max_examples=1000, deadline=1000)
     @example(0)
     @example(-1)
     @example(-100)
@@ -106,7 +106,7 @@ class TestThreadCountValidationProperties:
                 )
 
     @given(st.integers(min_value=1, max_value=1000))
-    @settings(max_examples=50, deadline=1000)
+    @settings(max_examples=1000, deadline=1000)
     @example(1)
     @example(6)
     @example(100)
@@ -129,7 +129,7 @@ class TestFileSizeValidationProperties:
     """Property-based tests for file size validation"""
 
     @given(st.integers(min_value=-1000000, max_value=0))
-    @settings(max_examples=50, deadline=1000)
+    @settings(max_examples=1000, deadline=1000)
     @example(0)  # 0 means no limit
     @example(-1)
     @pytest.mark.hypothesis
@@ -149,7 +149,7 @@ class TestFileSizeValidationProperties:
             assert config.max_file_size == file_size
 
     @given(st.integers(min_value=1, max_value=10**15))
-    @settings(max_examples=50, deadline=1000)
+    @settings(max_examples=1000, deadline=1000)
     @example(1024)
     @example(21474836480)  # 20GB default
     @example(10**15)  # Very large
@@ -207,7 +207,7 @@ class TestBooleanParsingProperties:
             alphabet=st.characters(blacklist_categories=("Cs", "Cc")),
         ).filter(lambda s: s.lower() not in ("true", "yes", "1", "on"))
     )
-    @settings(max_examples=50, deadline=1000)
+    @settings(max_examples=1000, deadline=1000)
     @example("false")
     @example("no")
     @example("0")
@@ -258,7 +258,7 @@ class TestSessionTimeoutProperties:
     """Property-based tests for session timeout validation"""
 
     @given(st.integers(min_value=0, max_value=10**10))
-    @settings(max_examples=50, deadline=1000)
+    @settings(max_examples=1000, deadline=1000)
     @example(0)  # Edge case
     @example(3600)  # Default
     @example(86400)  # 1 day
@@ -328,7 +328,7 @@ class TestPasswordHashValidationProperties:
             alphabet=st.characters(blacklist_categories=("Cs",)),
         )
     )
-    @settings(max_examples=50, deadline=1000)
+    @settings(max_examples=1000, deadline=1000)
     @example("test_hash")
     @example("pbkdf2:sha256:260000$test$hash")
     @pytest.mark.hypothesis

@@ -36,7 +36,7 @@ class TestPasswordGenerationProperties:
         ), f"Password length {len(password)} != requested {length}"
 
     @given(st.integers(min_value=10, max_value=200))
-    @settings(max_examples=50, deadline=2000)
+    @settings(max_examples=1000, deadline=2000)
     @example(35)
     @example(20)
     @pytest.mark.hypothesis
@@ -69,7 +69,7 @@ class TestPasswordGenerationProperties:
         ), f"Password has {punct_count} punctuation, need ≥2: {password!r}"
 
     @given(st.integers(min_value=10, max_value=100))
-    @settings(max_examples=50, deadline=1000)
+    @settings(max_examples=1000, deadline=1000)
     @pytest.mark.hypothesis
     def test_password_uses_only_valid_characters(self, length: int) -> None:
         """
@@ -113,7 +113,7 @@ class TestPasswordGenerationProperties:
         assert len(passwords) == num_samples, "Password uniqueness check failed"
 
     @given(st.integers(min_value=10, max_value=50))
-    @settings(max_examples=50, deadline=1000)
+    @settings(max_examples=1000, deadline=1000)
     @pytest.mark.hypothesis
     def test_password_character_distribution(self, length: int) -> None:
         """
@@ -140,7 +140,7 @@ class TestSecretKeyGenerationProperties:
     """Property-based tests for Flask secret key generation"""
 
     @given(st.integers(min_value=8, max_value=256))
-    @settings(max_examples=50, deadline=500)
+    @settings(max_examples=1000, deadline=500)
     @example(32)  # Default length
     @example(16)  # Common alternative
     @pytest.mark.hypothesis
@@ -159,7 +159,7 @@ class TestSecretKeyGenerationProperties:
         ), f"Secret key length {len(secret_key)} != expected {expected_length}"
 
     @given(st.integers(min_value=8, max_value=128))
-    @settings(max_examples=50, deadline=500)
+    @settings(max_examples=1000, deadline=500)
     @example(32)
     @pytest.mark.hypothesis
     def test_secret_key_is_valid_hex(self, byte_length: int) -> None:
@@ -216,7 +216,7 @@ class TestSecretKeyGenerationProperties:
             pytest.fail(f"Secret key {secret_key!r} is not valid hex: {e}")
 
     @given(st.integers(min_value=8, max_value=64))
-    @settings(max_examples=50, deadline=500)
+    @settings(max_examples=1000, deadline=500)
     @pytest.mark.hypothesis
     def test_secret_key_entropy_distribution(self, byte_length: int) -> None:
         """
