@@ -76,6 +76,36 @@ class TestBreadcrumbGenerationProperties:
 
         Each breadcrumb should have incrementally building path.
         """
+        # Windows reserved names that cannot be used as directory names
+        RESERVED_NAMES = {
+            "CON",
+            "PRN",
+            "AUX",
+            "NUL",
+            "COM1",
+            "COM2",
+            "COM3",
+            "COM4",
+            "COM5",
+            "COM6",
+            "COM7",
+            "COM8",
+            "COM9",
+            "LPT1",
+            "LPT2",
+            "LPT3",
+            "LPT4",
+            "LPT5",
+            "LPT6",
+            "LPT7",
+            "LPT8",
+            "LPT9",
+        }
+
+        # Skip test if any path part is a Windows reserved name
+        for part in path_parts:
+            assume(part.upper() not in RESERVED_NAMES)
+
         with tempfile.TemporaryDirectory() as temp_dir:
             test_dir = Path(temp_dir) / "videos"
             test_dir.mkdir(exist_ok=True)
@@ -154,6 +184,36 @@ class TestBreadcrumbGenerationProperties:
 
         Path should build up: /, /a, /a/b, /a/b/c
         """
+        # Windows reserved names that cannot be used as directory names
+        RESERVED_NAMES = {
+            "CON",
+            "PRN",
+            "AUX",
+            "NUL",
+            "COM1",
+            "COM2",
+            "COM3",
+            "COM4",
+            "COM5",
+            "COM6",
+            "COM7",
+            "COM8",
+            "COM9",
+            "LPT1",
+            "LPT2",
+            "LPT3",
+            "LPT4",
+            "LPT5",
+            "LPT6",
+            "LPT7",
+            "LPT8",
+            "LPT9",
+        }
+
+        # Skip test if any path part is a Windows reserved name
+        for part in path_parts:
+            assume(part.upper() not in RESERVED_NAMES)
+
         with tempfile.TemporaryDirectory() as temp_dir:
             test_dir = Path(temp_dir) / "videos"
             test_dir.mkdir(exist_ok=True)
@@ -211,6 +271,36 @@ class TestPathNormalizationProperties:
 
         The system should normalize paths regardless of separator used.
         """
+        # Windows reserved names that cannot be used as directory names
+        RESERVED_NAMES = {
+            "CON",
+            "PRN",
+            "AUX",
+            "NUL",
+            "COM1",
+            "COM2",
+            "COM3",
+            "COM4",
+            "COM5",
+            "COM6",
+            "COM7",
+            "COM8",
+            "COM9",
+            "LPT1",
+            "LPT2",
+            "LPT3",
+            "LPT4",
+            "LPT5",
+            "LPT6",
+            "LPT7",
+            "LPT8",
+            "LPT9",
+        }
+
+        # Skip test if any path part is a Windows reserved name
+        for part in path_parts:
+            assume(part.upper() not in RESERVED_NAMES)
+
         with tempfile.TemporaryDirectory() as temp_dir:
             test_dir = Path(temp_dir) / "videos"
             test_dir.mkdir(exist_ok=True)
@@ -465,6 +555,36 @@ class TestPathExistenceProperties:
         """
         Property: Existing paths within video directory are resolved correctly.
         """
+        # Windows reserved names that cannot be used as directory names
+        RESERVED_NAMES = {
+            "CON",
+            "PRN",
+            "AUX",
+            "NUL",
+            "COM1",
+            "COM2",
+            "COM3",
+            "COM4",
+            "COM5",
+            "COM6",
+            "COM7",
+            "COM8",
+            "COM9",
+            "LPT1",
+            "LPT2",
+            "LPT3",
+            "LPT4",
+            "LPT5",
+            "LPT6",
+            "LPT7",
+            "LPT8",
+            "LPT9",
+        }
+
+        # Skip test if any path part is a Windows reserved name
+        for part in path_parts:
+            assume(part.upper() not in RESERVED_NAMES)
+
         with tempfile.TemporaryDirectory() as temp_dir:
             test_dir = Path(temp_dir) / "videos"
             test_dir.mkdir(exist_ok=True)
