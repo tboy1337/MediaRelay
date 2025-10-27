@@ -9,7 +9,7 @@ import json
 import logging
 import logging.handlers
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -60,7 +60,7 @@ class SecurityEventLogger:
             "success": success,
             "ip_address": ip_address,
             "user_agent": user_agent,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
         level = logging.INFO if success else logging.WARNING
@@ -76,7 +76,7 @@ class SecurityEventLogger:
             "ip_address": ip_address,
             "success": success,
             "user": user,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
         level = logging.INFO if success else logging.WARNING
@@ -91,7 +91,7 @@ class SecurityEventLogger:
             "violation_type": violation_type,
             "details": details,
             "ip_address": ip_address,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
         self.logger.error(json.dumps(event_data))
@@ -102,7 +102,7 @@ class SecurityEventLogger:
             "event_type": "rate_limit_exceeded",
             "ip_address": ip_address,
             "endpoint": endpoint,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
         self.logger.warning(json.dumps(event_data))
@@ -152,7 +152,7 @@ class PerformanceLogger:
             "endpoint": endpoint,
             "duration_ms": round(duration * 1000, 2),
             "status_code": status_code,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
         self.logger.info(json.dumps(metric_data))
@@ -169,7 +169,7 @@ class PerformanceLogger:
             "throughput_mbps": (
                 round((file_size / (1024 * 1024)) / duration, 2) if duration > 0 else 0
             ),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
         self.logger.info(json.dumps(metric_data))

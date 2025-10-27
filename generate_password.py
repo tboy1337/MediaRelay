@@ -5,7 +5,7 @@ Utility script for generating secure passwords, their corresponding
 Werkzeug password hashes, and Flask secret keys for the Video Streaming Server.
 
 Author: Assistant
-License: See LICENSE.txt
+License: See LICENSE.md
 """
 
 import secrets

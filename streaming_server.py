@@ -5,7 +5,7 @@ Production-ready video streaming server with comprehensive security,
 logging, monitoring, and configuration management.
 
 Author: Assistant
-License: See LICENSE.txt
+License: See LICENSE.md
 """
 
 import json
@@ -14,7 +14,7 @@ import secrets
 import sys
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -135,7 +135,7 @@ class MediaRelayServer:
             """Health check endpoint for monitoring"""
             health_data = {  # type: ignore[misc]
                 "status": "healthy",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "version": "2.0.0",
                 "uptime_seconds": time.time()  # type: ignore[misc]
                 - getattr(self, "_start_time", time.time()),  # type: ignore[misc]

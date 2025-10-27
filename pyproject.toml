@@ -77,7 +77,7 @@ dev = [
 ]
 
 [project.scripts]
-mediarelay = "streaming_server:cli"
+mediarelay = "streaming_server:main"
 mediarelay-config = "config:main"
 mediarelay-genpass = "generate_password:main"
 mediarelay-validate = "validate_setup:main"
