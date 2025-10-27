@@ -405,7 +405,8 @@ max-attributes=15
 max-bool-expr=5
 
 # Maximum number of branch for function / method body.
-max-branches=15
+# User rule: Refactor functions with >10 branches
+max-branches=10
 
 # Maximum number of locals for function / method body.
 max-locals=20
