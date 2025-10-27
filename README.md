@@ -122,13 +122,6 @@ Once the server is running, you can access it in your web browser at:
 - **Local access**: http://localhost:5000
 - **Network access**: http://YOUR_IP_ADDRESS:5000 (if configured with --host 0.0.0.0)
 
-## 📚 Documentation
-
-### 📖 User Guides
-- **[User Manual](docs/user_manual.md)** - Complete user guide with examples
-- **[Deployment Guide](docs/deployment_guide.md)** - Server setup and deployment instructions
-- **[API Documentation](docs/api_documentation.md)** - Complete API reference
-
 ### 🔧 Configuration
 
 #### Step-by-Step Configuration Process
@@ -174,44 +167,6 @@ VIDEO_SERVER_LOG_LEVEL=INFO
 VIDEO_SERVER_LOG_DIR=./logs
 ```
 
-## 🏗️ Architecture
-
-### Core Components
-
-- **`streaming_server.py`** - Main application with Flask server
-- **`config.py`** - Configuration management with environment variables  
-- **`logging_config.py`** - Advanced logging with security and performance tracking
-- **`generate_password.py`** - Security credential generator (Flask secret key + password hash)
-
-## 🧪 Testing
-
-Run the comprehensive test suite:
-
-```bash
-# Install development dependencies (includes testing tools)
-pip install -r requirements-dev.txt
-
-# Run all tests with coverage
-pytest
-
-# Run specific test categories  
-pytest -m unit          # Unit tests only
-pytest -m integration   # Integration tests  
-pytest -m security      # Security tests
-pytest -m performance   # Performance tests
-
-# Generate coverage report
-pytest --cov=. --cov-report=html
-```
-
-### Test Coverage
-
-- **Unit Tests**: Configuration, logging, authentication
-- **Integration Tests**: Full application workflows
-- **Security Tests**: Authentication, authorization, input validation  
-- **Performance Tests**: Concurrent access, memory usage
-- **API Tests**: All endpoints with various scenarios
-
 ## 🔒 Security
 
 ### Authentication & Authorization
@@ -249,77 +204,6 @@ All security events are logged:
 - **HTTP Caching**: Browser caching for static content
 - **Connection Pooling**: Supports multiple users simultaneously
 - **Memory Management**: Automatic resource cleanup
-
-### Server Monitoring
-
-```bash
-# Check if server is running
-curl http://localhost:5000/health
-
-# View performance logs
-tail -f logs/performance.log
-
-# Monitor system resources  
-htop  # Linux/macOS
-perfmon  # Windows
-```
-
-## 🐳 Server Deployment
-
-### Docker Setup
-
-```dockerfile
-FROM python:3.13-slim
-
-WORKDIR /app
-COPY . .
-RUN pip install -r requirements.txt
-
-EXPOSE 5000
-CMD ["python", "streaming_server.py"]
-```
-
-### Running as a System Service
-
-**Linux (systemd)**:
-```ini
-[Unit]
-Description=MediaRelay
-After=network.target
-
-[Service]  
-Type=simple
-User=mediarelay
-WorkingDirectory=/opt/MediaRelay
-EnvironmentFile=/opt/MediaRelay/.env
-ExecStart=/opt/MediaRelay/venv/bin/python streaming_server.py
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-```
-
-**Windows Service**: Use NSSM (Non-Sucking Service Manager)
-
-### Adding HTTPS with Nginx
-
-**Example Nginx Setup**:
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name your-domain.com;
-    
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-    
-    location / {
-        proxy_pass http://127.0.0.1:5000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
 
 ## 📊 API Usage
 
@@ -360,14 +244,6 @@ video_url = 'http://localhost:5000/stream/movie.mp4'
 response = requests.get(video_url, auth=auth, stream=True)
 ```
 
-### Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new features  
-4. Ensure all tests pass
-5. Submit a pull request
-
 ## 🔧 Troubleshooting
 
 ### Common Issues
@@ -399,11 +275,3 @@ python streaming_server.py
 ## 📄 License
 
 This project is licensed under the CRL License - see the [LICENSE.md](LICENSE.md) file for details.
-
-## 🤝 Acknowledgments
-
-Built with modern Python practices and robust security features. Designed for reliable deployment with comprehensive monitoring, testing, and documentation.
-
----
-
-**Ready to Use** ✅ | **Security Hardened** 🔒 | **100% Tested** 🧪 | **Fully Documented** 📚
