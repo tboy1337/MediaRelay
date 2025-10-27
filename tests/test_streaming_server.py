@@ -15,6 +15,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
+from click.testing import CliRunner
 from flask import session
 
 from config import ServerConfig
@@ -715,31 +716,29 @@ class TestMainFunctionComprehensive:
         mock_server = Mock()
         mock_server_class.return_value = mock_server
 
-        # Test with no arguments
-        with patch("streaming_server.click.Context") as mock_ctx:
-            mock_ctx.return_value.params = {}
-            result = main(None, None, None, False, False)
+        # Test with no arguments using CliRunner
+        runner = CliRunner()
+        result = runner.invoke(main, [])
 
-            mock_server_class.assert_called_once_with(mock_config)
-            mock_server.run.assert_called_once()
+        assert result.exit_code == 0
+        mock_server_class.assert_called_once_with(mock_config)
+        mock_server.run.assert_called_once()
 
     @patch("streaming_server.load_config")
-    @patch("builtins.print")
-    def test_main_function_value_error(self, mock_print, mock_load_config):
+    def test_main_function_value_error(self, mock_load_config):
         """Test main function with ValueError"""
         mock_load_config.side_effect = ValueError("Configuration error")
 
-        with pytest.raises(SystemExit) as excinfo:
-            main(None, None, None, False, False)
+        runner = CliRunner()
+        result = runner.invoke(main, [])
 
-        assert excinfo.value.code == 1
-        mock_print.assert_any_call("Configuration Error: Configuration error")
+        assert result.exit_code == 1
+        assert "Configuration Error: Configuration error" in result.output
 
     @patch("streaming_server.load_config")
     @patch("streaming_server.MediaRelayServer")
-    @patch("builtins.print")
     def test_main_function_keyboard_interrupt(
-        self, mock_print, mock_server_class, mock_load_config
+        self, mock_server_class, mock_load_config
     ):
         """Test main function with KeyboardInterrupt"""
         mock_config = Mock()
@@ -749,15 +748,15 @@ class TestMainFunctionComprehensive:
         mock_server_class.return_value = mock_server
 
         # Should not raise SystemExit
-        main(None, None, None, False, False)
-        mock_print.assert_any_call("\nShutdown complete")
+        runner = CliRunner()
+        result = runner.invoke(main, [])
+
+        assert result.exit_code == 0
+        assert "Shutdown complete" in result.output
 
     @patch("streaming_server.load_config")
     @patch("streaming_server.MediaRelayServer")
-    @patch("builtins.print")
-    def test_main_function_generic_exception(
-        self, mock_print, mock_server_class, mock_load_config
-    ):
+    def test_main_function_generic_exception(self, mock_server_class, mock_load_config):
         """Test main function with generic exception"""
         mock_config = Mock()
         mock_load_config.return_value = mock_config
@@ -765,11 +764,11 @@ class TestMainFunctionComprehensive:
         mock_server.run.side_effect = RuntimeError("Server error")
         mock_server_class.return_value = mock_server
 
-        with pytest.raises(SystemExit) as excinfo:
-            main(None, None, None, False, False)
+        runner = CliRunner()
+        result = runner.invoke(main, [])
 
-        assert excinfo.value.code == 1
-        mock_print.assert_any_call("Server Error: Server error")
+        assert result.exit_code == 1
+        assert "Server Error: Server error" in result.output
 
 
 class TestServerRunMethod:

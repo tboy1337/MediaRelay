@@ -258,21 +258,3 @@ class TestNetworkErrorHandling:
 
 class TestFileSystemErrorHandling:
     """Test cases for file system error handling"""
-
-    @pytest.mark.skip(
-        reason="Windows file behavior differs from Unix - file deletion scenarios are tested elsewhere"
-    )
-    def test_file_deleted_during_access(self, authenticated_client, temp_video_dir):
-        """Test handling when file is deleted between directory listing and access"""
-        # This test behaves differently on Windows vs Unix systems
-        # File deletion and access error handling is tested in other test methods
-        pass
-
-    @pytest.mark.skip(
-        reason="Windows permission handling differs from Unix - permission errors are tested elsewhere"
-    )
-    def test_file_permissions_changed(self, authenticated_client, temp_video_dir):
-        """Test handling when file permissions are changed during access"""
-        # This test behaves differently on Windows vs Unix systems
-        # Permission error handling is tested in other test methods
-        pass

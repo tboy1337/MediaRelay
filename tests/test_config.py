@@ -23,14 +23,22 @@ from config import (
 class TestDefaultVideoDirectoryFunction:
     """Test _get_default_video_directory function comprehensively"""
 
-    @pytest.mark.skip(
-        reason="Path separators differ between Windows and Unix - functionality tested elsewhere"
-    )
     def test_get_default_video_directory_normal(self):
         """Test _get_default_video_directory under normal conditions"""
-        # This test expects Unix-style paths but runs on Windows
-        # The functionality is tested in other test methods
-        pass
+        import sys
+
+        result = _get_default_video_directory()
+
+        # Verify result is a string path
+        assert isinstance(result, str)
+
+        # Platform-specific path verification
+        if sys.platform == "win32":
+            # Windows: check for Videos folder in user profile
+            assert "Videos" in result or "videos" in result.lower()
+        else:
+            # Unix-like: check for Videos folder in home directory
+            assert "Videos" in result or result == "./videos"
 
     def test_get_default_video_directory_runtime_error(self):
         """Test _get_default_video_directory with RuntimeError"""
@@ -175,19 +183,15 @@ class TestServerConfigValidationComprehensive:
         # Verify log directory was created
         assert (tmp_path / "logs").exists()
 
-    @pytest.mark.skip(
-        reason="Path validation behavior differs between Windows and Unix - functionality tested elsewhere"
-    )
     def test_validate_config_video_directory_file_not_directory(self, tmp_path):
         """Test validation when video_directory points to a file"""
         # Create a file instead of directory
         fake_dir = tmp_path / "fake_directory"
         fake_dir.write_text("not a directory")
 
-        config = ServerConfig(video_directory=str(fake_dir), password_hash="test_hash")
-
-        with pytest.raises(ValueError, match="does not exist"):
-            config.validate_config()
+        # Should raise validation error during initialization - file is not a directory
+        with pytest.raises(ValueError, match="is not a directory"):
+            ServerConfig(video_directory=str(fake_dir), password_hash="test_hash")
 
     def test_validate_config_port_range_validation(self, tmp_path):
         """Test port range validation edge cases"""
@@ -742,43 +746,6 @@ class TestConfigLoading:
             assert "VIDEO_SERVER_PASSWORD_HASH" in content
             assert "tboy1337" in content
 
-    @pytest.mark.skip(
-        reason="Complex dotenv mocking - functionality covered in other tests"
-    )
-    def test_dotenv_loading(self, tmp_path):
-        """Test .env file loading"""
-        # Create a test .env file
-        env_file = tmp_path / ".env"
-        env_file.write_text("VIDEO_SERVER_HOST=dotenv_host\n")
-
-        with patch("dotenv.load_dotenv") as mock_load_dotenv:
-            with patch("config.Path") as mock_path_class:
-                mock_path_instance = mock_path_class.return_value
-                mock_path_instance.exists.return_value = True
-                mock_path_instance.__eq__ = lambda self, other: str(self) == str(other)
-                mock_path_instance.__str__ = lambda self: str(env_file)
-                mock_path_class.return_value = env_file
-
-                load_config()
-                mock_load_dotenv.assert_called_once_with(env_file)
-
-    @pytest.mark.skip(
-        reason="Complex dotenv failure handling - functionality covered elsewhere"
-    )
-    def test_missing_dotenv_graceful_failure(self):
-        """Test graceful handling when dotenv is not available"""
-        with patch("config.load_dotenv", side_effect=ImportError):
-            # Should not raise exception
-            with patch.dict(
-                os.environ,
-                {
-                    "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
-                    "VIDEO_SERVER_DIRECTORY": str(Path.home()),
-                },
-            ):
-                config = load_config()
-                assert isinstance(config, ServerConfig)
-
 
 class TestConfigLoadingComprehensive:
     """Test config loading functions comprehensively"""
@@ -796,33 +763,6 @@ class TestConfigLoadingComprehensive:
             config = load_config()
             assert isinstance(config, ServerConfig)
             assert config.host == "testhost"
-
-    @pytest.mark.skip(
-        reason="Path mocking issues with MagicMock on Windows - dotenv functionality tested elsewhere"
-    )
-    def test_load_config_with_dotenv_available(self, tmp_path):
-        """Test load_config with python-dotenv available"""
-        # Create a .env file
-        env_file = tmp_path / ".env"
-        env_file.write_text("VIDEO_SERVER_HOST=dotenv_host\n")
-
-        with patch("config.Path") as mock_path_class:
-            # Mock Path(".env") to return our test file
-            mock_path_class.return_value = env_file
-
-            # Skip patching load_dotenv since it's not directly imported in config module
-            # dotenv functionality is tested through environment variable tests
-            config = load_config()
-            assert config is not None
-
-    @pytest.mark.skip(
-        reason="load_dotenv is not directly imported in config module - dotenv functionality tested elsewhere"
-    )
-    def test_load_config_with_dotenv_import_error(self):
-        """Test load_config when python-dotenv is not available"""
-        # This test tries to patch a non-existent attribute
-        # dotenv functionality is tested through environment variable tests
-        pass
 
     def test_create_sample_env_file_content(self, tmp_path):
         """Test create_sample_env_file creates correct content"""
@@ -966,15 +906,6 @@ class TestConfigComprehensiveEdgeCases:
         with patch("pathlib.Path.home", side_effect=RuntimeError("No home")):
             default_dir = _get_default_video_directory()
             assert default_dir == "./videos"
-
-    @pytest.mark.skip(
-        reason="load_dotenv is not directly imported in config module - dotenv functionality tested elsewhere"
-    )
-    def test_config_dotenv_import_error_coverage(self):
-        """Test dotenv import error path coverage"""
-        # This test tries to patch a non-existent attribute
-        # dotenv functionality is tested through environment variable tests
-        pass
 
 
 class TestConfigMainExecution:

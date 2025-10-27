@@ -244,34 +244,43 @@ class TestMainFunctionComprehensiveEdgeCases:
 
     def test_main_comprehensive_value_error_handling(self):
         """Test main function with ValueError coverage"""
+        from click.testing import CliRunner
+
         with patch(
             "streaming_server.load_config", side_effect=ValueError("Config error")
         ):
-            with patch("builtins.print") as mock_print:
-                with patch("sys.exit") as mock_exit:
-                    main()
-                    assert mock_exit.called  # Just verify exit was called at least once
-                    mock_print.assert_called()
+            runner = CliRunner()
+            result = runner.invoke(main, [])
+            assert result.exit_code == 1
+            assert "Configuration Error:" in result.output
 
     def test_main_comprehensive_keyboard_interrupt_handling(self):
         """Test main function with KeyboardInterrupt coverage"""
-        with patch("streaming_server.MediaRelayServer") as mock_server:
-            mock_server.return_value.run.side_effect = KeyboardInterrupt
-            with patch("builtins.print") as mock_print:
-                with patch("sys.exit"):  # Prevent actual exit
-                    main()
-                    mock_print.assert_called_with("\nShutdown complete")
+        from click.testing import CliRunner
+
+        with patch("streaming_server.load_config") as mock_load_config:
+            mock_config = MagicMock()
+            mock_load_config.return_value = mock_config
+            with patch("streaming_server.MediaRelayServer") as mock_server:
+                mock_server.return_value.run.side_effect = KeyboardInterrupt
+                runner = CliRunner()
+                result = runner.invoke(main, [])
+                assert result.exit_code == 0
+                assert "Shutdown complete" in result.output
 
     def test_main_comprehensive_general_exception_handling(self):
         """Test main function with general exception coverage"""
+        from click.testing import CliRunner
 
-        with patch("streaming_server.MediaRelayServer") as mock_server:
-            mock_server.return_value.run.side_effect = RuntimeError("Server error")
-            with patch("builtins.print") as mock_print:
-                with patch("sys.exit") as mock_exit:
-                    main()
-                    assert mock_exit.called  # Just verify exit was called at least once
-                    mock_print.assert_called()
+        with patch("streaming_server.load_config") as mock_load_config:
+            mock_config = MagicMock()
+            mock_load_config.return_value = mock_config
+            with patch("streaming_server.MediaRelayServer") as mock_server:
+                mock_server.return_value.run.side_effect = RuntimeError("Server error")
+                runner = CliRunner()
+                result = runner.invoke(main, [])
+                assert result.exit_code == 1
+                assert "Server Error:" in result.output
 
     def test_main_comprehensive_generate_config_path(self):
         """Test main function with generate_config option coverage"""

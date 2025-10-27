@@ -584,31 +584,6 @@ class TestUtilityFunctionsComprehensive:
         assert isinstance(logger2, logging.Logger)
         assert logger1 != logger2
 
-    @pytest.mark.skip(
-        reason="psutil is not directly imported in logging_config - system info functionality tested elsewhere"
-    )
-    def test_log_system_info_with_psutil(self, test_config, tmp_path):
-        """Test log_system_info with psutil available"""
-        # This test tries to patch a non-existent attribute
-        # system info functionality is tested in other test methods
-        pass
-
-    @pytest.mark.skip(
-        reason="psutil is not directly imported as a module attribute - system info logging tested elsewhere"
-    )
-    def test_log_system_info_without_psutil(self, test_config, tmp_path):
-        """Test log_system_info without psutil (import error)"""
-        test_config.log_directory = str(tmp_path)
-        setup_logging(test_config)
-
-        with patch(
-            "logging_config.psutil", side_effect=ImportError("psutil not available")
-        ):
-            # Should not raise exception, should use fallback values
-            log_system_info(test_config)
-
-            # Function should complete successfully with "unknown" values
-
     def test_log_system_info_platform_integration(self, test_config, tmp_path):
         """Test log_system_info platform integration"""
         test_config.log_directory = str(tmp_path)
@@ -874,21 +849,3 @@ class TestLoggingErrorScenarios:
 
 class TestLoggingComprehensiveEdgeCases:
     """Comprehensive edge case tests for logging coverage"""
-
-    @pytest.mark.skip(
-        reason="Windows file locking issues with TemporaryDirectory cleanup - logging functionality is well tested elsewhere"
-    )
-    def test_logging_config_comprehensive_error_paths(self):
-        """Test logging configuration with comprehensive error path coverage"""
-        # This test causes file locking issues on Windows with temporary directory cleanup
-        # The logging functionality is already well-tested in other test methods
-        pass
-
-    @pytest.mark.skip(
-        reason="Windows file locking issues with TemporaryDirectory cleanup - performance logging functionality is well tested elsewhere"
-    )
-    def test_performance_logger_comprehensive_edge_cases(self):
-        """Test performance logger with comprehensive edge cases"""
-        # This test causes file locking issues on Windows with temporary directory cleanup
-        # The performance logging functionality is already well-tested in other test methods
-        pass
