@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 from urllib.parse import unquote
 
 import click
@@ -47,7 +47,6 @@ from logging_config import (
     log_system_info,
     setup_logging,
 )
-
 
 # Security constants
 MAX_URL_LENGTH: int = 2048
@@ -182,9 +181,9 @@ class MediaRelayServer:
     def __init__(self, config: ServerConfig):
         self.config = config
         self.app = self._create_app()
-        self.security_logger: Optional[SecurityEventLogger] = None
-        self.performance_logger: Optional[PerformanceLogger] = None
-        self.limiter: Optional[Limiter] = None
+        self.security_logger: SecurityEventLogger | None = None
+        self.performance_logger: PerformanceLogger | None = None
+        self.limiter: Limiter | None = None
         self.lockout_manager = AccountLockoutManager()
         self._setup_logging()
         self._setup_rate_limiting()
@@ -232,7 +231,7 @@ class MediaRelayServer:
         """Register all application routes"""
 
         @self.app.before_request
-        def before_request() -> Optional[tuple[str, int]]:
+        def before_request() -> tuple[str, int] | None:
             """Process requests before handling"""
             g.start_time = time.time()
             g.request_id = secrets.token_hex(8)
@@ -284,7 +283,7 @@ class MediaRelayServer:
 
         # Health check endpoint - provides minimal information to unauthenticated users
         @self.app.route("/health")
-        def health_check() -> Union[Response, tuple[Response, int]]:
+        def health_check() -> Response | tuple[Response, int]:
             """
             Health check endpoint for monitoring.
             Returns minimal info for unauthenticated requests (just status).
@@ -359,17 +358,17 @@ class MediaRelayServer:
         # Main application routes
         @self.app.route("/")
         @self.app.route("/<path:subpath>")
-        def index(subpath: str = "") -> Union[str, tuple[str, int], Response]:
+        def index(subpath: str = "") -> str | tuple[str, int] | Response:
             """Handle directory listing and video playback pages"""
             return self._handle_index_request(subpath)
 
         @self.app.route("/stream/<path:video_path>")
-        def stream(video_path: str) -> Union[Response, tuple[str, int]]:
+        def stream(video_path: str) -> Response | tuple[str, int]:
             """Stream video files with range support"""
             return self._handle_stream_request(video_path)
 
         @self.app.route("/api/files")
-        def api_files() -> Union[Response, tuple[Response, int]]:
+        def api_files() -> Response | tuple[Response, int]:
             """API endpoint for file listing"""
             return self._handle_api_files_request()
 
@@ -430,7 +429,7 @@ class MediaRelayServer:
             self.app.logger.error(f"Server error: {str(error)}", exc_info=True)  # type: ignore[misc]
             return "Internal Server Error", 500
 
-    def check_auth(self, username: Optional[str], password: Optional[str]) -> bool:
+    def check_auth(self, username: str | None, password: str | None) -> bool:
         """Verify username and password against stored credentials with lockout protection"""
         ip_address = request.remote_addr or "unknown"
         user_agent = request.headers.get("User-Agent", "")
@@ -476,7 +475,9 @@ class MediaRelayServer:
             self.lockout_manager.record_successful_login(ip_address, username)
         else:
             # Record failed attempt and check if now locked out
-            now_locked = self.lockout_manager.record_failed_attempt(ip_address, username)
+            now_locked = self.lockout_manager.record_failed_attempt(
+                ip_address, username
+            )
             if now_locked and self.security_logger:
                 self.security_logger.log_security_violation(
                     "account_locked",
@@ -547,7 +548,7 @@ class MediaRelayServer:
 
         return decorated  # type: ignore[misc]
 
-    def get_safe_path(self, requested_path: str) -> Optional[Path]:
+    def get_safe_path(self, requested_path: str) -> Path | None:
         """Ensure the requested path is within the video directory"""
         if not requested_path:
             return Path(self.config.video_directory)
@@ -635,9 +636,7 @@ class MediaRelayServer:
 
         return crumbs
 
-    def _handle_index_request(
-        self, subpath: str
-    ) -> Union[str, tuple[str, int], Response]:
+    def _handle_index_request(self, subpath: str) -> str | tuple[str, int] | Response:
         """Handle index page requests with authentication"""
         if not self._check_authentication():
             return Response(
@@ -720,9 +719,7 @@ class MediaRelayServer:
             breadcrumbs=self.get_breadcrumbs(safe_path),
         )
 
-    def _handle_stream_request(
-        self, video_path: str
-    ) -> Union[Response, tuple[str, int]]:
+    def _handle_stream_request(self, video_path: str) -> Response | tuple[str, int]:
         """Handle video streaming requests with range support"""
         if not self._check_authentication():
             return Response(
@@ -777,7 +774,7 @@ class MediaRelayServer:
             self.app.logger.error(f"Error streaming file {video_path}: {str(e)}")
             return "Error streaming file", 500
 
-    def _handle_api_files_request(self) -> Union[Response, tuple[Response, int]]:
+    def _handle_api_files_request(self) -> Response | tuple[Response, int]:
         """Handle API files listing request"""
         if not self._check_authentication():
             return jsonify({"error": "Authentication required"}), 401  # type: ignore[misc]
@@ -1162,9 +1159,9 @@ class MediaRelayServer:
     "--generate-config", is_flag=True, help="Generate sample configuration file"
 )
 def main(
-    config_file: Optional[str],  # pylint: disable=unused-argument
-    host: Optional[str],
-    port: Optional[int],
+    config_file: str | None,  # pylint: disable=unused-argument
+    host: str | None,
+    port: int | None,
     debug: bool,
     generate_config: bool,
 ) -> None:

@@ -14,12 +14,12 @@ import pytest
 from flask import session
 
 from streaming_server import (
-    AccountLockoutManager,
-    LoginAttemptTracker,
+    LOCKOUT_DURATION_SECONDS,
     MAX_FAILED_ATTEMPTS,
     MAX_PATH_LENGTH,
     MAX_URL_LENGTH,
-    LOCKOUT_DURATION_SECONDS,
+    AccountLockoutManager,
+    LoginAttemptTracker,
     MediaRelayServer,
 )
 
@@ -178,7 +178,9 @@ class TestAuthenticationSecurity:
         # Mock the security logger to capture attempts
         original_log_auth = test_server.security_logger.log_auth_attempt
 
-        def mock_log_auth(username: str, success: bool, ip: str, user_agent: str = "") -> None:
+        def mock_log_auth(
+            username: str, success: bool, ip: str, user_agent: str = ""
+        ) -> None:
             failed_attempts.append((username, success))
             original_log_auth(username, success, ip, user_agent)
 
@@ -310,14 +312,10 @@ class TestAuthenticationSecurity:
 
         with test_server.app.test_client() as client:
             # First request to trigger lockout
-            invalid_credentials = base64.b64encode(
-                b"baduser:badpass"
-            ).decode("utf-8")
+            invalid_credentials = base64.b64encode(b"baduser:badpass").decode("utf-8")
 
             # Trigger lockout
-            client.get(
-                "/", headers={"Authorization": f"Basic {invalid_credentials}"}
-            )
+            client.get("/", headers={"Authorization": f"Basic {invalid_credentials}"})
 
             # Next request should get lockout response
             response = client.get(
@@ -478,8 +476,7 @@ class TestURLLengthValidation:
         with test_server.app.test_client() as client:
             long_path = "a" * (MAX_URL_LENGTH + 100)
             client.get(
-                f"/{long_path}",
-                headers={"Authorization": f"Basic {credentials}"}
+                f"/{long_path}", headers={"Authorization": f"Basic {credentials}"}
             )
 
             # Security violation should be logged

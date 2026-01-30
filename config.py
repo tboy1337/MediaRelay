@@ -9,7 +9,7 @@ import os
 import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 def _get_default_video_directory() -> str:
@@ -28,7 +28,9 @@ class ServerConfig:
     # Server Settings
     # nosec B104: Binding to 0.0.0.0 is intentional for a server that needs to be
     # accessible from other machines. Users should configure firewall rules appropriately.
-    host: str = field(default_factory=lambda: os.getenv("VIDEO_SERVER_HOST", "0.0.0.0"))  # nosec B104
+    host: str = field(
+        default_factory=lambda: os.getenv("VIDEO_SERVER_HOST", "0.0.0.0")
+    )  # nosec B104
     port: int = field(
         default_factory=lambda: int(os.getenv("VIDEO_SERVER_PORT", "5000"))
     )
@@ -183,7 +185,7 @@ class ServerConfig:
         log_path = Path(self.log_directory)
         log_path.mkdir(parents=True, exist_ok=True)
 
-    def get_database_url(self) -> Optional[str]:
+    def get_database_url(self) -> str | None:
         """Get database URL if configured (for future use)"""
         return os.getenv("DATABASE_URL")
 

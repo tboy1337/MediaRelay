@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "MediaRelay"
-version = "1.0.2"
+version = "1.0.3"
 description = "A video streaming server that allows you to securely share your personal video library over the internet"
 readme = "README.md"
 requires-python = ">=3.10"
