@@ -9,14 +9,14 @@ This guide covers production deployment of the Video Streaming Server with compr
 ### System Requirements
 
 - **Operating System**: Windows 10+, macOS 10.15+, or Linux (Ubuntu 20.04+ recommended)
-- **Python**: 3.9 or higher
+- **Python**: 3.10 or higher
 - **Memory**: Minimum 2GB RAM, 4GB+ recommended for production
 - **Storage**: 1GB for application, additional space for video content
 - **Network**: Stable internet connection for remote access
 
 ### Required Software
 
-- Python 3.9+ with pip
+- Python 3.10+ with pip
 - Git (for version control)
 - A text editor or IDE
 - Web browser for testing

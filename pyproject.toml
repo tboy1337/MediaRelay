@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "MediaRelay"
-version = "1.0.1"
+version = "1.0.2"
 description = "A video streaming server that allows you to securely share your personal video library over the internet"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = {file = "LICENSE.md"}
 authors = [
     {name = "tboy1337"}
@@ -28,7 +28,6 @@ classifiers = [
     "Topic :: Multimedia :: Video",
     "Topic :: Internet :: WWW/HTTP :: WSGI :: Application",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -91,7 +90,7 @@ Issues = "https://github.com/tboy1337/MediaRelay/issues"
 # Black configuration
 [tool.black]
 line-length = 88
-target-version = ['py39', 'py310', 'py311', 'py312', 'py313', 'py314']
+target-version = ['py310', 'py311', 'py312', 'py313', 'py314']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
