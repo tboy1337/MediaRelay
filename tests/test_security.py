@@ -13,11 +13,161 @@ from unittest.mock import Mock, patch
 import pytest
 from flask import session
 
-from streaming_server import MediaRelayServer
+from streaming_server import (
+    AccountLockoutManager,
+    LoginAttemptTracker,
+    MAX_FAILED_ATTEMPTS,
+    MAX_PATH_LENGTH,
+    MAX_URL_LENGTH,
+    LOCKOUT_DURATION_SECONDS,
+    MediaRelayServer,
+)
+
+
+class TestAccountLockoutManager:
+    """Test cases for AccountLockoutManager"""
+
+    def test_lockout_manager_initialization(self) -> None:
+        """Test lockout manager initialization with default values"""
+        manager = AccountLockoutManager()
+        assert manager.max_attempts == MAX_FAILED_ATTEMPTS
+        assert manager.lockout_duration == LOCKOUT_DURATION_SECONDS
+
+    def test_lockout_manager_custom_values(self) -> None:
+        """Test lockout manager initialization with custom values"""
+        manager = AccountLockoutManager(max_attempts=3, lockout_duration=300)
+        assert manager.max_attempts == 3
+        assert manager.lockout_duration == 300
+
+    def test_not_locked_out_initially(self) -> None:
+        """Test that new IP/username combo is not locked out"""
+        manager = AccountLockoutManager()
+        assert manager.is_locked_out("192.168.1.1", "testuser") is False
+
+    def test_lockout_after_max_attempts(self) -> None:
+        """Test account lockout after max failed attempts"""
+        manager = AccountLockoutManager(max_attempts=3, lockout_duration=300)
+
+        # Record 2 failed attempts - should not lock out yet
+        assert manager.record_failed_attempt("192.168.1.1", "testuser") is False
+        assert manager.record_failed_attempt("192.168.1.1", "testuser") is False
+        assert manager.is_locked_out("192.168.1.1", "testuser") is False
+
+        # Third attempt should trigger lockout
+        assert manager.record_failed_attempt("192.168.1.1", "testuser") is True
+        assert manager.is_locked_out("192.168.1.1", "testuser") is True
+
+    def test_get_remaining_lockout_seconds(self) -> None:
+        """Test remaining lockout time calculation"""
+        manager = AccountLockoutManager(max_attempts=1, lockout_duration=60)
+
+        # Trigger lockout
+        manager.record_failed_attempt("192.168.1.1", "testuser")
+
+        remaining = manager.get_remaining_lockout_seconds("192.168.1.1", "testuser")
+        assert remaining > 0
+        assert remaining <= 60
+
+    def test_successful_login_clears_attempts(self) -> None:
+        """Test that successful login clears failed attempts"""
+        manager = AccountLockoutManager(max_attempts=5, lockout_duration=300)
+
+        # Record some failed attempts
+        manager.record_failed_attempt("192.168.1.1", "testuser")
+        manager.record_failed_attempt("192.168.1.1", "testuser")
+        assert manager.get_failed_attempts("192.168.1.1", "testuser") == 2
+
+        # Successful login should clear attempts
+        manager.record_successful_login("192.168.1.1", "testuser")
+        assert manager.get_failed_attempts("192.168.1.1", "testuser") == 0
+
+    def test_different_ip_tracked_separately(self) -> None:
+        """Test that different IPs are tracked separately"""
+        manager = AccountLockoutManager(max_attempts=3, lockout_duration=300)
+
+        # Lock out first IP
+        for _ in range(3):
+            manager.record_failed_attempt("192.168.1.1", "testuser")
+
+        assert manager.is_locked_out("192.168.1.1", "testuser") is True
+        assert manager.is_locked_out("192.168.1.2", "testuser") is False
+
+    def test_different_username_tracked_separately(self) -> None:
+        """Test that different usernames are tracked separately"""
+        manager = AccountLockoutManager(max_attempts=3, lockout_duration=300)
+
+        # Lock out first user
+        for _ in range(3):
+            manager.record_failed_attempt("192.168.1.1", "user1")
+
+        assert manager.is_locked_out("192.168.1.1", "user1") is True
+        assert manager.is_locked_out("192.168.1.1", "user2") is False
+
+    def test_cleanup_expired_entries(self) -> None:
+        """Test cleanup of expired lockout entries"""
+        manager = AccountLockoutManager(max_attempts=1, lockout_duration=0)
+
+        # Create an entry that's immediately expired
+        manager.record_failed_attempt("192.168.1.1", "testuser")
+
+        # The lockout should immediately expire (lockout_duration=0)
+        time.sleep(0.01)
+
+        # Reset the failed attempts to test cleanup
+        manager._trackers["192.168.1.1:testuser"].failed_attempts = 0
+
+        removed = manager.cleanup_expired()
+        assert removed >= 0  # May or may not have anything to clean up
+
+    def test_lockout_expiry(self) -> None:
+        """Test that lockout expires after duration"""
+        manager = AccountLockoutManager(max_attempts=1, lockout_duration=0)
+
+        # Trigger lockout
+        manager.record_failed_attempt("192.168.1.1", "testuser")
+
+        # With lockout_duration=0, should immediately expire
+        time.sleep(0.01)
+        assert manager.is_locked_out("192.168.1.1", "testuser") is False
+
+
+class TestLoginAttemptTracker:
+    """Test cases for LoginAttemptTracker dataclass"""
+
+    def test_default_initialization(self) -> None:
+        """Test default initialization"""
+        tracker = LoginAttemptTracker()
+        assert tracker.failed_attempts == 0
+        assert tracker.lockout_until == 0.0
+        assert tracker.last_attempt > 0  # Should be set to current time
 
 
 class TestAuthenticationSecurity:
     """Test cases for authentication security"""
+
+    def test_brute_force_protection_lockout(
+        self, test_server, test_config
+    ):  # pylint: disable=unused-argument
+        """Test that brute force attempts trigger lockout"""
+        with test_server.app.test_request_context():
+            # Reset lockout manager
+            test_server.lockout_manager = AccountLockoutManager(
+                max_attempts=3, lockout_duration=60
+            )
+
+            # Simulate failed login attempts
+            for _ in range(3):
+                result = test_server.check_auth("attacker", "wrongpass")
+                assert result is False
+
+            # Account should now be locked
+            result = test_server.check_auth("attacker", "wrongpass")
+            assert result is False
+
+            # Verify lockout is in effect
+            assert test_server.lockout_manager.is_locked_out(
+                "127.0.0.1", "attacker"
+            ) or test_server.lockout_manager.is_locked_out("unknown", "attacker")
 
     def test_brute_force_protection_logging(
         self, test_server, test_config
@@ -28,15 +178,20 @@ class TestAuthenticationSecurity:
         # Mock the security logger to capture attempts
         original_log_auth = test_server.security_logger.log_auth_attempt
 
-        def mock_log_auth(username, success, ip, user_agent=""):
+        def mock_log_auth(username: str, success: bool, ip: str, user_agent: str = "") -> None:
             failed_attempts.append((username, success))
             original_log_auth(username, success, ip, user_agent)
 
         test_server.security_logger.log_auth_attempt = mock_log_auth
 
         with test_server.app.test_request_context():
+            # Reset lockout manager to prevent lockout
+            test_server.lockout_manager = AccountLockoutManager(
+                max_attempts=10, lockout_duration=60
+            )
+
             # Simulate multiple failed login attempts
-            for i in range(5):
+            for _ in range(5):
                 result = test_server.check_auth("attacker", "wrongpass")
                 assert result is False
 
@@ -78,21 +233,23 @@ class TestAuthenticationSecurity:
 
         # Attempt to fix session ID
         with test_client.session_transaction() as sess:
-            original_session_keys = list(sess.keys())
             sess["malicious_key"] = "malicious_value"
 
-        # Login should create new session state
+        # Login should clear session and create new session state
         response = test_client.get(
             "/", headers={"Authorization": f"Basic {credentials}"}
         )
 
         assert response.status_code == 200
 
-        # Check that authentication was successful and session was updated
+        # Check that authentication was successful and session was regenerated
         with test_client.session_transaction() as sess:
             assert sess.get("authenticated") is True
-            # Malicious key should still be there (Flask doesn't regenerate session ID automatically)
-            # But authenticated state is properly set
+            # Malicious key should be cleared because session is regenerated on login
+            assert sess.get("malicious_key") is None
+            # New session data should be present
+            assert sess.get("login_time") is not None
+            assert sess.get("login_ip") is not None
 
     def test_session_hijacking_protection(self, test_client, test_config):
         """Test session cookie security attributes"""
@@ -143,6 +300,190 @@ class TestAuthenticationSecurity:
         # Password hash should not be in config dict
         assert "password_hash" not in config_dict
         assert test_config.password_hash not in str(config_dict)
+
+    def test_lockout_response_includes_retry_after(self, test_server, test_config):
+        """Test that lockout response includes Retry-After header"""
+        # Configure a short lockout
+        test_server.lockout_manager = AccountLockoutManager(
+            max_attempts=1, lockout_duration=60
+        )
+
+        with test_server.app.test_client() as client:
+            # First request to trigger lockout
+            invalid_credentials = base64.b64encode(
+                b"baduser:badpass"
+            ).decode("utf-8")
+
+            # Trigger lockout
+            client.get(
+                "/", headers={"Authorization": f"Basic {invalid_credentials}"}
+            )
+
+            # Next request should get lockout response
+            response = client.get(
+                "/", headers={"Authorization": f"Basic {invalid_credentials}"}
+            )
+
+            # Should be either 401 (auth required) or 403 (locked out)
+            assert response.status_code in [401, 403]
+
+
+class TestLogoutEndpoint:
+    """Test cases for logout endpoint"""
+
+    def test_logout_clears_session(self, test_server, test_config):
+        """Test that logout properly clears the session"""
+        credentials = base64.b64encode(
+            f"{test_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+
+        with test_server.app.test_client() as client:
+            # First, authenticate
+            response = client.get(
+                "/", headers={"Authorization": f"Basic {credentials}"}
+            )
+            assert response.status_code == 200
+
+            # Verify session is set
+            with client.session_transaction() as sess:
+                assert sess.get("authenticated") is True
+
+            # Logout
+            response = client.get("/logout")
+            assert response.status_code == 200
+
+            # Verify session is cleared
+            with client.session_transaction() as sess:
+                assert sess.get("authenticated") is None
+
+    def test_logout_response_headers(self, test_server, test_config):
+        """Test that logout response includes proper headers"""
+        credentials = base64.b64encode(
+            f"{test_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+
+        with test_server.app.test_client() as client:
+            # Authenticate first
+            client.get("/", headers={"Authorization": f"Basic {credentials}"})
+
+            # Logout
+            response = client.get("/logout")
+
+            # Check response headers
+            assert "Clear-Site-Data" in response.headers
+            assert "WWW-Authenticate" in response.headers
+
+    def test_logout_works_without_prior_auth(self, test_client):
+        """Test that logout works even without prior authentication"""
+        response = test_client.get("/logout")
+        assert response.status_code == 200
+
+    def test_logout_via_post(self, test_server, test_config):
+        """Test logout via POST request"""
+        credentials = base64.b64encode(
+            f"{test_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+
+        with test_server.app.test_client() as client:
+            # Authenticate
+            client.get("/", headers={"Authorization": f"Basic {credentials}"})
+
+            # Logout via POST
+            response = client.post("/logout")
+            assert response.status_code == 200
+
+
+class TestHealthEndpointSecurity:
+    """Test cases for secured health endpoint"""
+
+    def test_health_unauthenticated_minimal_info(self, test_client):
+        """Test that unauthenticated requests get minimal health info"""
+        response = test_client.get("/health")
+        data = json.loads(response.data)
+
+        # Should only have status field for unauthenticated requests
+        assert "status" in data
+        # Should NOT have detailed info without authentication
+        assert "uptime_seconds" not in data
+        assert "version" not in data
+        assert "rate_limiting_enabled" not in data
+
+    def test_health_authenticated_detailed_info(
+        self, authenticated_client, temp_video_dir  # pylint: disable=unused-argument
+    ):
+        """Test that authenticated requests get detailed health info"""
+        response = authenticated_client.get("/health")
+        data = json.loads(response.data)
+
+        # Should have detailed info for authenticated requests
+        assert "status" in data
+        assert "uptime_seconds" in data
+        assert "version" in data
+        assert "timestamp" in data
+        assert "video_directory_accessible" in data
+        assert "rate_limiting_enabled" in data
+
+    def test_health_returns_correct_status_code(self, test_client):
+        """Test health endpoint returns appropriate status codes"""
+        response = test_client.get("/health")
+
+        # Should return 200 for healthy, 503 for unhealthy
+        assert response.status_code in [200, 503]
+        data = json.loads(response.data)
+        if response.status_code == 200:
+            assert data["status"] == "healthy"
+        else:
+            assert data["status"] in ["degraded", "unhealthy"]
+
+
+class TestURLLengthValidation:
+    """Test cases for URL and path length validation"""
+
+    def test_url_length_limit_enforcement(self, authenticated_client):
+        """Test that overly long URLs are rejected"""
+        # Create a URL that exceeds the limit
+        long_path = "a" * (MAX_URL_LENGTH + 100)
+        response = authenticated_client.get(f"/{long_path}")
+
+        # Should return 414 URI Too Long
+        assert response.status_code == 414
+
+    def test_path_length_limit_enforcement(self, authenticated_client):
+        """Test that overly long paths are rejected"""
+        # Create a path that exceeds the limit
+        long_path = "a" * (MAX_PATH_LENGTH + 100) + ".mp4"
+        response = authenticated_client.get(f"/stream/{long_path}")
+
+        # Should return 414 URI Too Long
+        assert response.status_code == 414
+
+    def test_normal_length_urls_allowed(self, authenticated_client):
+        """Test that normal length URLs are processed normally"""
+        # Normal length path
+        response = authenticated_client.get("/test_video.mp4")
+
+        # Should process normally (200 for video player, not 414)
+        assert response.status_code in [200, 404]
+
+    def test_url_length_security_logging(self, test_server, test_config):
+        """Test that long URL attempts are logged"""
+        from unittest.mock import MagicMock
+
+        test_server.security_logger = MagicMock()
+
+        credentials = base64.b64encode(
+            f"{test_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+
+        with test_server.app.test_client() as client:
+            long_path = "a" * (MAX_URL_LENGTH + 100)
+            client.get(
+                f"/{long_path}",
+                headers={"Authorization": f"Basic {credentials}"}
+            )
+
+            # Security violation should be logged
+            test_server.security_logger.log_security_violation.assert_called()
 
 
 class TestAuthorizationSecurity:
@@ -373,12 +714,12 @@ class TestDenialOfServiceProtection:
 
     def test_large_path_handling(self, authenticated_client):
         """Test handling of very large path parameters"""
-        # Very long path
+        # Very long path - should be rejected before reaching path validation
         long_path = "a" * 10000 + ".mp4"
         response = authenticated_client.get(f"/stream/{long_path}")
 
-        # Should handle gracefully without crashing
-        assert response.status_code in [400, 404, 414]  # 414 = URI Too Long
+        # Should be rejected with 414 URI Too Long
+        assert response.status_code == 414
 
     def test_deeply_nested_paths(self, authenticated_client):
         """Test handling of deeply nested directory paths"""

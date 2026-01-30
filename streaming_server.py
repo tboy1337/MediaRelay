@@ -12,8 +12,10 @@ import json
 import os
 import secrets
 import sys
+import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
@@ -47,6 +49,133 @@ from logging_config import (
 )
 
 
+# Security constants
+MAX_URL_LENGTH: int = 2048
+MAX_PATH_LENGTH: int = 1024
+MAX_FAILED_ATTEMPTS: int = 5
+LOCKOUT_DURATION_SECONDS: int = 900  # 15 minutes
+
+
+@dataclass
+class LoginAttemptTracker:
+    """Track failed login attempts for account lockout"""
+
+    failed_attempts: int = 0
+    lockout_until: float = 0.0
+    last_attempt: float = field(default_factory=time.time)
+
+
+class AccountLockoutManager:
+    """Thread-safe manager for tracking failed login attempts and account lockouts"""
+
+    def __init__(
+        self,
+        max_attempts: int = MAX_FAILED_ATTEMPTS,
+        lockout_duration: int = LOCKOUT_DURATION_SECONDS,
+    ):
+        self.max_attempts = max_attempts
+        self.lockout_duration = lockout_duration
+        self._trackers: dict[str, LoginAttemptTracker] = {}
+        self._lock = threading.Lock()
+
+    def _get_key(self, ip_address: str, username: str) -> str:
+        """Generate a unique key for tracking (combines IP and username)"""
+        return f"{ip_address}:{username}"
+
+    def is_locked_out(self, ip_address: str, username: str) -> bool:
+        """Check if an IP/username combination is currently locked out"""
+        key = self._get_key(ip_address, username)
+        current_time = time.time()
+
+        with self._lock:
+            tracker = self._trackers.get(key)
+            if tracker is None:
+                return False
+
+            if tracker.lockout_until > current_time:
+                return True
+
+            # Lockout expired, reset if needed
+            if tracker.lockout_until > 0 and tracker.lockout_until <= current_time:
+                tracker.lockout_until = 0.0
+                tracker.failed_attempts = 0
+
+            return False
+
+    def get_remaining_lockout_seconds(self, ip_address: str, username: str) -> int:
+        """Get remaining lockout time in seconds"""
+        key = self._get_key(ip_address, username)
+        current_time = time.time()
+
+        with self._lock:
+            tracker = self._trackers.get(key)
+            if tracker is None or tracker.lockout_until <= current_time:
+                return 0
+            return int(tracker.lockout_until - current_time)
+
+    def record_failed_attempt(self, ip_address: str, username: str) -> bool:
+        """
+        Record a failed login attempt. Returns True if account is now locked out.
+        """
+        key = self._get_key(ip_address, username)
+        current_time = time.time()
+
+        with self._lock:
+            if key not in self._trackers:
+                self._trackers[key] = LoginAttemptTracker()
+
+            tracker = self._trackers[key]
+
+            # Reset if lockout has expired
+            if tracker.lockout_until > 0 and tracker.lockout_until <= current_time:
+                tracker.lockout_until = 0.0
+                tracker.failed_attempts = 0
+
+            tracker.failed_attempts += 1
+            tracker.last_attempt = current_time
+
+            if tracker.failed_attempts >= self.max_attempts:
+                tracker.lockout_until = current_time + self.lockout_duration
+                return True
+
+            return False
+
+    def record_successful_login(self, ip_address: str, username: str) -> None:
+        """Clear failed attempts on successful login"""
+        key = self._get_key(ip_address, username)
+
+        with self._lock:
+            if key in self._trackers:
+                del self._trackers[key]
+
+    def get_failed_attempts(self, ip_address: str, username: str) -> int:
+        """Get current failed attempt count"""
+        key = self._get_key(ip_address, username)
+
+        with self._lock:
+            tracker = self._trackers.get(key)
+            return tracker.failed_attempts if tracker else 0
+
+    def cleanup_expired(self) -> int:
+        """Remove expired lockout entries to prevent memory growth. Returns count removed."""
+        current_time = time.time()
+        removed = 0
+
+        with self._lock:
+            keys_to_remove = [
+                key
+                for key, tracker in self._trackers.items()
+                if tracker.lockout_until > 0
+                and tracker.lockout_until <= current_time
+                and tracker.failed_attempts == 0
+            ]
+            for key in keys_to_remove:
+                del self._trackers[key]
+                removed += 1
+
+        return removed
+
+
 class MediaRelayServer:
     """Main video streaming server class with comprehensive features"""
 
@@ -56,6 +185,7 @@ class MediaRelayServer:
         self.security_logger: Optional[SecurityEventLogger] = None
         self.performance_logger: Optional[PerformanceLogger] = None
         self.limiter: Optional[Limiter] = None
+        self.lockout_manager = AccountLockoutManager()
         self._setup_logging()
         self._setup_rate_limiting()
         self._register_routes()
@@ -102,16 +232,39 @@ class MediaRelayServer:
         """Register all application routes"""
 
         @self.app.before_request
-        def before_request() -> None:
+        def before_request() -> Optional[tuple[str, int]]:
             """Process requests before handling"""
             g.start_time = time.time()
             g.request_id = secrets.token_hex(8)
+
+            # Validate URL length to prevent buffer overflow attacks
+            full_url = request.url
+            if len(full_url) > MAX_URL_LENGTH:
+                if self.security_logger:
+                    self.security_logger.log_security_violation(
+                        "url_too_long",
+                        f"URL length {len(full_url)} exceeds maximum {MAX_URL_LENGTH}",
+                        request.remote_addr or "unknown",
+                    )
+                return "Request URI Too Long", 414
+
+            # Validate path length
+            if len(request.path) > MAX_PATH_LENGTH:
+                if self.security_logger:
+                    self.security_logger.log_security_violation(
+                        "path_too_long",
+                        f"Path length {len(request.path)} exceeds maximum {MAX_PATH_LENGTH}",
+                        request.remote_addr or "unknown",
+                    )
+                return "Request URI Too Long", 414
 
             # Log request details
             self.app.logger.info(
                 f"Request {g.request_id}: {request.method} {request.path} "  # type: ignore[misc]
                 f"from {request.remote_addr}"
             )
+
+            return None
 
         @self.app.after_request  # type: ignore[misc]
         def after_request(response: Response) -> Response:
@@ -129,35 +282,79 @@ class MediaRelayServer:
 
             return response
 
-        # Health check endpoint
+        # Health check endpoint - provides minimal information to unauthenticated users
         @self.app.route("/health")
         def health_check() -> Union[Response, tuple[Response, int]]:
-            """Health check endpoint for monitoring"""
+            """
+            Health check endpoint for monitoring.
+            Returns minimal info for unauthenticated requests (just status).
+            Returns detailed info for authenticated requests.
+            """
+            is_authenticated = self._check_authentication()
+
+            # Basic health status (always available for load balancers)
+            try:
+                test_path = Path(self.config.video_directory)
+                is_healthy = test_path.exists() and os.access(test_path, os.R_OK)
+            except (OSError, IOError, PermissionError):
+                is_healthy = False
+
+            status = "healthy" if is_healthy else "unhealthy"
+            status_code = 200 if is_healthy else 503
+
+            # Minimal response for unauthenticated requests
+            if not is_authenticated:
+                return jsonify({"status": status}), status_code  # type: ignore[misc]
+
+            # Detailed response for authenticated requests
             health_data = {  # type: ignore[misc]
-                "status": "healthy",
+                "status": status,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "version": "2.0.0",
-                "uptime_seconds": time.time()  # type: ignore[misc]
-                - getattr(self, "_start_time", time.time()),  # type: ignore[misc]
-                "video_directory_accessible": Path(
-                    self.config.video_directory
-                ).exists(),
+                "uptime_seconds": round(
+                    time.time() - getattr(self, "_start_time", time.time()), 2  # type: ignore[misc]
+                ),
+                "video_directory_accessible": is_healthy,
                 "config_valid": True,
+                "rate_limiting_enabled": self.config.rate_limit_enabled,
             }
 
-            try:
-                # Check video directory access
-                test_path = Path(self.config.video_directory)
-                if not test_path.exists() or not os.access(test_path, os.R_OK):
-                    health_data["video_directory_accessible"] = False  # type: ignore[misc]
-                    health_data["status"] = "degraded"  # type: ignore[misc]
-
-            except (OSError, IOError, PermissionError) as e:
-                health_data["status"] = "unhealthy"  # type: ignore[misc]
-                health_data["error"] = str(e)  # type: ignore[misc]
-
-            status_code = 200 if health_data["status"] == "healthy" else 503  # type: ignore[misc]
             return jsonify(health_data), status_code  # type: ignore[misc]
+
+        # Logout endpoint
+        logout_methods: list[str] = ["GET", "POST"]
+
+        @self.app.route("/logout", methods=logout_methods)
+        def logout() -> Response:
+            """
+            Logout endpoint that properly invalidates the session.
+            Clears all session data and returns to unauthenticated state.
+            """
+            username: str = str(session.get("username", "unknown"))  # type: ignore[misc]
+            ip_address = request.remote_addr or "unknown"
+
+            if session.get("authenticated"):  # type: ignore[misc]
+                if self.security_logger:
+                    self.security_logger.log_auth_attempt(
+                        username,
+                        True,  # Logout is considered a successful security action
+                        ip_address,
+                        request.headers.get("User-Agent", ""),
+                    )
+                self.app.logger.info(f"User '{username}' logged out from {ip_address}")
+
+            # Clear all session data
+            session.clear()
+
+            # Return 401 to trigger browser to clear basic auth credentials
+            return Response(
+                "Logged out successfully. Close browser to complete logout.",
+                200,
+                {
+                    "WWW-Authenticate": 'Basic realm="Video Streaming Server"',
+                    "Clear-Site-Data": '"cookies", "storage"',
+                },
+            )
 
         # Main application routes
         @self.app.route("/")
@@ -234,14 +431,31 @@ class MediaRelayServer:
             return "Internal Server Error", 500
 
     def check_auth(self, username: Optional[str], password: Optional[str]) -> bool:
-        """Verify username and password against stored credentials"""
+        """Verify username and password against stored credentials with lockout protection"""
+        ip_address = request.remote_addr or "unknown"
+        user_agent = request.headers.get("User-Agent", "")
+
         if not username or not password:
             if self.security_logger:
                 self.security_logger.log_auth_attempt(
                     username or "empty",
                     False,
-                    request.remote_addr or "unknown",
-                    request.headers.get("User-Agent", ""),
+                    ip_address,
+                    user_agent,
+                )
+            return False
+
+        # Check if this IP/username is locked out
+        if self.lockout_manager.is_locked_out(ip_address, username):
+            remaining = self.lockout_manager.get_remaining_lockout_seconds(
+                ip_address, username
+            )
+            if self.security_logger:
+                self.security_logger.log_security_violation(
+                    "account_lockout",
+                    f"Login attempt while locked out for user '{username}' "
+                    f"({remaining}s remaining)",
+                    ip_address,
                 )
             return False
 
@@ -253,9 +467,23 @@ class MediaRelayServer:
             self.security_logger.log_auth_attempt(
                 username,
                 valid,
-                request.remote_addr or "unknown",
-                request.headers.get("User-Agent", ""),
+                ip_address,
+                user_agent,
             )
+
+        if valid:
+            # Clear failed attempts on successful login
+            self.lockout_manager.record_successful_login(ip_address, username)
+        else:
+            # Record failed attempt and check if now locked out
+            now_locked = self.lockout_manager.record_failed_attempt(ip_address, username)
+            if now_locked and self.security_logger:
+                self.security_logger.log_security_violation(
+                    "account_locked",
+                    f"Account locked out after {MAX_FAILED_ATTEMPTS} failed attempts "
+                    f"for user '{username}'",
+                    ip_address,
+                )
 
         return valid
 
@@ -286,16 +514,33 @@ class MediaRelayServer:
                 or not auth.password
                 or not self.check_auth(auth.username, auth.password)
             ):
+                ip_address = request.remote_addr or "unknown"
+                username: str = auth.username if auth and auth.username else "unknown"
+
+                # Check if locked out and provide appropriate response
+                if self.lockout_manager.is_locked_out(ip_address, username):
+                    remaining = self.lockout_manager.get_remaining_lockout_seconds(
+                        ip_address, username
+                    )
+                    return Response(
+                        f"Account locked. Try again in {remaining} seconds.",
+                        403,
+                        {"Retry-After": str(remaining)},
+                    )
+
                 return Response(
                     "Authentication Required",
                     401,
                     {"WWW-Authenticate": 'Basic realm="Video Streaming Server"'},
                 )
 
-            # Set session on successful auth
+            # Regenerate session ID on successful login to prevent session fixation
+            session.clear()
             session["authenticated"] = True
             session["username"] = auth.username
             session["last_activity"] = current_time
+            session["login_time"] = current_time
+            session["login_ip"] = request.remote_addr
             session.permanent = True
 
             return f(*args, **kwargs)  # type: ignore[misc]
@@ -581,7 +826,7 @@ class MediaRelayServer:
             return jsonify({"error": "Internal server error"}), 500  # type: ignore[misc]
 
     def _check_authentication(self) -> bool:
-        """Check if the current request is authenticated"""
+        """Check if the current request is authenticated with lockout protection"""
         # Check session auth first
         current_time = time.time()
         if session.get("authenticated"):  # type: ignore[misc]
@@ -594,16 +839,23 @@ class MediaRelayServer:
 
         # Check HTTP Basic Auth
         auth = request.authorization
-        if (
-            auth
-            and auth.username
-            and auth.password
-            and self.check_auth(auth.username, auth.password)
-        ):
-            # Set session on successful auth
+        if not auth or not auth.username or not auth.password:
+            return False
+
+        ip_address = request.remote_addr or "unknown"
+
+        # Check lockout before attempting authentication
+        if self.lockout_manager.is_locked_out(ip_address, auth.username):
+            return False
+
+        if self.check_auth(auth.username, auth.password):
+            # Regenerate session on successful login to prevent session fixation
+            session.clear()
             session["authenticated"] = True
             session["username"] = auth.username
             session["last_activity"] = current_time
+            session["login_time"] = current_time
+            session["login_ip"] = request.remote_addr
             session.permanent = True
             return True
 

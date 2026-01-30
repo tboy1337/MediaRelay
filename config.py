@@ -26,7 +26,9 @@ class ServerConfig:
     """Server configuration dataclass with environment variable support"""
 
     # Server Settings
-    host: str = field(default_factory=lambda: os.getenv("VIDEO_SERVER_HOST", "0.0.0.0"))
+    # nosec B104: Binding to 0.0.0.0 is intentional for a server that needs to be
+    # accessible from other machines. Users should configure firewall rules appropriately.
+    host: str = field(default_factory=lambda: os.getenv("VIDEO_SERVER_HOST", "0.0.0.0"))  # nosec B104
     port: int = field(
         default_factory=lambda: int(os.getenv("VIDEO_SERVER_PORT", "5000"))
     )
@@ -124,6 +126,8 @@ class ServerConfig:
             "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
             "Content-Security-Policy": "default-src 'self'; media-src 'self'; style-src 'self' 'unsafe-inline'",
             "Referrer-Policy": "strict-origin-when-cross-origin",
+            "Permissions-Policy": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+            "X-Permitted-Cross-Domain-Policies": "none",
         }
     )
 

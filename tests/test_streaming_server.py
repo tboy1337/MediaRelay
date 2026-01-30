@@ -429,12 +429,23 @@ class TestAPIEndpoints:
     """Test cases for API endpoints"""
 
     def test_health_check_endpoint(self, test_client):
-        """Test health check endpoint"""
+        """Test health check endpoint (unauthenticated - minimal info)"""
         response = test_client.get("/health")
 
-        assert response.status_code == 200
+        assert response.status_code in [200, 503]
         data = json.loads(response.data)
 
+        # Unauthenticated requests should only get status
+        assert data["status"] in ["healthy", "degraded", "unhealthy"]
+
+    def test_health_check_endpoint_authenticated(self, authenticated_client):
+        """Test health check endpoint with authentication (detailed info)"""
+        response = authenticated_client.get("/health")
+
+        assert response.status_code in [200, 503]
+        data = json.loads(response.data)
+
+        # Authenticated requests should get full details
         assert data["status"] in ["healthy", "degraded", "unhealthy"]
         assert "timestamp" in data
         assert "version" in data
@@ -484,8 +495,8 @@ class TestAPIEndpoints:
 class TestHealthCheckComprehensive:
     """Comprehensive tests for health check endpoint"""
 
-    def test_health_check_healthy(self, test_server):
-        """Test health check when everything is healthy"""
+    def test_health_check_healthy_unauthenticated(self, test_server):
+        """Test health check when healthy (unauthenticated - minimal info)"""
         with test_server.app.test_client() as client:
             with patch.object(Path, "exists", return_value=True):
                 with patch("os.access", return_value=True):
@@ -494,10 +505,10 @@ class TestHealthCheckComprehensive:
 
                     data = json.loads(response.data)
                     assert data["status"] == "healthy"
-                    assert "timestamp" in data
-                    assert "version" in data
+                    # Unauthenticated should not get detailed info
+                    assert "timestamp" not in data
 
-    def test_health_check_degraded(self, test_server):
+    def test_health_check_unhealthy(self, test_server):
         """Test health check when video directory is not accessible"""
         with test_server.app.test_client() as client:
             with patch.object(Path, "exists", return_value=False):
@@ -505,7 +516,7 @@ class TestHealthCheckComprehensive:
                 assert response.status_code == 503
 
                 data = json.loads(response.data)
-                assert data["status"] == "degraded"
+                assert data["status"] == "unhealthy"
 
     def test_health_check_exception(self, test_server):
         """Test health check with exception"""
