@@ -113,7 +113,7 @@ class TestAuthenticationBasicProperties:
         configured_username = "correct_user"
         assume(wrong_username != configured_username)
 
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with tempfile.TemporaryDirectory() as temp_dir:  # pylint: disable=unreachable
             config = ServerConfig(
                 video_directory=temp_dir,
                 password_hash=generate_password_hash("correct_password"),
@@ -144,7 +144,7 @@ class TestAuthenticationBasicProperties:
         # Ensure wrong password is different
         assume(wrong_password != correct_password)
 
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with tempfile.TemporaryDirectory() as temp_dir:  # pylint: disable=unreachable
             config = ServerConfig(
                 video_directory=temp_dir,
                 password_hash=generate_password_hash(correct_password),

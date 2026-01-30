@@ -353,7 +353,7 @@ class TestPathSecurityEdgeCases:
         # Filter out cases where legitimate path contains .. or //
         assume(".." not in legitimate and "//" not in legitimate)
 
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with tempfile.TemporaryDirectory() as temp_dir:  # pylint: disable=unreachable
             test_dir = Path(temp_dir) / "videos"
             test_dir.mkdir(exist_ok=True)
 

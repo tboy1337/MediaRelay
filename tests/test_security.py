@@ -301,7 +301,7 @@ class TestAuthenticationSecurity:
         assert "password_hash" not in config_dict
         assert test_config.password_hash not in str(config_dict)
 
-    def test_lockout_response_includes_retry_after(self, test_server, test_config):
+    def test_lockout_response_includes_retry_after(self, test_server):
         """Test that lockout response includes Retry-After header"""
         # Configure a short lockout
         test_server.lockout_manager = AccountLockoutManager(
