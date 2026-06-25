@@ -5,6 +5,7 @@
 pytest
 pytest-timeout
 pytest-xdist
+pytest-mock
 
 # Test Coverage and Reporting
 pytest-cov
@@ -20,6 +21,8 @@ mypy
 black
 isort
 bandit
+safety
+autopep8
 
 # Type Stubs for External Libraries
 types-psutil

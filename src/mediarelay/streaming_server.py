@@ -9,6 +9,7 @@ License: See LICENSE.md
 """
 
 import json
+import logging
 import os
 import secrets
 import sys
@@ -35,8 +36,10 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from waitress import serve
 from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash
 
+from . import __version__
 from .config import ServerConfig, load_config
 from .logging_config import (
     PerformanceLogger,
@@ -214,6 +217,31 @@ class MediaRelayServer:
         self._lockout_cleanup_timer.daemon = True
         self._lockout_cleanup_timer.start()
 
+    def _get_client_ip(self) -> str:
+        """Return the client IP, honoring reverse-proxy headers when configured."""
+        if self.config.behind_proxy and request.access_route:
+            return request.access_route[-1]
+        return request.remote_addr or "unknown"
+
+    def _rate_limit_key(self) -> str:
+        """Rate limiter key function respecting reverse-proxy configuration."""
+        if self.config.behind_proxy and request.access_route:
+            return request.access_route[-1]
+        return get_remote_address()
+
+    def _auth_required_response(self) -> Response:
+        """Build a 401 response, including Retry-After when the account is locked out."""
+        headers = {"WWW-Authenticate": 'Basic realm="Video Streaming Server"'}
+        auth = request.authorization
+        if auth and auth.username:
+            client_ip = self._get_client_ip()
+            if self.lockout_manager.is_locked_out(client_ip, auth.username):
+                remaining = self.lockout_manager.get_remaining_lockout_seconds(
+                    client_ip, auth.username
+                )
+                headers["Retry-After"] = str(max(1, int(remaining)))
+        return Response("Authentication Required", 401, headers)
+
     def _create_app(self) -> Flask:
         """Create and configure Flask application"""
         app = Flask(__name__)
@@ -230,6 +258,14 @@ class MediaRelayServer:
         app.config["PERMANENT_SESSION_LIFETIME"] = self.config.session_timeout
         app.config["DEBUG"] = self.config.debug
 
+        if self.config.behind_proxy:
+            app.wsgi_app = ProxyFix(  # type: ignore[method-assign]
+                app.wsgi_app,
+                x_for=1,
+                x_proto=1,
+                x_host=1,
+            )
+
         return app
 
     def _setup_logging(self) -> None:
@@ -244,9 +280,14 @@ class MediaRelayServer:
     def _setup_rate_limiting(self) -> None:
         """Configure rate limiting"""
         if self.config.rate_limit_enabled:
+            server = self
+
+            def rate_limit_key() -> str:
+                return server._rate_limit_key()
+
             self.limiter = Limiter(
                 app=self.app,
-                key_func=get_remote_address,
+                key_func=rate_limit_key,
                 default_limits=[f"{self.config.rate_limit_per_minute} per minute"],
             )
         else:
@@ -336,7 +377,7 @@ class MediaRelayServer:
             health_data = {  # type: ignore[misc]
                 "status": status,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "version": "2.0.0",
+                "version": __version__,
                 "uptime_seconds": round(
                     time.time() - getattr(self, "_start_time", time.time()), 2  # type: ignore[misc]
                 ),
@@ -357,11 +398,7 @@ class MediaRelayServer:
             Requires authentication to prevent logout-forcing attacks.
             """
             if not self._check_authentication():
-                return Response(
-                    "Authentication Required",
-                    401,
-                    {"WWW-Authenticate": 'Basic realm="Video Streaming Server"'},
-                )
+                return self._auth_required_response()
 
             username: str = str(session.get("username", "unknown"))  # type: ignore[misc]
             ip_address = request.remote_addr or "unknown"
@@ -415,14 +452,7 @@ class MediaRelayServer:
         @self.app.errorhandler(401)  # type: ignore[misc]
         def unauthorized(_error: Any) -> tuple[Response, int]:  # type: ignore[misc, explicit-any]
             """Handle unauthorized access"""
-            return (
-                Response(
-                    "Authentication Required",
-                    401,
-                    {"WWW-Authenticate": 'Basic realm="Video Streaming Server"'},
-                ),
-                401,
-            )
+            return (self._auth_required_response(), 401)
 
         @self.app.errorhandler(403)  # type: ignore[misc]
         def forbidden(_error: Any) -> tuple[str, int]:  # type: ignore[misc, explicit-any]
@@ -462,7 +492,7 @@ class MediaRelayServer:
 
     def check_auth(self, username: str | None, password: str | None) -> bool:
         """Verify username and password against stored credentials with lockout protection"""
-        ip_address = request.remote_addr or "unknown"
+        ip_address = self._get_client_ip()
         user_agent = request.headers.get("User-Agent", "")
 
         if not username or not password:
@@ -585,11 +615,7 @@ class MediaRelayServer:
     def _handle_index_request(self, subpath: str) -> str | tuple[str, int] | Response:
         """Handle index page requests with authentication"""
         if not self._check_authentication():
-            return Response(
-                "Authentication Required",
-                401,
-                {"WWW-Authenticate": 'Basic realm="Video Streaming Server"'},
-            )
+            return self._auth_required_response()
 
         safe_path = self.get_safe_path(subpath)
         if not safe_path or not safe_path.exists():
@@ -668,11 +694,7 @@ class MediaRelayServer:
     def _handle_stream_request(self, video_path: str) -> Response | tuple[str, int]:
         """Handle video streaming requests with range support"""
         if not self._check_authentication():
-            return Response(
-                "Authentication Required",
-                401,
-                {"WWW-Authenticate": 'Basic realm="Video Streaming Server"'},
-            )
+            return self._auth_required_response()
 
         safe_path = self.get_safe_path(video_path)
         if not safe_path or not safe_path.is_file():
@@ -785,7 +807,7 @@ class MediaRelayServer:
         if not auth or not auth.username or not auth.password:
             return False
 
-        ip_address = request.remote_addr or "unknown"
+        ip_address = self._get_client_ip()
 
         # Check lockout before attempting authentication
         if self.lockout_manager.is_locked_out(ip_address, auth.username):
@@ -798,7 +820,7 @@ class MediaRelayServer:
             session["username"] = auth.username
             session["last_activity"] = current_time
             session["login_time"] = current_time
-            session["login_ip"] = request.remote_addr
+            session["login_ip"] = self._get_client_ip()
             session.permanent = True
             return True
 
@@ -1130,6 +1152,13 @@ def main(
             config.port = port
         if debug:
             config.debug = True
+            if config.is_production():
+                warning = (
+                    "WARNING: --debug was passed while FLASK_ENV=production. "
+                    "Debug mode should not be enabled in production."
+                )
+                print(warning, file=sys.stderr)
+                logging.getLogger(__name__).warning(warning)
 
         server = MediaRelayServer(config)
         if debug:
@@ -1139,7 +1168,7 @@ def main(
     except ValueError as e:
         print(f"Configuration Error: {e}")
         print("\nTips:")
-        print("1. Run 'python generate_password.py' to create a password hash")
+        print("1. Run 'mediarelay-genpass' to create a password hash")
         print("2. Set VIDEO_SERVER_PASSWORD_HASH environment variable")
         print("3. Ensure video directory exists and is accessible")
         sys.exit(1)

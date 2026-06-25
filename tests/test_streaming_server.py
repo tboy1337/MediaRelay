@@ -408,6 +408,44 @@ class TestVideoStreaming:
         assert response.status_code == 200
         assert response.data == b"fake subtitle content"
 
+    def test_stream_range_request_partial_content(self, authenticated_client):
+        """Test HTTP Range request returns partial content for seeking"""
+        headers = {"Range": "bytes=0-4"}
+        response = authenticated_client.get("/stream/test_video.mp4", headers=headers)
+
+        assert response.status_code == 206
+        assert response.data == b"fake "
+        assert response.headers.get("Accept-Ranges") == "bytes"
+        content_range = response.headers.get("Content-Range", "")
+        assert content_range.startswith("bytes 0-4/")
+
+    def test_stream_range_request_invalid_range(self, authenticated_client):
+        """Test invalid Range request returns 416"""
+        headers = {"Range": "bytes=10000-20000"}
+        response = authenticated_client.get("/stream/test_video.mp4", headers=headers)
+
+        assert response.status_code == 416
+
+    @pytest.mark.parametrize(
+        "subpath,expected_names",
+        [
+            ("", {"Home"}),
+            ("subdir", {"Home", "subdir"}),
+        ],
+    )
+    def test_breadcrumbs_for_paths(self, test_server, subpath, expected_names):
+        """Test breadcrumb generation stays within the video directory"""
+        with test_server.app.test_request_context():
+            if subpath:
+                safe_path = test_server.get_safe_path(subpath)
+            else:
+                safe_path = Path(test_server.config.video_directory)
+
+            assert safe_path is not None
+            crumbs = test_server.get_breadcrumbs(safe_path)
+            crumb_names = {crumb["name"] for crumb in crumbs}
+            assert crumb_names == expected_names
+
 
 class TestAPIEndpoints:
     """Test cases for API endpoints"""
@@ -433,6 +471,7 @@ class TestAPIEndpoints:
         assert data["status"] in ["healthy", "degraded", "unhealthy"]
         assert "timestamp" in data
         assert "version" in data
+        assert data["version"] != "2.0.0"
         assert "video_directory_accessible" in data
 
     def test_api_files_endpoint_with_auth(self, authenticated_client):

@@ -65,12 +65,10 @@ class TestPasswordGeneration:
         assert sum(c.isdigit() for c in password) >= 3
         assert sum(c in string.punctuation for c in password) >= 2
 
-    def test_generate_strong_password_uniqueness(self):
-        """Test that generated passwords are unique"""
-        password1 = generate_password.generate_strong_password()
-        password2 = generate_password.generate_strong_password()
-
-        assert password1 != password2
+    def test_generate_strong_password_batch_uniqueness(self):
+        """Generated passwords should be unique across a batch"""
+        passwords = {generate_password.generate_strong_password(24) for _ in range(50)}
+        assert len(passwords) == 50
 
     def test_generate_strong_password_requirements(self):
         """Test password meets all requirements"""

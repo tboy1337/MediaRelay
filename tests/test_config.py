@@ -17,6 +17,7 @@ from mediarelay.config import (
     _get_default_video_directory,
     create_sample_env_file,
     load_config,
+    validate_deployment_config,
 )
 
 
@@ -960,16 +961,6 @@ class TestLoadConfigFile:
             load_config(missing)
 
 
-_PLACEHOLDER_PASSWORD_HASHES = frozenset({"", "your-password-hash-here"})
-
-
-def _assert_deployment_config_valid(config_file: Path) -> None:
-    """Pre-flight deployment validation (test helper, replaces validate_setup CLI)."""
-    config = load_config(config_file)
-    if config.password_hash in _PLACEHOLDER_PASSWORD_HASHES:
-        raise ValueError("PASSWORD_HASH must be set to a real hash, not a placeholder")
-
-
 class TestDeploymentConfigValidation:
     """Test deployment pre-flight configuration checks"""
 
@@ -991,7 +982,7 @@ class TestDeploymentConfigValidation:
         )
 
         monkeypatch.chdir(tmp_path)
-        _assert_deployment_config_valid(env_file)
+        validate_deployment_config(env_file)
 
     def test_deployment_config_rejects_placeholder_hash(self, tmp_path):
         """Placeholder password hash fails validation"""
@@ -1008,4 +999,4 @@ class TestDeploymentConfigValidation:
         )
 
         with pytest.raises(ValueError, match="placeholder"):
-            _assert_deployment_config_valid(env_file)
+            validate_deployment_config(env_file)

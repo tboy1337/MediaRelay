@@ -93,11 +93,22 @@ class TestServerErrorHandling:
             server = MediaRelayServer(test_config)
             server.run()
 
-    def test_server_permission_denied_directory(self, test_config):
-        """Test server behavior with permission denied directory"""
-        # This test would need specific platform handling
-        # Skipping for now as it requires admin privileges
-        pass
+    def test_server_permission_denied_directory(self, test_config, tmp_path):
+        """Test server behavior when directory listing raises PermissionError"""
+        denied_dir = tmp_path / "denied"
+        denied_dir.mkdir()
+        test_config.video_directory = str(denied_dir)
+
+        server = MediaRelayServer(test_config)
+        with server.app.test_request_context():
+            with patch.object(server, "_check_authentication", return_value=True):
+                with patch.object(
+                    Path,
+                    "iterdir",
+                    side_effect=PermissionError("Permission denied"),
+                ):
+                    response = server._handle_index_request("")
+                    assert response == ("Access denied to directory", 403)
 
     def test_server_video_directory_is_file(self, test_config, tmp_path):
         """Test server behavior when video directory is actually a file"""
@@ -135,16 +146,14 @@ class TestRequestErrorHandling:
         long_path = "a" * 5000  # Very long path
         response = authenticated_client.get(f"/stream/{long_path}")
 
-        # Should handle gracefully, either 404, 414 (URI Too Long), or other error
-        assert response.status_code in [400, 404, 414, 500]
+        assert response.status_code == 414
 
     def test_null_bytes_in_path(self, authenticated_client):
         """Test handling of null bytes in file paths"""
         malicious_path = "test\x00.mp4"
         response = authenticated_client.get(f"/stream/{malicious_path}")
 
-        # Should handle gracefully
-        assert response.status_code in [400, 403, 404]
+        assert response.status_code == 404
 
     def test_unicode_in_path(self, authenticated_client):
         """Test handling of unicode characters in paths"""

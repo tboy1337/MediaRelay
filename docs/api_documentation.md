@@ -61,7 +61,7 @@ Host: localhost:5000
 {
     "status": "healthy",
     "timestamp": "2023-12-01T12:00:00.000Z",
-    "version": "2.0.0",
+    "version": "1.0.4",
     "uptime_seconds": 3600,
     "video_directory_accessible": true,
     "config_valid": true
@@ -77,7 +77,7 @@ Host: localhost:5000
 |-------|------|-------------|
 | status | string | "healthy", "degraded", or "unhealthy" |
 | timestamp | string | ISO 8601 timestamp |
-| version | string | Application version |
+| version | string | Installed package version (from PyPI metadata) |
 | uptime_seconds | number | Server uptime in seconds |
 | video_directory_accessible | boolean | Whether video directory is accessible |
 | config_valid | boolean | Whether configuration is valid |
@@ -389,7 +389,7 @@ curl http://localhost:5000/health
 {
     "status": "healthy",
     "timestamp": "2023-12-01T12:00:00.000Z",
-    "version": "2.0.0",
+    "version": "1.0.4",
     "uptime_seconds": 7200,
     "video_directory_accessible": true,
     "config_valid": true

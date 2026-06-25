@@ -7,13 +7,17 @@ for production deployment.
 
 import os
 import secrets
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import click
+
 _PLACEHOLDER_SECRET_KEYS = frozenset(
     {"", "your-secret-key-here", "change-me", "changeme"}
 )
+_PLACEHOLDER_PASSWORD_HASHES = frozenset({"", "your-password-hash-here"})
 _VALID_SAMESITE_VALUES = frozenset({"Strict", "Lax", "None"})
 
 
@@ -205,6 +209,11 @@ class ServerConfig:
         )
     )
 
+    # Reverse proxy (nginx) — trust X-Forwarded-* headers when enabled
+    behind_proxy: bool = field(
+        default_factory=lambda: _parse_bool_env("VIDEO_SERVER_BEHIND_PROXY", "false")
+    )
+
     def __post_init__(self) -> None:
         """Validate configuration after initialization"""
         self.validate_config()
@@ -221,7 +230,13 @@ class ServerConfig:
 
         if not self.password_hash:
             raise ValueError(
-                "PASSWORD_HASH must be set. Run generate_password.py to create one."
+                "PASSWORD_HASH must be set. Run mediarelay-genpass to create one."
+            )
+
+        if self.is_production() and self.password_hash in _PLACEHOLDER_PASSWORD_HASHES:
+            raise ValueError(
+                "PASSWORD_HASH must be set to a real hash, not a placeholder. "
+                "Run mediarelay-genpass to create one."
             )
 
         if not (1 <= self.port <= 65535):
@@ -235,7 +250,7 @@ class ServerConfig:
             if env_secret.strip() in _PLACEHOLDER_SECRET_KEYS:
                 raise ValueError(
                     "VIDEO_SERVER_SECRET_KEY must be set to a secure value in "
-                    "production. Run generate_password.py to create one."
+                    "production. Run mediarelay-genpass to create one."
                 )
 
         log_path = Path(self.log_directory)
@@ -264,6 +279,7 @@ class ServerConfig:
             "session_cookie_secure": self.session_cookie_secure,
             "session_cookie_httponly": self.session_cookie_httponly,
             "session_cookie_samesite": self.session_cookie_samesite,
+            "behind_proxy": self.behind_proxy,
             "is_production": self.is_production(),
         }
 
@@ -288,6 +304,23 @@ def load_config(config_file: Path | None = None) -> ServerConfig:
             ) from None
 
     return ServerConfig()
+
+
+def validate_deployment_config(config_file: Path | None = None) -> ServerConfig:
+    """Load and validate configuration for production deployment.
+
+    Raises:
+        ValueError: If configuration is invalid or uses placeholder credentials.
+    """
+    config = load_config(config_file)
+
+    if config.password_hash in _PLACEHOLDER_PASSWORD_HASHES:
+        raise ValueError(
+            "PASSWORD_HASH must be set to a real hash, not a placeholder. "
+            "Run mediarelay-genpass to create one."
+        )
+
+    return config
 
 
 def create_sample_env_file() -> None:
@@ -329,6 +362,9 @@ VIDEO_SERVER_LOG_BACKUP_COUNT=5
 VIDEO_SERVER_RATE_LIMIT=true
 VIDEO_SERVER_RATE_LIMIT_PER_MIN=60
 
+# Reverse Proxy (set true when behind nginx or similar)
+VIDEO_SERVER_BEHIND_PROXY=false
+
 # Environment
 FLASK_ENV=production
 """
@@ -344,6 +380,23 @@ FLASK_ENV=production
 def main() -> None:
     """Console entry point for mediarelay-config."""
     create_sample_env_file()
+
+
+@click.command()
+@click.option("--config-file", "-c", help="Path to configuration file")
+def validate_main(config_file: str | None) -> None:
+    """Console entry point for mediarelay-validate."""
+    try:
+        env_path = Path(config_file) if config_file else None
+        config = validate_deployment_config(env_path)
+        print("Configuration is valid for deployment.")
+        print(f"  Host: {config.host}:{config.port}")
+        print(f"  Video directory: {config.video_directory}")
+        print(f"  Production mode: {config.is_production()}")
+        print(f"  Behind proxy: {config.behind_proxy}")
+    except ValueError as error:
+        print(f"Configuration error: {error}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

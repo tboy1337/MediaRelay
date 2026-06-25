@@ -7,7 +7,7 @@ A video streaming server that allows you to securely share your personal video l
 ### 🔒 Security
 - **Multi-layer Authentication**: HTTP Basic Auth + Session Management
 - **Path Traversal Protection**: Prevents unauthorized file access
-- **Security Headers**: XSS, CSRF, clickjacking protection
+- **Security Headers**: XSS, SameSite cookie protection, clickjacking protection
 - **Rate Limiting**: Configurable request throttling
 - **Security Audit Logging**: Comprehensive security event tracking
 - **Session Management**: Secure sessions with configurable timeouts
@@ -28,7 +28,7 @@ A video streaming server that allows you to securely share your personal video l
 
 ### 🛠️ Advanced Features
 - **Environment Configuration**: Full environment variable support
-- **100% Test Coverage**: Comprehensive test suite with security tests
+- **90%+ Test Coverage**: Comprehensive test suite with branch coverage and security tests
 - **Service Management**: System service configurations for Windows and Linux
 - **Log Rotation**: Automatic log rotation and archival
 - **API Support**: RESTful JSON API for integration
@@ -56,7 +56,7 @@ venv\Scripts\activate     # Windows
 pip install mediarelay
 ```
 
-That installs the `mediarelay`, `mediarelay-config`, and `mediarelay-genpass` commands. No need to clone the repository.
+That installs the `mediarelay`, `mediarelay-config`, `mediarelay-genpass`, and `mediarelay-validate` commands. No need to clone the repository.
 
 **From source (development or contributing):**
 
@@ -155,7 +155,12 @@ Once the server is running, you can access it in your web browser at:
 
 4. **Configure other settings** as needed (video directory, port, etc.)
 
-5. **Start the server** (configuration is validated on startup):
+5. **Validate configuration** before production deployment:
+   ```bash
+   mediarelay-validate
+   ```
+
+6. **Start the server** (configuration is validated on startup):
    ```bash
    mediarelay
    ```
@@ -184,6 +189,9 @@ VIDEO_SERVER_SESSION_COOKIE_SECURE=true
 VIDEO_SERVER_SESSION_COOKIE_HTTPONLY=true
 VIDEO_SERVER_SESSION_COOKIE_SAMESITE=Strict
 
+# Reverse proxy (set true when behind nginx)
+VIDEO_SERVER_BEHIND_PROXY=false
+
 # Logging
 VIDEO_SERVER_LOG_LEVEL=INFO
 VIDEO_SERVER_LOG_DIR=./logs
@@ -195,7 +203,7 @@ VIDEO_SERVER_LOG_DIR=./logs
 
 ```python
 # Multi-layer authentication
-HTTP_BASIC_AUTH + SESSION_MANAGEMENT + CSRF_PROTECTION
+HTTP_BASIC_AUTH + SESSION_MANAGEMENT + SAMESITE_COOKIES
 ```
 
 ### Security Headers

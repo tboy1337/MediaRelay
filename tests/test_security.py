@@ -1039,3 +1039,65 @@ class TestParametrizedPathTraversal:
         """Known traversal payloads must be blocked"""
         with test_server.app.test_request_context():
             assert test_server.get_safe_path(payload) is None
+
+
+class TestReverseProxySupport:
+    """Test reverse-proxy client IP handling"""
+
+    def test_client_ip_from_forwarded_header(self, monkeypatch, test_config):
+        """Behind a proxy, client IP comes from X-Forwarded-For"""
+        test_config.behind_proxy = True
+        server = MediaRelayServer(test_config)
+
+        with server.app.test_request_context(
+            "/",
+            environ_base={
+                "REMOTE_ADDR": "10.0.0.1",
+                "HTTP_X_FORWARDED_FOR": "203.0.113.5",
+            },
+        ):
+            assert server._get_client_ip() == "203.0.113.5"
+
+    def test_lockout_uses_forwarded_client_ip(self, test_config):
+        """Account lockout tracks the forwarded client IP behind a proxy"""
+        test_config.behind_proxy = True
+        server = MediaRelayServer(test_config)
+        server.lockout_manager = AccountLockoutManager(
+            max_attempts=2, lockout_duration=60
+        )
+
+        with server.app.test_request_context(
+            "/",
+            environ_base={
+                "REMOTE_ADDR": "10.0.0.1",
+                "HTTP_X_FORWARDED_FOR": "203.0.113.50",
+            },
+        ):
+            assert server.check_auth("attacker", "wrong") is False
+            assert server.check_auth("attacker", "wrong") is False
+            assert server.lockout_manager.is_locked_out("203.0.113.50", "attacker")
+
+    def test_auth_response_includes_retry_after_when_locked(
+        self, test_server, test_config
+    ):
+        """Locked-out accounts receive Retry-After on 401 responses"""
+        test_server.lockout_manager = AccountLockoutManager(
+            max_attempts=1, lockout_duration=120
+        )
+        client_ip = "203.0.113.99"
+        credentials = base64.b64encode(
+            f"{test_config.username}:wrongpass".encode("utf-8")
+        ).decode("utf-8")
+
+        with test_server.app.test_request_context(
+            "/stream/test_video.mp4",
+            environ_base={"REMOTE_ADDR": client_ip},
+            headers={"Authorization": f"Basic {credentials}"},
+        ):
+            test_server.lockout_manager.record_failed_attempt(
+                client_ip, test_config.username
+            )
+            response = test_server._auth_required_response()
+            assert response.status_code == 401
+            assert "Retry-After" in response.headers
+            assert int(response.headers["Retry-After"]) >= 1

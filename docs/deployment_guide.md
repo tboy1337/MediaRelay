@@ -54,8 +54,9 @@ Create a `.env` file in the project root:
 
 ```bash
 # Copy the example environment file
-python config.py  # This creates .env.example
-cp .env.example .env
+mediarelay-config
+cp .env.example .env   # Linux/macOS
+copy .env.example .env   # Windows
 ```
 
 Edit `.env` with your configuration:
@@ -95,6 +96,9 @@ VIDEO_SERVER_LOG_BACKUP_COUNT=5
 VIDEO_SERVER_RATE_LIMIT=true
 VIDEO_SERVER_RATE_LIMIT_PER_MIN=60
 
+# Reverse Proxy (set true when behind nginx)
+VIDEO_SERVER_BEHIND_PROXY=false
+
 # Environment
 FLASK_ENV=production
 ```
@@ -102,7 +106,7 @@ FLASK_ENV=production
 #### Generate Password Hash
 
 ```bash
-python generate_password.py
+mediarelay-genpass
 ```
 
 Follow the prompts to generate a secure password hash and update your `.env` file.
@@ -113,13 +117,10 @@ Before starting the server in production, validate your configuration:
 
 ```bash
 # Validate default .env in current directory
-python validate_setup.py
+mediarelay-validate
 
 # Or validate a specific config file
-python validate_setup.py --config-file /path/to/.env
-
-# Console script (after pip install)
-mediarelay-validate
+mediarelay-validate --config-file /path/to/.env
 ```
 
 The validator checks password hash format, secret key presence, video/log directory permissions, and port range. Fix any reported errors before deployment.
@@ -187,6 +188,8 @@ server {
 }
 ```
 
+When using nginx (or another reverse proxy), set `VIDEO_SERVER_BEHIND_PROXY=true` in your `.env` file so client IPs, rate limiting, and account lockout use the forwarded address. Keep `VIDEO_SERVER_SESSION_COOKIE_SECURE=true` when serving over HTTPS. For plain-HTTP local development only, set `VIDEO_SERVER_SESSION_COOKIE_SECURE=false`.
+
 ### 2. Process Management
 
 #### Systemd Service (Linux)
@@ -205,7 +208,7 @@ Group=your-group
 WorkingDirectory=/path/to/MediaRelay
 Environment=PATH=/path/to/MediaRelay/venv/bin
 EnvironmentFile=/path/to/MediaRelay/.env
-ExecStart=/path/to/MediaRelay/venv/bin/python streaming_server.py
+ExecStart=/path/to/MediaRelay/venv/bin/mediarelay
 Restart=always
 RestartSec=10
 
@@ -233,7 +236,7 @@ Use `nssm` (Non-Sucking Service Manager):
 
 ```cmd
 # Download and install nssm
-nssm install MediaRelay "C:\path\to\python.exe" "C:\path\to\streaming_server.py"
+nssm install MediaRelay "C:\path\to\MediaRelay\venv\Scripts\mediarelay.exe"
 nssm set MediaRelay AppDirectory "C:\path\to\MediaRelay"
 nssm start MediaRelay
 ```
@@ -260,7 +263,7 @@ Response example:
 {
     "status": "healthy",
     "timestamp": "2023-12-01T12:00:00Z",
-    "version": "2.0.0",
+    "version": "1.0.4",
     "uptime_seconds": 3600,
     "video_directory_accessible": true,
     "config_valid": true
@@ -481,7 +484,7 @@ curl -w "@curl-format.txt" -o /dev/null -s http://localhost:5000/health
 ### Configuration Validation
 
 ```bash
-python -c "from config import load_config; print('Config valid:', load_config().to_dict())"
+mediarelay-validate
 ```
 
 ### Health Check
