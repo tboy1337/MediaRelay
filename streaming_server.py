@@ -14,10 +14,8 @@ import secrets
 import sys
 import threading
 import time
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from functools import wraps
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
@@ -38,7 +36,6 @@ from flask_limiter.util import get_remote_address
 from waitress import serve
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.security import check_password_hash
-from werkzeug.utils import secure_filename
 
 from config import ServerConfig, load_config
 from logging_config import (
@@ -53,6 +50,13 @@ MAX_URL_LENGTH: int = 2048
 MAX_PATH_LENGTH: int = 1024
 MAX_FAILED_ATTEMPTS: int = 5
 LOCKOUT_DURATION_SECONDS: int = 900  # 15 minutes
+LOCKOUT_CLEANUP_INTERVAL_SECONDS: int = 300  # 5 minutes
+HSTS_HEADER_VALUE: str = "max-age=31536000; includeSubDomains"
+
+
+def _resolve_path(path: Path) -> Path:
+    """Resolve a path, following symlinks for jail containment checks."""
+    return path.resolve()
 
 
 @dataclass
@@ -164,9 +168,11 @@ class AccountLockoutManager:
             keys_to_remove = [
                 key
                 for key, tracker in self._trackers.items()
-                if tracker.lockout_until > 0
-                and tracker.lockout_until <= current_time
-                and tracker.failed_attempts == 0
+                if (tracker.lockout_until > 0 and tracker.lockout_until <= current_time)
+                or (
+                    tracker.lockout_until <= current_time
+                    and current_time - tracker.last_attempt > self.lockout_duration
+                )
             ]
             for key in keys_to_remove:
                 del self._trackers[key]
@@ -185,10 +191,28 @@ class MediaRelayServer:
         self.performance_logger: PerformanceLogger | None = None
         self.limiter: Limiter | None = None
         self.lockout_manager = AccountLockoutManager()
+        self._lockout_cleanup_timer: threading.Timer | None = None
         self._setup_logging()
         self._setup_rate_limiting()
         self._register_routes()
         self._register_error_handlers()
+
+    def _start_lockout_cleanup(self) -> None:
+        """Schedule periodic cleanup of expired lockout tracker entries."""
+
+        def _run_cleanup() -> None:
+            self.lockout_manager.cleanup_expired()
+            self._lockout_cleanup_timer = threading.Timer(
+                LOCKOUT_CLEANUP_INTERVAL_SECONDS, _run_cleanup
+            )
+            self._lockout_cleanup_timer.daemon = True
+            self._lockout_cleanup_timer.start()
+
+        self._lockout_cleanup_timer = threading.Timer(
+            LOCKOUT_CLEANUP_INTERVAL_SECONDS, _run_cleanup
+        )
+        self._lockout_cleanup_timer.daemon = True
+        self._lockout_cleanup_timer.start()
 
     def _create_app(self) -> Flask:
         """Create and configure Flask application"""
@@ -200,10 +224,11 @@ class MediaRelayServer:
         )
 
         # Security configuration
-        app.config["SESSION_COOKIE_SECURE"] = self.config.is_production()
-        app.config["SESSION_COOKIE_HTTPONLY"] = True
-        app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+        app.config["SESSION_COOKIE_SECURE"] = self.config.session_cookie_secure
+        app.config["SESSION_COOKIE_HTTPONLY"] = self.config.session_cookie_httponly
+        app.config["SESSION_COOKIE_SAMESITE"] = self.config.session_cookie_samesite
         app.config["PERMANENT_SESSION_LIFETIME"] = self.config.session_timeout
+        app.config["DEBUG"] = self.config.debug
 
         return app
 
@@ -257,8 +282,8 @@ class MediaRelayServer:
                     )
                 return "Request URI Too Long", 414
 
-            # Log request details
-            self.app.logger.info(
+            # Log request details at debug level to reduce production log volume
+            self.app.logger.debug(
                 f"Request {g.request_id}: {request.method} {request.path} "  # type: ignore[misc]
                 f"from {request.remote_addr}"
             )
@@ -268,9 +293,11 @@ class MediaRelayServer:
         @self.app.after_request  # type: ignore[misc]
         def after_request(response: Response) -> Response:
             """Process responses and add security headers"""
-            # Add security headers
+            # Add security headers (HSTS only when secure cookies are enabled)
             for header, value in self.config.security_headers.items():
                 response.headers[header] = value
+            if self.config.session_cookie_secure:
+                response.headers["Strict-Transport-Security"] = HSTS_HEADER_VALUE
 
             # Log performance metrics
             if hasattr(g, "start_time") and self.performance_logger:
@@ -295,7 +322,7 @@ class MediaRelayServer:
             try:
                 test_path = Path(self.config.video_directory)
                 is_healthy = test_path.exists() and os.access(test_path, os.R_OK)
-            except (OSError, IOError, PermissionError):
+            except (OSError, IOError, PermissionError, RuntimeError):
                 is_healthy = False
 
             status = "healthy" if is_healthy else "unhealthy"
@@ -324,28 +351,32 @@ class MediaRelayServer:
         logout_methods: list[str] = ["GET", "POST"]
 
         @self.app.route("/logout", methods=logout_methods)
-        def logout() -> Response:
+        def logout() -> Response | tuple[Response, int]:
             """
             Logout endpoint that properly invalidates the session.
-            Clears all session data and returns to unauthenticated state.
+            Requires authentication to prevent logout-forcing attacks.
             """
+            if not self._check_authentication():
+                return Response(
+                    "Authentication Required",
+                    401,
+                    {"WWW-Authenticate": 'Basic realm="Video Streaming Server"'},
+                )
+
             username: str = str(session.get("username", "unknown"))  # type: ignore[misc]
             ip_address = request.remote_addr or "unknown"
 
-            if session.get("authenticated"):  # type: ignore[misc]
-                if self.security_logger:
-                    self.security_logger.log_auth_attempt(
-                        username,
-                        True,  # Logout is considered a successful security action
-                        ip_address,
-                        request.headers.get("User-Agent", ""),
-                    )
-                self.app.logger.info(f"User '{username}' logged out from {ip_address}")
+            if self.security_logger:
+                self.security_logger.log_auth_attempt(
+                    username,
+                    True,
+                    ip_address,
+                    request.headers.get("User-Agent", ""),
+                )
+            self.app.logger.info(f"User '{username}' logged out from {ip_address}")
 
-            # Clear all session data
             session.clear()
 
-            # Return 401 to trigger browser to clear basic auth credentials
             return Response(
                 "Logged out successfully. Close browser to complete logout.",
                 200,
@@ -488,66 +519,6 @@ class MediaRelayServer:
 
         return valid
 
-    def requires_auth(self, f: Callable[..., Any]) -> Callable[..., Any]:  # type: ignore[explicit-any]
-        """Decorator to require authentication"""
-
-        @wraps(f)  # type: ignore[misc]
-        def decorated(*args: Any, **kwargs: Any) -> Any:  # type: ignore[misc, explicit-any]
-            # Check session auth first
-            current_time = time.time()
-            if session.get("authenticated"):  # type: ignore[misc]
-                # Check for session timeout
-                last_activity = session.get("last_activity", 0)  # type: ignore[misc]
-                if current_time - last_activity > self.config.session_timeout:  # type: ignore[misc]
-                    session.clear()
-                    self.app.logger.info(
-                        f"Session expired for user from {request.remote_addr}"
-                    )
-                else:
-                    session["last_activity"] = current_time
-                    return f(*args, **kwargs)  # type: ignore[misc]
-
-            # Fall back to HTTP Basic Auth
-            auth = request.authorization
-            if (
-                not auth
-                or not auth.username
-                or not auth.password
-                or not self.check_auth(auth.username, auth.password)
-            ):
-                ip_address = request.remote_addr or "unknown"
-                username: str = auth.username if auth and auth.username else "unknown"
-
-                # Check if locked out and provide appropriate response
-                if self.lockout_manager.is_locked_out(ip_address, username):
-                    remaining = self.lockout_manager.get_remaining_lockout_seconds(
-                        ip_address, username
-                    )
-                    return Response(
-                        f"Account locked. Try again in {remaining} seconds.",
-                        403,
-                        {"Retry-After": str(remaining)},
-                    )
-
-                return Response(
-                    "Authentication Required",
-                    401,
-                    {"WWW-Authenticate": 'Basic realm="Video Streaming Server"'},
-                )
-
-            # Regenerate session ID on successful login to prevent session fixation
-            session.clear()
-            session["authenticated"] = True
-            session["username"] = auth.username
-            session["last_activity"] = current_time
-            session["login_time"] = current_time
-            session["login_ip"] = request.remote_addr
-            session.permanent = True
-
-            return f(*args, **kwargs)  # type: ignore[misc]
-
-        return decorated  # type: ignore[misc]
-
     def get_safe_path(self, requested_path: str) -> Path | None:
         """Ensure the requested path is within the video directory"""
         if not requested_path:
@@ -555,6 +526,15 @@ class MediaRelayServer:
 
         # URL decode the path
         requested_path = unquote(requested_path)
+
+        if "\x00" in requested_path:
+            if self.security_logger:
+                self.security_logger.log_security_violation(
+                    "path_traversal",
+                    f"Null byte in path: {requested_path!r}",
+                    request.remote_addr or "unknown",
+                )
+            return None
 
         # Sanitize the path - remove any attempts to navigate with ..
         if ".." in requested_path or "//" in requested_path:
@@ -569,52 +549,18 @@ class MediaRelayServer:
         full_path = Path(self.config.video_directory) / requested_path
 
         try:
-            # Use absolute path instead of resolve() to avoid symlink hanging issues
-            full_path = full_path.absolute()
-            video_dir = Path(self.config.video_directory).absolute()
-
-            # Normalize paths to handle . and .. components without resolving symlinks
-            full_path_parts: list[str] = []
-            for part in full_path.parts:
-                if part == "..":
-                    if full_path_parts:
-                        full_path_parts.pop()
-                elif part != ".":
-                    full_path_parts.append(part)
-
-            video_dir_parts: list[str] = []
-            for part in video_dir.parts:
-                if part == "..":
-                    if video_dir_parts:
-                        video_dir_parts.pop()
-                elif part != ".":
-                    video_dir_parts.append(part)
-
-            # Reconstruct normalized paths
-            if full_path_parts:
-                normalized_full = Path(*full_path_parts)
-            else:
-                normalized_full = Path("/")
-
-            if video_dir_parts:
-                normalized_video_dir = Path(*video_dir_parts)
-            else:
-                normalized_video_dir = Path("/")
-
-            # Check if the path is within VIDEO_DIRECTORY
-            if (
-                normalized_video_dir in normalized_full.parents
-                or normalized_full == normalized_video_dir
-            ):
-                return full_path
-
+            resolved_path = _resolve_path(full_path)
+            resolved_video_dir = _resolve_path(Path(self.config.video_directory))
+            resolved_path.relative_to(resolved_video_dir)
+            return resolved_path
+        except ValueError:
             if self.security_logger:
                 self.security_logger.log_security_violation(
                     "path_traversal",
                     f"Path traversal attempt: {requested_path}",
                     request.remote_addr or "unknown",
                 )
-        except (RuntimeError, OSError, ValueError) as e:
+        except (RuntimeError, OSError) as e:
             self.app.logger.error(f"Path error: {str(e)} for path: {requested_path}")
 
         return None
@@ -1109,6 +1055,7 @@ class MediaRelayServer:
     def run(self) -> None:
         """Start the production server"""
         self._start_time = time.time()
+        self._start_lockout_cleanup()
 
         # Verify video directory exists
         video_dir = Path(self.config.video_directory)
@@ -1159,7 +1106,7 @@ class MediaRelayServer:
     "--generate-config", is_flag=True, help="Generate sample configuration file"
 )
 def main(
-    config_file: str | None,  # pylint: disable=unused-argument
+    config_file: str | None,
     host: str | None,
     port: int | None,
     debug: bool,
@@ -1174,10 +1121,9 @@ def main(
         return
 
     try:
-        # Load configuration
-        config = load_config()
+        env_path = Path(config_file) if config_file else None
+        config = load_config(env_path)
 
-        # Override with command line arguments
         if host:
             config.host = host
         if port:
@@ -1185,8 +1131,9 @@ def main(
         if debug:
             config.debug = True
 
-        # Create and run server
         server = MediaRelayServer(config)
+        if debug:
+            server.app.config["DEBUG"] = True
         server.run()
 
     except ValueError as e:

@@ -4,6 +4,7 @@ Pytest configuration and shared fixtures
 Common test fixtures and configuration for the entire test suite.
 """
 
+import base64
 import os
 import shutil
 import tempfile
@@ -59,6 +60,7 @@ def test_config(temp_video_dir: Path, temp_log_dir: Path) -> ServerConfig:
     os.environ["VIDEO_SERVER_PORT"] = "5001"  # Use test port
     os.environ["VIDEO_SERVER_USERNAME"] = "testuser"
     os.environ["VIDEO_SERVER_PASSWORD_HASH"] = generate_password_hash("testpass")
+    os.environ["VIDEO_SERVER_SECRET_KEY"] = "test-secret-key-for-unit-tests-32chars"
     os.environ["VIDEO_SERVER_DIRECTORY"] = str(temp_video_dir)
     os.environ["VIDEO_SERVER_LOG_DIR"] = str(temp_log_dir)
     os.environ["VIDEO_SERVER_DEBUG"] = "true"
@@ -87,8 +89,6 @@ def test_client(test_server: MediaRelayServer):
 @pytest.fixture
 def authenticated_client(test_client, test_config: ServerConfig):
     """Create an authenticated test client"""
-    import base64
-
     credentials = base64.b64encode(
         f"{test_config.username}:testpass".encode("utf-8")
     ).decode("utf-8")

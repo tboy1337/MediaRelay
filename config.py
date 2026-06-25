@@ -11,14 +11,72 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+_PLACEHOLDER_SECRET_KEYS = frozenset(
+    {"", "your-secret-key-here", "change-me", "changeme"}
+)
+_VALID_SAMESITE_VALUES = frozenset({"Strict", "Lax", "None"})
+
 
 def _get_default_video_directory() -> str:
     """Get default video directory, with fallback if home cannot be determined"""
     try:
         return str(Path.home() / "Videos")
     except (RuntimeError, OSError):
-        # Fallback if home directory cannot be determined (e.g., in tests)
         return "./videos"
+
+
+def _parse_int_env(
+    name: str,
+    default: str,
+    *,
+    min_val: int | None = None,
+    max_val: int | None = None,
+) -> int:
+    """Parse an integer environment variable with validation."""
+    raw = os.getenv(name, default)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be an integer, got {raw!r}") from exc
+
+    if min_val is not None and value < min_val:
+        raise ValueError(f"{name} must be at least {min_val}, got {value}")
+    if max_val is not None and value > max_val:
+        raise ValueError(f"{name} must be at most {max_val}, got {value}")
+    return value
+
+
+def _parse_bool_env(name: str, default: str) -> bool:
+    """Parse a boolean environment variable."""
+    return os.getenv(name, default).lower() in ("true", "yes", "1", "on")
+
+
+def _parse_samesite(value: str) -> str:
+    """Validate SameSite cookie attribute value."""
+    if value not in _VALID_SAMESITE_VALUES:
+        raise ValueError(
+            f"VIDEO_SERVER_SESSION_COOKIE_SAMESITE must be one of "
+            f"{sorted(_VALID_SAMESITE_VALUES)}, got {value!r}"
+        )
+    return value
+
+
+def _default_security_headers() -> dict[str, str]:
+    """Return security headers applied to every response (HSTS added conditionally)."""
+    return {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "SAMEORIGIN",
+        "X-XSS-Protection": "1; mode=block",
+        "Content-Security-Policy": (
+            "default-src 'self'; media-src 'self'; style-src 'self' 'unsafe-inline'"
+        ),
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "Permissions-Policy": (
+            "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+            "magnetometer=(), microphone=(), payment=(), usb=()"
+        ),
+        "X-Permitted-Cross-Domain-Policies": "none",
+    }
 
 
 @dataclass
@@ -32,14 +90,15 @@ class ServerConfig:
         default_factory=lambda: os.getenv("VIDEO_SERVER_HOST", "0.0.0.0")
     )  # nosec B104
     port: int = field(
-        default_factory=lambda: int(os.getenv("VIDEO_SERVER_PORT", "5000"))
+        default_factory=lambda: _parse_int_env(
+            "VIDEO_SERVER_PORT", "5000", min_val=1, max_val=65535
+        )
     )
     debug: bool = field(
-        default_factory=lambda: os.getenv("VIDEO_SERVER_DEBUG", "false").lower()
-        in ("true", "yes", "1", "on")
+        default_factory=lambda: _parse_bool_env("VIDEO_SERVER_DEBUG", "false")
     )
     threads: int = field(
-        default_factory=lambda: int(os.getenv("VIDEO_SERVER_THREADS", "6"))
+        default_factory=lambda: _parse_int_env("VIDEO_SERVER_THREADS", "6", min_val=1)
     )
 
     # Security Settings
@@ -55,7 +114,9 @@ class ServerConfig:
         default_factory=lambda: os.getenv("VIDEO_SERVER_PASSWORD_HASH", "")
     )
     session_timeout: int = field(
-        default_factory=lambda: int(os.getenv("VIDEO_SERVER_SESSION_TIMEOUT", "3600"))
+        default_factory=lambda: _parse_int_env(
+            "VIDEO_SERVER_SESSION_TIMEOUT", "3600", min_val=1
+        )
     )
 
     # Directory Settings
@@ -94,61 +155,53 @@ class ServerConfig:
         )
     )
     max_file_size: int = field(
-        default_factory=lambda: int(
-            os.getenv("VIDEO_SERVER_MAX_FILE_SIZE", "21474836480")
+        default_factory=lambda: _parse_int_env(
+            "VIDEO_SERVER_MAX_FILE_SIZE", "21474836480"
         )
-    )  # 20GB default
+    )
 
     # Logging Settings
     log_level: str = field(
         default_factory=lambda: os.getenv("VIDEO_SERVER_LOG_LEVEL", "INFO")
     )
     log_max_bytes: int = field(
-        default_factory=lambda: int(os.getenv("VIDEO_SERVER_LOG_MAX_BYTES", "10485760"))
-    )  # 10MB
+        default_factory=lambda: _parse_int_env(
+            "VIDEO_SERVER_LOG_MAX_BYTES", "10485760", min_val=1
+        )
+    )
     log_backup_count: int = field(
-        default_factory=lambda: int(os.getenv("VIDEO_SERVER_LOG_BACKUP_COUNT", "5"))
+        default_factory=lambda: _parse_int_env(
+            "VIDEO_SERVER_LOG_BACKUP_COUNT", "5", min_val=0
+        )
     )
 
     # Rate Limiting
     rate_limit_enabled: bool = field(
-        default_factory=lambda: os.getenv("VIDEO_SERVER_RATE_LIMIT", "true").lower()
-        == "true"
+        default_factory=lambda: _parse_bool_env("VIDEO_SERVER_RATE_LIMIT", "true")
     )
     rate_limit_per_minute: int = field(
-        default_factory=lambda: int(os.getenv("VIDEO_SERVER_RATE_LIMIT_PER_MIN", "60"))
+        default_factory=lambda: _parse_int_env(
+            "VIDEO_SERVER_RATE_LIMIT_PER_MIN", "60", min_val=1
+        )
     )
 
-    # Security Headers
-    security_headers: dict[str, str] = field(
-        default_factory=lambda: {
-            "X-Content-Type-Options": "nosniff",
-            "X-Frame-Options": "SAMEORIGIN",
-            "X-XSS-Protection": "1; mode=block",
-            "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
-            "Content-Security-Policy": "default-src 'self'; media-src 'self'; style-src 'self' 'unsafe-inline'",
-            "Referrer-Policy": "strict-origin-when-cross-origin",
-            "Permissions-Policy": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
-            "X-Permitted-Cross-Domain-Policies": "none",
-        }
-    )
+    # Security Headers (HSTS applied separately when session_cookie_secure is True)
+    security_headers: dict[str, str] = field(default_factory=_default_security_headers)
 
     # Session Cookie Settings
     session_cookie_secure: bool = field(
-        default_factory=lambda: os.getenv(
+        default_factory=lambda: _parse_bool_env(
             "VIDEO_SERVER_SESSION_COOKIE_SECURE", "true"
-        ).lower()
-        == "true"
+        )
     )
     session_cookie_httponly: bool = field(
-        default_factory=lambda: os.getenv(
+        default_factory=lambda: _parse_bool_env(
             "VIDEO_SERVER_SESSION_COOKIE_HTTPONLY", "true"
-        ).lower()
-        == "true"
+        )
     )
     session_cookie_samesite: str = field(
-        default_factory=lambda: os.getenv(
-            "VIDEO_SERVER_SESSION_COOKIE_SAMESITE", "Strict"
+        default_factory=lambda: _parse_samesite(
+            os.getenv("VIDEO_SERVER_SESSION_COOKIE_SAMESITE", "Strict")
         )
     )
 
@@ -158,7 +211,6 @@ class ServerConfig:
 
     def validate_config(self) -> None:
         """Validate configuration settings"""
-        # Validate video directory
         video_path = Path(self.video_directory)
         if not video_path.exists():
             raise ValueError(f"Video directory does not exist: {self.video_directory}")
@@ -167,27 +219,27 @@ class ServerConfig:
                 f"Video directory path is not a directory: {self.video_directory}"
             )
 
-        # Validate password hash
         if not self.password_hash:
             raise ValueError(
                 "PASSWORD_HASH must be set. Run generate_password.py to create one."
             )
 
-        # Validate port range
         if not (1 <= self.port <= 65535):
             raise ValueError(f"Port must be between 1 and 65535, got: {self.port}")
 
-        # Validate thread count
         if self.threads < 1:
             raise ValueError(f"Thread count must be at least 1, got: {self.threads}")
 
-        # Create log directory if it doesn't exist
+        if self.is_production():
+            env_secret = os.getenv("VIDEO_SERVER_SECRET_KEY", "")
+            if env_secret.strip() in _PLACEHOLDER_SECRET_KEYS:
+                raise ValueError(
+                    "VIDEO_SERVER_SECRET_KEY must be set to a secure value in "
+                    "production. Run generate_password.py to create one."
+                )
+
         log_path = Path(self.log_directory)
         log_path.mkdir(parents=True, exist_ok=True)
-
-    def get_database_url(self) -> str | None:
-        """Get database URL if configured (for future use)"""
-        return os.getenv("DATABASE_URL")
 
     def is_production(self) -> bool:
         """Check if running in production environment"""
@@ -195,7 +247,7 @@ class ServerConfig:
 
     def to_dict(self) -> dict[str, Any]:  # type: ignore[explicit-any]
         """Convert config to dictionary (excluding sensitive data)"""
-        config_dict = {
+        return {
             "host": self.host,
             "port": self.port,
             "debug": self.debug,
@@ -209,22 +261,31 @@ class ServerConfig:
             "log_level": self.log_level,
             "rate_limit_enabled": self.rate_limit_enabled,
             "rate_limit_per_minute": self.rate_limit_per_minute,
+            "session_cookie_secure": self.session_cookie_secure,
+            "session_cookie_httponly": self.session_cookie_httponly,
+            "session_cookie_samesite": self.session_cookie_samesite,
             "is_production": self.is_production(),
         }
-        return config_dict
 
 
-def load_config() -> ServerConfig:
-    """Load configuration from environment variables and return ServerConfig instance"""
-    # Try to load .env file if it exists
+def load_config(config_file: Path | None = None) -> ServerConfig:
+    """Load configuration from environment variables and return ServerConfig instance."""
     try:
         from dotenv import load_dotenv
 
-        env_file = Path(".env")
-        if env_file.exists():
-            load_dotenv(env_file)
+        if config_file is not None:
+            if not config_file.exists():
+                raise ValueError(f"Configuration file not found: {config_file}")
+            load_dotenv(config_file, override=True)
+        else:
+            env_file = Path(".env")
+            if env_file.exists():
+                load_dotenv(env_file)
     except ImportError:
-        pass  # dotenv not available, continue without it
+        if config_file is not None:
+            raise ValueError(
+                "python-dotenv is required to load a configuration file"
+            ) from None
 
     return ServerConfig()
 
@@ -245,6 +306,11 @@ VIDEO_SERVER_SECRET_KEY=your-secret-key-here
 VIDEO_SERVER_USERNAME=tboy1337
 VIDEO_SERVER_PASSWORD_HASH=your-password-hash-here
 VIDEO_SERVER_SESSION_TIMEOUT=3600
+
+# Session Cookie Settings
+VIDEO_SERVER_SESSION_COOKIE_SECURE=true
+VIDEO_SERVER_SESSION_COOKIE_HTTPONLY=true
+VIDEO_SERVER_SESSION_COOKIE_SAMESITE=Strict
 
 # Directory Settings
 VIDEO_SERVER_DIRECTORY=/path/to/your/videos
@@ -276,5 +342,4 @@ FLASK_ENV=production
 
 
 if __name__ == "__main__":
-    # Create sample .env file when run directly
     create_sample_env_file()

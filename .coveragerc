@@ -50,9 +50,6 @@ omit =
     pyscript
     shibokensupport/*
     signature_bootstrap.py
-    
-    # Validation script that's not part of main functionality
-    validate_setup.py
 
 # Enable branch coverage
 branch = True

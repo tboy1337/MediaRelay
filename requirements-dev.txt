@@ -3,10 +3,8 @@
 
 # Core Testing Framework
 pytest
-pytest-asyncio
 pytest-timeout
 pytest-xdist
-pytest-mock
 
 # Test Coverage and Reporting
 pytest-cov
@@ -15,13 +13,13 @@ pytest-json-report
 
 # Framework-Specific Testing
 pytest-flask
-pytest-httpx
 
 # Code Quality and Linting
 pylint
 mypy
 black
 isort
+bandit
 
 # Type Stubs for External Libraries
 types-psutil

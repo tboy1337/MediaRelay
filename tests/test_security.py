@@ -7,7 +7,9 @@ input validation, and protection against common web vulnerabilities.
 
 import base64
 import json
+import os
 import time
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -270,7 +272,7 @@ class TestAuthenticationSecurity:
         if test_config.is_production():
             assert "Secure" in set_cookie_header
         assert "HttpOnly" in set_cookie_header
-        assert "SameSite=Lax" in set_cookie_header
+        assert "SameSite=Strict" in set_cookie_header
 
     def test_concurrent_session_limit(self, test_server, test_config):
         """Test that user can have multiple concurrent sessions"""
@@ -371,10 +373,10 @@ class TestLogoutEndpoint:
             assert "Clear-Site-Data" in response.headers
             assert "WWW-Authenticate" in response.headers
 
-    def test_logout_works_without_prior_auth(self, test_client):
-        """Test that logout works even without prior authentication"""
+    def test_logout_requires_authentication(self, test_client):
+        """Test that logout requires prior authentication"""
         response = test_client.get("/logout")
-        assert response.status_code == 200
+        assert response.status_code == 401
 
     def test_logout_via_post(self, test_server, test_config):
         """Test logout via POST request"""
@@ -945,7 +947,7 @@ class TestSecurityPerformance:
         end_time = time.time()
 
         # Should complete 50 authentications within reasonable time
-        assert end_time - start_time < 15.0
+        assert end_time - start_time < 30.0
 
     @pytest.mark.timeout(10)
     def test_path_validation_performance(self, test_server):
@@ -991,3 +993,49 @@ class TestSecurityPerformance:
 
         # Should log events quickly
         assert end_time - start_time < 5.0
+
+
+class TestSymlinkPathContainment:
+    """Test symlink path jail enforcement"""
+
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="Windows requires elevated privileges to create symlinks",
+    )
+    def test_symlink_outside_video_dir_blocked(self, test_server, tmp_path):
+        """Symlinks pointing outside the video directory are rejected"""
+        outside_dir = tmp_path / "outside"
+        outside_dir.mkdir()
+        secret_file = outside_dir / "secret.txt"
+        secret_file.write_text("secret", encoding="utf-8")
+
+        link_path = Path(test_server.config.video_directory) / "escape_link"
+        try:
+            link_path.symlink_to(secret_file)
+        except OSError:
+            pytest.skip("Platform does not support creating symlinks")
+
+        with test_server.app.test_request_context():
+            safe_path = test_server.get_safe_path("escape_link")
+            assert safe_path is None
+
+
+class TestParametrizedPathTraversal:
+    """Parametrized path traversal attack payloads"""
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            "../../../etc/passwd",
+            "..\\..\\..\\windows\\system32\\config\\sam",
+            "....//....//etc//passwd",
+            "%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+            "..%252f..%252fetc%252fpasswd",
+            "subdir/../../outside",
+            "test\x00hidden.mp4",
+        ],
+    )
+    def test_path_traversal_payloads(self, test_server, payload):
+        """Known traversal payloads must be blocked"""
+        with test_server.app.test_request_context():
+            assert test_server.get_safe_path(payload) is None

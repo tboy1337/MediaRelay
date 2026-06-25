@@ -9,14 +9,14 @@ This guide covers production deployment of the Video Streaming Server with compr
 ### System Requirements
 
 - **Operating System**: Windows 10+, macOS 10.15+, or Linux (Ubuntu 20.04+ recommended)
-- **Python**: 3.10 or higher
+- **Python**: 3.12 or higher
 - **Memory**: Minimum 2GB RAM, 4GB+ recommended for production
 - **Storage**: 1GB for application, additional space for video content
 - **Network**: Stable internet connection for remote access
 
 ### Required Software
 
-- Python 3.10+ with pip
+- Python 3.12+ with pip
 - Git (for version control)
 - A text editor or IDE
 - Web browser for testing
@@ -73,6 +73,11 @@ VIDEO_SERVER_USERNAME=your-username
 VIDEO_SERVER_PASSWORD_HASH=your-password-hash
 VIDEO_SERVER_SESSION_TIMEOUT=3600
 
+# Session Cookie Settings
+VIDEO_SERVER_SESSION_COOKIE_SECURE=true
+VIDEO_SERVER_SESSION_COOKIE_HTTPONLY=true
+VIDEO_SERVER_SESSION_COOKIE_SAMESITE=Strict
+
 # Directory Settings
 VIDEO_SERVER_DIRECTORY=/path/to/your/videos
 VIDEO_SERVER_LOG_DIR=./logs
@@ -101,6 +106,23 @@ python generate_password.py
 ```
 
 Follow the prompts to generate a secure password hash and update your `.env` file.
+
+#### Pre-Flight Validation
+
+Before starting the server in production, validate your configuration:
+
+```bash
+# Validate default .env in current directory
+python validate_setup.py
+
+# Or validate a specific config file
+python validate_setup.py --config-file /path/to/.env
+
+# Console script (after pip install)
+mediarelay-validate
+```
+
+The validator checks password hash format, secret key presence, video/log directory permissions, and port range. Fix any reported errors before deployment.
 
 ### 3. Directory Structure
 

@@ -29,14 +29,13 @@ A video streaming server that allows you to securely share your personal video l
 ### 🛠️ Advanced Features
 - **Environment Configuration**: Full environment variable support
 - **100% Test Coverage**: Comprehensive test suite with security tests
-- **Docker Support**: Easy deployment with Docker
 - **Service Management**: System service configurations for Windows and Linux
 - **Log Rotation**: Automatic log rotation and archival
 - **API Support**: RESTful JSON API for integration
 
 ## 📋 Requirements
 
-- **Python**: 3.10 or higher
+- **Python**: 3.12 or higher
 - **Operating System**: Windows 10+, macOS 10.15+, or Linux (Ubuntu 20.04+ recommended)
 - **Memory**: Minimum 2GB RAM, 4GB+ recommended for optimal performance
 - **Storage**: 1GB for application, additional space for video content
@@ -143,6 +142,11 @@ Once the server is running, you can access it in your web browser at:
 
 4. **Configure other settings** as needed (video directory, port, etc.)
 
+5. **Validate configuration before production deployment**:
+   ```bash
+   python validate_setup.py
+   ```
+
 #### Key Environment Variables
 
 ```bash
@@ -161,6 +165,11 @@ VIDEO_SERVER_SECRET_KEY=your_secret_key                # Generated Flask secret 
 VIDEO_SERVER_RATE_LIMIT_PER_MIN=60
 VIDEO_SERVER_SESSION_TIMEOUT=3600
 VIDEO_SERVER_MAX_FILE_SIZE=21474836480  # 20GB default, set to 0 to disable
+
+# Session Cookies (set Secure=true when serving over HTTPS)
+VIDEO_SERVER_SESSION_COOKIE_SECURE=true
+VIDEO_SERVER_SESSION_COOKIE_HTTPONLY=true
+VIDEO_SERVER_SESSION_COOKIE_SAMESITE=Strict
 
 # Logging
 VIDEO_SERVER_LOG_LEVEL=INFO
@@ -182,7 +191,7 @@ HTTP_BASIC_AUTH + SESSION_MANAGEMENT + CSRF_PROTECTION
 X-Content-Type-Options: nosniff
 X-Frame-Options: SAMEORIGIN  
 X-XSS-Protection: 1; mode=block
-Strict-Transport-Security: max-age=31536000
+Strict-Transport-Security: max-age=31536000  # Only when SESSION_COOKIE_SECURE=true
 Content-Security-Policy: default-src 'self'
 ```
 

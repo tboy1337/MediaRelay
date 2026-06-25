@@ -561,3 +561,30 @@ class TestGeneratePasswordCompleteEdgeCases:
                         mock_secret.return_value = "test_secret_key"
                         generate_password.main()
                         assert mock_print.call_count >= 4
+
+
+class TestParametrizedPasswordGeneration:
+    """Parametrized edge-case tests for password generation"""
+
+    @pytest.mark.parametrize("length", [12, 16, 24, 32, 64])
+    def test_password_length(self, length):
+        """Generated passwords meet requested length"""
+        from generate_password import generate_strong_password
+
+        password = generate_strong_password(length)
+        assert len(password) == length
+
+    @pytest.mark.parametrize("length", [8, 12, 16])
+    def test_secret_key_length(self, length):
+        """Generated secret keys meet requested byte length"""
+        from generate_password import generate_flask_secret_key
+
+        key = generate_flask_secret_key(length)
+        assert len(key) == length * 2
+
+    def test_password_uniqueness(self):
+        """Successive passwords are not identical"""
+        from generate_password import generate_strong_password
+
+        passwords = {generate_strong_password(16) for _ in range(20)}
+        assert len(passwords) > 1

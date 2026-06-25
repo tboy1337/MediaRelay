@@ -47,7 +47,7 @@ class TestConfigErrorHandling:
                 },
             ):
                 with pytest.raises(
-                    ValueError, match="Port must be between 1 and 65535"
+                    ValueError, match="VIDEO_SERVER_PORT must be at least 1"
                 ):
                     ServerConfig()
 
@@ -61,7 +61,7 @@ class TestConfigErrorHandling:
                 },
             ):
                 with pytest.raises(
-                    ValueError, match="Port must be between 1 and 65535"
+                    ValueError, match="VIDEO_SERVER_PORT must be at most 65535"
                 ):
                     ServerConfig()
 
@@ -76,14 +76,10 @@ class TestConfigErrorHandling:
                     "VIDEO_SERVER_DIRECTORY": temp_dir,
                 },
             ):
-                # Should handle invalid int conversion gracefully
-                try:
-                    config = ServerConfig()
-                    # Should fall back to default
-                    assert config.log_max_bytes == 10485760  # 10MB default
-                except ValueError:
-                    # Or raise appropriate error
-                    pass
+                with pytest.raises(
+                    ValueError, match="VIDEO_SERVER_LOG_MAX_BYTES must be an integer"
+                ):
+                    ServerConfig()
 
 
 class TestServerErrorHandling:
