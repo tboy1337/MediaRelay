@@ -148,10 +148,14 @@ def register_routes(server: MediaRelayServer) -> None:
         """Handle directory listing and video playback pages."""
         return handle_index_request(server, subpath)
 
-    @server.app.route("/stream/<path:video_path>")
-    def stream(video_path: str) -> Response | tuple[str, int]:
+    def _stream_handler(video_path: str) -> Response | tuple[str, int]:
         """Stream video files with range support."""
         return handle_stream_request(server, video_path)
+
+    if server.limiter is not None:
+        _stream_handler = server.limiter.exempt(_stream_handler)
+
+    server.app.route("/stream/<path:video_path>")(_stream_handler)
 
     @server.app.route("/api/files")
     def api_files() -> Response | tuple[Response, int]:

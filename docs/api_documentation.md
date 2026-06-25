@@ -175,7 +175,7 @@ Stream video files with range request support.
 
 **Endpoint**: `GET /stream/<path:video_path>`
 **Authentication**: Required
-**Rate Limit**: 60 requests/minute
+**Rate Limit**: Exempt (not counted toward per-IP limit; supports range seeking)
 
 #### Request
 ```http
@@ -319,8 +319,8 @@ Common plain-text responses:
 The API implements rate limiting to prevent abuse.
 
 ### Default Limits
-- **All endpoints (including `/health`)**: 60 requests per minute per IP (configurable via `VIDEO_SERVER_RATE_LIMIT_PER_MIN`)
-- **Streaming endpoints**: Same global per-IP limit
+- **Browsing, API, health, and auth routes**: 60 requests per minute per IP (configurable via `VIDEO_SERVER_RATE_LIMIT_PER_MIN`)
+- **Streaming (`/stream/`)**: Exempt from rate limiting to support range requests during playback
 
 ### Rate Limit Headers
 ```http

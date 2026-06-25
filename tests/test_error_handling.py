@@ -317,6 +317,34 @@ class TestFileSystemErrorHandling:
                         result = handle_index_request(test_server, "")
         assert result == ("Error reading directory", 500)
 
+    def test_index_handler_parent_path_value_error_fallback(
+        self, test_server, test_config
+    ):
+        """Index handler falls back to root parent path when relative_to fails."""
+        import base64
+
+        auth = base64.b64encode(b"testuser:testpass").decode()
+        safe_path = Path(test_config.video_directory) / "subdir"
+        safe_path.mkdir(exist_ok=True)
+        video_root = Path(test_config.video_directory)
+
+        with test_server.app.test_request_context(
+            "/subdir",
+            method="GET",
+            headers={"Authorization": f"Basic {auth}"},
+        ):
+            with patch.object(test_server, "check_authentication", return_value=True):
+                with patch("mediarelay.handlers.get_safe_path", return_value=safe_path):
+                    with patch.object(
+                        Path,
+                        "relative_to",
+                        side_effect=ValueError("outside jail"),
+                    ):
+                        result = handle_index_request(test_server, "subdir")
+
+        assert isinstance(result, str)
+        assert 'href="/"' in result
+
 
 class TestHandlerErrorPaths:
     """Tests for handler 500 error responses."""

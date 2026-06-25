@@ -92,6 +92,12 @@ def check_authentication(
     if session.get("authenticated"):  # type: ignore[misc]
         last_activity = session.get("last_activity", 0)  # type: ignore[misc]
         if current_time - last_activity <= server.config.session_timeout:  # type: ignore[misc]
+            login_time = session.get("login_time")  # type: ignore[misc]
+            if login_time is not None and (
+                current_time - login_time > server.config.session_max_lifetime  # type: ignore[misc]
+            ):
+                session.clear()
+                return False
             login_ip = session.get("login_ip")  # type: ignore[misc]
             client_ip = server.get_client_ip()
             if login_ip and login_ip != client_ip:

@@ -1167,6 +1167,21 @@ class TestConfigProductionAuditEdgeCases:
             with pytest.raises(ValueError, match="SESSION_COOKIE_SAMESITE"):
                 ServerConfig()
 
+    def test_samesite_none_requires_secure_cookie(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+                "VIDEO_SERVER_SESSION_COOKIE_SAMESITE": "None",
+                "VIDEO_SERVER_SESSION_COOKIE_SECURE": "false",
+            },
+        ):
+            with pytest.raises(ValueError, match="SAMESITE=None requires"):
+                ServerConfig()
+
     def test_load_config_default_env_file(self, tmp_path: Path, monkeypatch) -> None:
         video_dir = tmp_path / "videos"
         video_dir.mkdir()

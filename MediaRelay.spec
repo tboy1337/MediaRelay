@@ -14,6 +14,10 @@ a = Analysis(
     datas=[],
     hiddenimports=[
         "mediarelay",
+        "mediarelay.server",
+        "mediarelay.auth",
+        "mediarelay.routes",
+        "mediarelay.error_handlers",
         "mediarelay.config",
         "mediarelay.constants",
         "mediarelay.handlers",

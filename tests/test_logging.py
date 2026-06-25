@@ -736,6 +736,27 @@ class TestLoggingErrorHandling:
             if line:
                 json.loads(line)  # Should not raise exception
 
+    def test_cleanup_logging_ignores_invalid_component_types(self) -> None:
+        """cleanup_logging skips components that are not the expected types."""
+        cleanup_logging(
+            {
+                "security_logger": "invalid",
+                "performance_logger": None,
+                "root_logger": object(),
+            }
+        )
+
+    def test_log_system_info_psutil_failure_fallback(
+        self, test_config, tmp_path
+    ) -> None:
+        """log_system_info uses fallback values when psutil raises OSError."""
+        test_config.log_directory = str(tmp_path)
+        with patch(
+            "mediarelay.logging_config.psutil.disk_usage",
+            side_effect=OSError("disk unavailable"),
+        ):
+            log_system_info(test_config)
+
 
 class TestLoggingErrorScenarios:
     """Test logging in error scenarios"""

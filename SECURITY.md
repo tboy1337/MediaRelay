@@ -34,6 +34,8 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 - Password verification on every login attempt (mitigates username timing enumeration)
 - Account lockout after repeated failed attempts (per IP + username)
 - Session invalidation on client IP change
+- Idle session timeout (`VIDEO_SERVER_SESSION_TIMEOUT`) and absolute max lifetime (`VIDEO_SERVER_SESSION_MAX_LIFETIME`)
+- `SameSite=None` requires `VIDEO_SERVER_SESSION_COOKIE_SECURE=true` at startup
 
 ### Path Access
 
@@ -43,9 +45,11 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 
 ### Network Controls
 
-- Configurable per-IP rate limiting (in-memory, single-process)
+- Configurable per-IP rate limiting (in-memory, single-process) on browsing and API routes
+- `/stream/` is exempt from rate limiting so video range requests are not throttled during seeking
 - Security headers on all responses (CSP, X-Frame-Options, etc.)
 - HSTS when `VIDEO_SERVER_SESSION_COOKIE_SECURE=true`
+- HTML UI output uses Jinja2 autoescape for filenames and paths rendered in templates
 
 ### Audit Logging
 

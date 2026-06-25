@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from click.testing import CliRunner
 from flask import session
+from werkzeug.security import generate_password_hash
 
 from mediarelay.config import ServerConfig
 from mediarelay.handlers import handle_index_request
@@ -201,6 +202,7 @@ class TestAuthentication:
         with test_server.app.test_request_context():
             session["authenticated"] = True
             session["last_activity"] = time.time()
+            session["login_time"] = time.time()
             assert test_server.check_authentication() is True
 
     def test_check_authentication_http_auth(self, test_server, test_config):
@@ -995,6 +997,34 @@ class TestErrorHandlers:
             assert response.status_code == 429
             assert b"Rate Limit Exceeded" in response.data
 
+    def test_stream_route_exempt_from_rate_limit(self, tmp_path: Path) -> None:
+        """Stream endpoint is exempt from rate limiting to support range requests."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        (video_dir / "test.mp4").write_text("fake video content")
+
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash=generate_password_hash("testpass"),
+            username="testuser",
+            rate_limit_enabled=True,
+            rate_limit_per_minute=2,
+        )
+        server = MediaRelayServer(config)
+        server.app.config["TESTING"] = True
+
+        credentials = base64.b64encode(b"testuser:testpass").decode("utf-8")
+        auth_header = {"Authorization": f"Basic {credentials}"}
+
+        with server.app.test_client() as client:
+            for _ in range(5):
+                response = client.get("/stream/test.mp4", headers=auth_header)
+                assert response.status_code == 200
+
+            assert client.get("/health").status_code == 200
+            assert client.get("/health").status_code == 200
+            assert client.get("/health").status_code == 429
+
     def test_bad_request_error_handler(self, test_server):
         """Test 400 error handler"""
         from werkzeug.exceptions import BadRequest
@@ -1268,6 +1298,26 @@ class TestGracefulShutdown:
             with patch("mediarelay.server.signal.signal", side_effect=capture_signal):
                 with patch.object(server, "_shutdown_cleanup"):
                     server.run()
+
+    def test_lockout_cleanup_reschedules_after_failure(self, test_config):
+        """Lockout cleanup timer reschedules even when cleanup_expired fails."""
+        server = MediaRelayServer(test_config)
+        with patch.object(
+            server.lockout_manager,
+            "cleanup_expired",
+            side_effect=RuntimeError("cleanup failed"),
+        ):
+            with patch.object(
+                server, "_schedule_next_lockout_cleanup"
+            ) as mock_schedule:
+                server._run_lockout_cleanup()
+        mock_schedule.assert_called_once()
+
+    def test_stop_lockout_cleanup_without_active_timer(self, test_config):
+        """Stopping lockout cleanup is safe when no timer is scheduled."""
+        server = MediaRelayServer(test_config)
+        server._lockout_cleanup_timer = None
+        server._stop_lockout_cleanup()
 
 
 class TestVideoMimeTypeInPlayer:

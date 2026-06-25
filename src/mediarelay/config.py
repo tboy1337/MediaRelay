@@ -159,6 +159,11 @@ class ServerConfig:
             "VIDEO_SERVER_SESSION_TIMEOUT", "3600", min_val=1
         )
     )
+    session_max_lifetime: int = field(
+        default_factory=lambda: _parse_int_env(
+            "VIDEO_SERVER_SESSION_MAX_LIFETIME", "86400", min_val=1
+        )
+    )
     lockout_max_attempts: int = field(
         default_factory=lambda: _parse_int_env(
             "VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS", "5", min_val=1
@@ -294,6 +299,12 @@ class ServerConfig:
         if self.threads < 1:
             raise ValueError(f"Thread count must be at least 1, got: {self.threads}")
 
+        if self.session_cookie_samesite == "None" and not self.session_cookie_secure:
+            raise ValueError(
+                "VIDEO_SERVER_SESSION_COOKIE_SAMESITE=None requires "
+                "VIDEO_SERVER_SESSION_COOKIE_SECURE=true"
+            )
+
         if self.is_production():
             if self.debug:
                 raise ValueError(
@@ -346,6 +357,7 @@ class ServerConfig:
             "page_size": self.page_size,
             "username": self.username,
             "session_timeout": self.session_timeout,
+            "session_max_lifetime": self.session_max_lifetime,
             "lockout_max_attempts": self.lockout_max_attempts,
             "lockout_duration": self.lockout_duration,
             "video_directory": self.video_directory,
@@ -416,6 +428,7 @@ VIDEO_SERVER_SECRET_KEY=your-secret-key-here
 VIDEO_SERVER_USERNAME=tboy1337
 VIDEO_SERVER_PASSWORD_HASH=your-password-hash-here
 VIDEO_SERVER_SESSION_TIMEOUT=3600
+VIDEO_SERVER_SESSION_MAX_LIFETIME=86400
 VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS=5
 VIDEO_SERVER_LOCKOUT_DURATION=900
 

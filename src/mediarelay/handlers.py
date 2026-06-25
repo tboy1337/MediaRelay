@@ -10,14 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
-from flask import (
-    Response,
-    jsonify,
-    render_template_string,
-    request,
-    send_from_directory,
-    session,
-)
+from flask import Response, jsonify, request, send_from_directory, session
 
 from .path_utils import (
     get_breadcrumbs,
@@ -25,7 +18,7 @@ from .path_utils import (
     guess_media_mime_type,
     is_audio_file,
 )
-from .templates import INDEX_HTML_TEMPLATE
+from .templates import render_index_template
 
 if TYPE_CHECKING:
     from .server import MediaRelayServer
@@ -219,8 +212,7 @@ def handle_index_request(
 
             media_kind = "audio" if is_audio_file(safe_path.name) else "video"
 
-            return render_template_string(
-                INDEX_HTML_TEMPLATE,
+            return render_index_template(
                 video_file=safe_path.name,
                 video_path=str(relative_path).replace("\\", "/"),
                 video_mime_type=guess_media_mime_type(safe_path.name),
@@ -275,8 +267,7 @@ def handle_index_request(
         except ValueError:
             parent_path = "/"
 
-    return render_template_string(
-        INDEX_HTML_TEMPLATE,
+    return render_index_template(
         items=pagination.items,
         is_root=is_root,
         parent_path=parent_path,

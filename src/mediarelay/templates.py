@@ -1,5 +1,15 @@
 """HTML templates for the MediaRelay web UI."""
 
+from jinja2 import Environment, select_autoescape
+
+_jinja_env = Environment(autoescape=select_autoescape(enabled_extensions=("html",)))
+
+
+def render_index_template(**context: object) -> str:
+    """Render the index HTML template with autoescaped user-controlled values."""
+    return _jinja_env.from_string(INDEX_HTML_TEMPLATE).render(**context)
+
+
 INDEX_HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">

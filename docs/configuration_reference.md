@@ -23,11 +23,12 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 | `VIDEO_SERVER_USERNAME` | `tboy1337` | HTTP Basic Auth username. |
 | `VIDEO_SERVER_PASSWORD_HASH` | *(empty)* | Werkzeug PBKDF2 hash. **Required.** Generate with `mediarelay-genpass`. |
 | `VIDEO_SERVER_SESSION_TIMEOUT` | `3600` | Session idle timeout in seconds. |
+| `VIDEO_SERVER_SESSION_MAX_LIFETIME` | `86400` | Absolute session lifetime in seconds from login (default 24 hours). |
 | `VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS` | `5` | Failed logins before lockout. |
 | `VIDEO_SERVER_LOCKOUT_DURATION` | `900` | Lockout duration in seconds (minimum 60). |
 | `VIDEO_SERVER_SESSION_COOKIE_SECURE` | `true` | Send session cookies only over HTTPS. |
 | `VIDEO_SERVER_SESSION_COOKIE_HTTPONLY` | `true` | Prevent JavaScript access to session cookies. |
-| `VIDEO_SERVER_SESSION_COOKIE_SAMESITE` | `Strict` | SameSite policy: `Strict`, `Lax`, or `None`. |
+| `VIDEO_SERVER_SESSION_COOKIE_SAMESITE` | `Strict` | SameSite policy: `Strict`, `Lax`, or `None`. `None` requires `SESSION_COOKIE_SECURE=true`. |
 | `VIDEO_SERVER_BEHIND_PROXY` | `false` | Trust `X-Forwarded-*` headers. Enable only behind a trusted reverse proxy. |
 | `FLASK_ENV` | `development` | Set to `production` for deployment validation and stricter startup checks. |
 

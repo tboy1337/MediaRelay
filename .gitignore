@@ -33,7 +33,7 @@ MANIFEST
 # PyInstaller
 *.manifest
 *.spec
-!MediaRelay.spec
+!/MediaRelay.spec
 
 # Installer logs
 pip-log.txt

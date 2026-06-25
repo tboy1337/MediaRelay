@@ -12,6 +12,7 @@ import threading
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
+from urllib.parse import quote
 
 import pytest
 from flask import session
@@ -411,6 +412,27 @@ class TestAuthenticationSecurity:
         with test_client.session_transaction() as sess:
             assert sess.get("authenticated") is None
 
+    def test_session_max_lifetime_expires(self, test_client, test_config):
+        """Session is cleared when absolute max lifetime is exceeded."""
+        credentials = base64.b64encode(
+            f"{test_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+
+        response = test_client.get(
+            "/", headers={"Authorization": f"Basic {credentials}"}
+        )
+        assert response.status_code == 200
+
+        with test_client.session_transaction() as sess:
+            sess["login_time"] = time.time() - test_config.session_max_lifetime - 1
+            sess["last_activity"] = time.time()
+
+        response = test_client.get("/")
+        assert response.status_code == 401
+
+        with test_client.session_transaction() as sess:
+            assert sess.get("authenticated") is None
+
     def test_concurrent_sessions_allowed(self, test_server, test_config):
         """Test that multiple independent clients can hold sessions concurrently"""
         credentials = base64.b64encode(
@@ -802,32 +824,32 @@ class TestInputValidationSecurity:
 class TestInjectionAttackProtection:
     """Test cases for protection against injection attacks"""
 
+    @pytest.mark.parametrize(
+        "malicious_filename",
+        [
+            "<script>alert(1)</script>.mp4",
+            '"><img src=x onerror=alert(1)>.mp4',
+            "javascript-alert.mp4",
+        ],
+    )
     def test_xss_protection(
-        self, authenticated_client, temp_video_dir, security_test_payloads
+        self, authenticated_client, temp_video_dir, malicious_filename: str
     ):
-        """Test XSS protection in file names and paths"""
-        # Create files with XSS payloads in names
-        for i, payload in enumerate(
-            security_test_payloads["xss_payloads"][:3]
-        ):  # Limit to avoid timeout
-            try:
-                # Some XSS payloads might be invalid filenames
-                safe_filename = f"xss_test_{i}.mp4"
-                test_file = temp_video_dir / safe_filename
-                test_file.write_text("test content")
+        """Test XSS protection in file names rendered in HTML output."""
+        try:
+            test_file = temp_video_dir / malicious_filename
+            test_file.write_text("test content")
+        except (OSError, ValueError):
+            pytest.skip(f"Filesystem cannot create filename: {malicious_filename!r}")
 
-                # Access the file
-                response = authenticated_client.get(f"/{safe_filename}")
+        response = authenticated_client.get(f"/{quote(malicious_filename)}")
 
-                if response.status_code == 200:
-                    # Check that response doesn't contain unescaped payload
-                    response_text = response.data.decode("utf-8", errors="ignore")
-                    # Basic XSS patterns should be escaped or not present
-                    assert "<script>" not in response_text.lower()
-                    assert "javascript:" not in response_text.lower()
-            except (OSError, ValueError):
-                # Some payloads might not be valid filenames, which is fine
-                pass
+        assert response.status_code == 200
+        response_text = response.data.decode("utf-8", errors="ignore")
+        assert "<script>" not in response_text.lower()
+        assert "onerror=alert" not in response_text.lower()
+        if "<" in malicious_filename:
+            assert "&lt;" in response_text or malicious_filename not in response_text
 
     def test_command_injection_protection(self, authenticated_client):
         """Test protection against command injection in file paths"""
