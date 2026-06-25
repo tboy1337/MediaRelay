@@ -7,7 +7,6 @@ pytest-asyncio
 pytest-timeout
 pytest-xdist
 pytest-mock
-hypothesis
 
 # Test Coverage and Reporting
 pytest-cov
