@@ -120,6 +120,11 @@ class AccountLockoutManager:
                     tracker.lockout_until <= current_time
                     and current_time - tracker.last_attempt > self.lockout_duration
                 )
+                or (
+                    tracker.failed_attempts == 0
+                    and tracker.lockout_until <= 0
+                    and current_time - tracker.last_attempt > self.lockout_duration
+                )
             ]
             for key in keys_to_remove:
                 del self._trackers[key]

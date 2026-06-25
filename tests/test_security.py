@@ -107,20 +107,17 @@ class TestAccountLockoutManager:
         assert manager.is_locked_out("192.168.1.1", "user2") is False
 
     def test_cleanup_expired_entries(self) -> None:
-        """Test cleanup of expired lockout entries"""
-        manager = AccountLockoutManager(max_attempts=1, lockout_duration=0)
-
-        # Create an entry that's immediately expired
-        manager.record_failed_attempt("192.168.1.1", "testuser")
-
-        # The lockout should immediately expire (lockout_duration=0)
-        time.sleep(0.01)
-
-        # Reset the failed attempts to test cleanup
-        manager._trackers["192.168.1.1:testuser"].failed_attempts = 0
+        """Test cleanup of stale non-lockout tracker entries"""
+        manager = AccountLockoutManager(max_attempts=3, lockout_duration=1)
+        manager._trackers["192.168.1.1:testuser"] = LoginAttemptTracker(
+            failed_attempts=0,
+            lockout_until=0.0,
+            last_attempt=time.time() - 10,
+        )
 
         removed = manager.cleanup_expired()
-        assert removed >= 0  # May or may not have anything to clean up
+        assert removed == 1
+        assert "192.168.1.1:testuser" not in manager._trackers
 
     def test_lockout_expiry(self) -> None:
         """Test that lockout expires after duration"""
@@ -295,8 +292,8 @@ class TestAuthenticationSecurity:
         with test_client.session_transaction() as sess:
             assert sess.get("authenticated") is None
 
-    def test_concurrent_session_limit(self, test_server, test_config):
-        """Test that user can have multiple concurrent sessions"""
+    def test_concurrent_sessions_allowed(self, test_server, test_config):
+        """Test that multiple independent clients can hold sessions concurrently"""
         credentials = base64.b64encode(
             f"{test_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
@@ -859,7 +856,11 @@ class TestSecurityLogging:
         )
 
         security_log = tmp_path / "security.log"
-        log_content = security_log.read_text()
+        log_content = security_log.read_text().strip()
+        event = json.loads(log_content)
+        assert event["event_type"] == "security_violation"
+        assert event["violation_type"] == "test_violation"
+        assert event["ip_address"] == "192.168.1.100"
 
     def test_comprehensive_path_traversal_security_violations(
         self, test_server, tmp_path

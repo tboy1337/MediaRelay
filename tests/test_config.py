@@ -5,8 +5,11 @@ Tests for ServerConfig class and environment variable handling.
 Includes comprehensive tests for 100% coverage.
 """
 
+import builtins
 import os
+import sys
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -26,8 +29,6 @@ class TestDefaultVideoDirectoryFunction:
 
     def test_get_default_video_directory_normal(self):
         """Test _get_default_video_directory under normal conditions"""
-        import sys
-
         result = _get_default_video_directory()
 
         # Verify result is a string path
@@ -112,8 +113,13 @@ class TestServerConfig:
             {
                 "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
                 "VIDEO_SERVER_DIRECTORY": str(Path.home()),
+                "VIDEO_SERVER_USERNAME": "tboy1337",
             },
+            clear=False,
         ):
+            for key in list(os.environ):
+                if key == "VIDEO_SERVER_ALLOWED_EXTENSIONS" and not os.environ[key]:
+                    del os.environ[key]
             config = ServerConfig()
 
         assert config.host == "0.0.0.0"
@@ -310,23 +316,21 @@ class TestServerConfigEnvironmentVariables:
             assert config.allowed_extensions == expected_extensions
 
     def test_allowed_extensions_empty_environment(self, tmp_path):
-        """Test allowed_extensions with empty environment variable"""
+        """Test allowed_extensions rejects empty environment variable"""
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
 
         with patch.dict(
             os.environ,
             {
-                "VIDEO_SERVER_ALLOWED_EXTENSIONS": "",  # Empty string
+                "VIDEO_SERVER_ALLOWED_EXTENSIONS": "",
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
                 "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
             },
             clear=True,
         ):
-            config = ServerConfig()
-            # Empty string should result in empty set (not fallback to defaults)
-            assert config.allowed_extensions == set()
-            assert len(config.allowed_extensions) == 0
+            with pytest.raises(ValueError, match="allowed_extensions cannot be empty"):
+                ServerConfig()
 
     def test_allowed_extensions_whitespace_handling(self, tmp_path):
         """Test allowed_extensions with whitespace"""
@@ -521,7 +525,7 @@ class TestMaxFileSizeConfiguration:
                 assert config.max_file_size == 0
 
     def test_disabled_max_file_size_negative(self):
-        """Test max file size can be disabled with negative value"""
+        """Test max file size rejects negative values"""
         with tempfile.TemporaryDirectory() as temp_dir:
             with patch.dict(
                 os.environ,
@@ -531,8 +535,10 @@ class TestMaxFileSizeConfiguration:
                     "VIDEO_SERVER_DIRECTORY": temp_dir,
                 },
             ):
-                config = ServerConfig()
-                assert config.max_file_size == -1
+                with pytest.raises(
+                    ValueError, match="max_file_size cannot be negative"
+                ):
+                    ServerConfig()
 
     def test_invalid_port_validation(self):
         """Test port validation"""
@@ -862,8 +868,6 @@ class TestConfigPerformance:
 
     def test_config_loading_performance(self):
         """Test that config loading is fast"""
-        import time
-
         with patch.dict(
             os.environ,
             {
@@ -881,8 +885,6 @@ class TestConfigPerformance:
 
     def test_config_validation_performance(self):
         """Test configuration validation performance"""
-        import time
-
         config = ServerConfig(
             password_hash="test_hash", video_directory=str(Path.home())
         )
@@ -1122,3 +1124,84 @@ class TestDeploymentConfigValidation:
 
         with pytest.raises(ValueError, match="placeholder"):
             validate_deployment_config(env_file)
+
+
+class TestConfigValidationEdgeCases:
+    """Edge-case validation for production audit fixes."""
+
+    def test_empty_allowed_extensions_rejected(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+                "VIDEO_SERVER_ALLOWED_EXTENSIONS": "",
+            },
+        ):
+            with pytest.raises(ValueError, match="allowed_extensions cannot be empty"):
+                ServerConfig()
+
+    def test_negative_max_file_size_rejected(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with pytest.raises(ValueError, match="max_file_size cannot be negative"):
+            ServerConfig(
+                video_directory=str(video_dir),
+                password_hash="test_hash",
+                max_file_size=-1,
+            )
+
+    def test_invalid_session_cookie_samesite(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+                "VIDEO_SERVER_SESSION_COOKIE_SAMESITE": "Invalid",
+            },
+        ):
+            with pytest.raises(ValueError, match="SESSION_COOKIE_SAMESITE"):
+                ServerConfig()
+
+    def test_load_config_dotenv_import_error(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        env_file = tmp_path / "test.env"
+        env_file.write_text(
+            f"VIDEO_SERVER_PASSWORD_HASH=test_hash\n"
+            f"VIDEO_SERVER_DIRECTORY={video_dir}\n",
+            encoding="utf-8",
+        )
+        original_import = builtins.__import__
+
+        def guarded_import(name: str, *args: object, **kwargs: object) -> object:
+            if name == "dotenv":
+                raise ImportError("no dotenv")
+            return original_import(name, *args, **kwargs)
+
+        with patch.object(builtins, "__import__", side_effect=guarded_import):
+            with pytest.raises(ValueError, match="python-dotenv is required"):
+                load_config(env_file)
+
+    def test_load_config_default_env_file(self, tmp_path: Path, monkeypatch) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            f"VIDEO_SERVER_PASSWORD_HASH=test_hash\n"
+            f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
+            f"VIDEO_SERVER_USERNAME=envuser\n",
+            encoding="utf-8",
+        )
+        saved_env = dict(os.environ)
+        try:
+            monkeypatch.chdir(tmp_path)
+            config = load_config()
+            assert config.username == "envuser"
+        finally:
+            os.environ.clear()
+            os.environ.update(saved_env)

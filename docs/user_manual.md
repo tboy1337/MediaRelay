@@ -147,7 +147,7 @@ To access from anywhere on the internet:
 #### Video Player
 
 - **Controls**: Play, pause, seek, volume, fullscreen
-- **Subtitles**: Automatically loaded if .srt file exists
+- **Subtitles**: Automatically loaded when a `.srt` file with the same basename as the video exists in the same directory (e.g. `movie.mp4` + `movie.srt`)
 - **Back Button**: Return to directory listing
 - **Responsive**: Works on mobile devices
 

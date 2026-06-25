@@ -74,7 +74,7 @@ When authenticated (HTTP Basic Auth or session cookie), returns full details:
 {
     "status": "healthy",
     "timestamp": "2026-06-25T12:00:00.000000+00:00",
-    "version": "1.0.6",
+    "version": "1.0.8",
     "uptime_seconds": 3600,
     "video_directory_accessible": true,
     "config_valid": true,
@@ -279,9 +279,8 @@ Common plain-text responses:
 The API implements rate limiting to prevent abuse.
 
 ### Default Limits
-- **General endpoints**: 60 requests per minute per IP
-- **Health endpoint**: Unlimited
-- **Streaming endpoints**: 60 requests per minute per IP
+- **All endpoints (including `/health`)**: 60 requests per minute per IP (configurable via `VIDEO_SERVER_RATE_LIMIT_PER_MIN`)
+- **Streaming endpoints**: Same global per-IP limit
 
 ### Rate Limit Headers
 ```http
@@ -417,7 +416,7 @@ curl http://localhost:5000/health
 {
     "status": "healthy",
     "timestamp": "2023-12-01T12:00:00.000Z",
-    "version": "1.0.6",
+    "version": "1.0.8",
     "uptime_seconds": 7200,
     "video_directory_accessible": true,
     "config_valid": true
@@ -561,13 +560,14 @@ Future versions will be explicitly versioned: `/api/v2/files`
    - Implement client-side rate limiting
    - Check rate limit headers
 
-### Debug Headers
+### Request Correlation Headers
 
-Enable debug headers by setting `VIDEO_SERVER_DEBUG=true`:
+Every response includes a request identifier for log correlation:
+
 ```http
-X-Debug-Request-ID: abc123
-X-Debug-Processing-Time: 0.045
-X-Debug-User: username
+X-Request-ID: a1b2c3d4e5f67890
 ```
+
+Match this value with application and security log entries when troubleshooting.
 
 For more troubleshooting information, see the deployment guide and user manual.

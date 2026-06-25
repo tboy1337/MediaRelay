@@ -62,8 +62,8 @@ def main() -> None:
     else:
         while True:
             password = input("\nEnter your password: ")
-            if len(password) < 8:
-                print("Password is too short! Use at least 8 characters.")
+            if len(password) < 12:
+                print("Password is too short! Use at least 12 characters.")
                 continue
 
             confirm = input("Confirm password: ")

@@ -9,7 +9,6 @@ import shutil
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
-from typing import Any
 
 import pytest
 from werkzeug.security import generate_password_hash
@@ -98,36 +97,6 @@ def authenticated_client(test_client, test_config: ServerConfig):
 
     test_client.environ_base["HTTP_AUTHORIZATION"] = f"Basic {credentials}"
     yield test_client
-
-
-@pytest.fixture
-def mock_files_data() -> dict[str, Any]:
-    """Mock file system data for testing"""
-    return {
-        "files": [
-            {
-                "name": "test_video.mp4",
-                "path": "test_video.mp4",
-                "is_directory": False,
-                "size": 1024000,
-                "modified": "2023-01-01T12:00:00",
-            },
-            {
-                "name": "test_folder",
-                "path": "test_folder",
-                "is_directory": True,
-                "size": 0,
-                "modified": "2023-01-01T12:00:00",
-            },
-        ]
-    }
-
-
-@pytest.fixture(autouse=True)
-def cleanup_session() -> Generator[None]:
-    """Clean up Flask session data after each test."""
-    yield
-    # Session state is request-scoped; no global cleanup required.
 
 
 @pytest.fixture

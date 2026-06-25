@@ -21,6 +21,7 @@ from flask import session
 
 from mediarelay.config import ServerConfig
 from mediarelay.handlers import handle_index_request
+from mediarelay.lockout import AccountLockoutManager
 from mediarelay.server import MediaRelayServer, main
 from mediarelay.templates import INDEX_HTML_TEMPLATE
 
@@ -229,17 +230,17 @@ class TestAuthentication:
             # Need request context for check_auth to work
             with server.app.test_request_context():
                 # Test correct credentials
-                assert server.check_auth("admin", "correct_password") == True
+                assert server.check_auth("admin", "correct_password") is True
 
                 # Test wrong password
-                assert server.check_auth("admin", "wrong_password") == False
+                assert server.check_auth("admin", "wrong_password") is False
 
                 # Test wrong username
-                assert server.check_auth("wrong_user", "correct_password") == False
+                assert server.check_auth("wrong_user", "correct_password") is False
 
                 # Test empty credentials
-                assert server.check_auth("", "") == False
-                assert server.check_auth(None, None) == False
+                assert server.check_auth("", "") is False
+                assert server.check_auth(None, None) is False
 
 
 class TestPathSecurity:
@@ -550,10 +551,7 @@ class TestHealthCheckComprehensive:
         with test_server.app.test_client() as client:
             with patch.object(Path, "exists", side_effect=OSError("Test error")):
                 response = client.get("/health")
-                assert response.status_code in [
-                    500,
-                    503,
-                ]  # Either internal error or service unavailable
+                assert response.status_code == 503
 
 
 class TestErrorHandling:
@@ -1172,3 +1170,75 @@ class TestVideoMimeTypeInPlayer:
         response = authenticated_client.get("/test_video.mkv")
         assert response.status_code == 200
         assert 'type="video/x-matroska"' in response.get_data(as_text=True)
+
+
+class TestProductionAuditFixes:
+    """Tests for production audit remediation."""
+
+    def test_response_includes_request_id_header(self, test_client):
+        response = test_client.get("/health")
+        assert "X-Request-ID" in response.headers
+        assert len(response.headers["X-Request-ID"]) == 16
+
+    def test_logout_uses_log_logout(self, test_server, test_config):
+        credentials = base64.b64encode(
+            f"{test_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+        test_server.security_logger = MagicMock()
+
+        with test_server.app.test_client() as client:
+            client.get("/", headers={"Authorization": f"Basic {credentials}"})
+            client.get("/logout")
+
+        test_server.security_logger.log_logout.assert_called_once()
+
+    def test_check_authentication_lockout_logs_violation(
+        self, test_server, test_config
+    ):
+        test_server.security_logger = MagicMock()
+        test_server.lockout_manager = AccountLockoutManager(
+            max_attempts=1, lockout_duration=60
+        )
+        test_server.lockout_manager.record_failed_attempt("127.0.0.1", "testuser")
+
+        credentials = base64.b64encode(b"testuser:wrong").decode("utf-8")
+        with test_server.app.test_client() as client:
+            client.get("/", headers={"Authorization": f"Basic {credentials}"})
+
+        test_server.security_logger.log_security_violation.assert_called()
+        assert "account_lockout" in str(
+            test_server.security_logger.log_security_violation.call_args
+        )
+
+    def test_subtitle_track_when_srt_exists(
+        self, test_server, test_config, temp_video_dir, authenticated_client
+    ):
+        video = temp_video_dir / "captioned.mp4"
+        video.write_text("video", encoding="utf-8")
+        srt = temp_video_dir / "captioned.srt"
+        srt.write_text("subtitle", encoding="utf-8")
+
+        response = authenticated_client.get("/captioned.mp4")
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert 'kind="subtitles"' in html
+        assert "/stream/captioned.srt" in html
+
+    def test_api_files_rejects_file_path(self, authenticated_client, temp_video_dir):
+        response = authenticated_client.get("/api/files?path=test_video.mp4")
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert data["error"] == "Path is not a directory"
+
+    def test_not_found_handler_logs_warning(self, test_server):
+        from werkzeug.exceptions import NotFound
+
+        with test_server.app.test_request_context("/missing"):
+            from flask import g
+
+            g.request_id = "abcd1234"
+            with patch.object(test_server.app.logger, "warning") as mock_warning:
+                test_server.app.handle_user_exception(NotFound())
+                mock_warning.assert_called_once()
+                assert "missing" in str(mock_warning.call_args)
+                assert "abcd1234" in str(mock_warning.call_args)

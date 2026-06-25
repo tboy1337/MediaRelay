@@ -175,31 +175,28 @@ class TestLoggingErrorHandling:
         test_config.log_directory = str(tmp_path)
         logger = SecurityEventLogger(test_config)
 
-        # Simulate disk full by mocking file operations
-        with patch("builtins.open", side_effect=OSError("No space left on device")):
-            try:
+        # Simulate disk full by mocking handler emit
+        with patch.object(
+            logger.logger.handlers[0],
+            "emit",
+            side_effect=OSError("No space left on device"),
+        ):
+            with pytest.raises(OSError):
                 logger.log_auth_attempt("user", True, "127.0.0.1")
-                # Should handle gracefully without crashing
-            except OSError:
-                # Or may re-raise the error appropriately
-                pass
 
-    def test_logging_permission_error(self, test_config):
+    def test_logging_permission_error(self, test_config, tmp_path):
         """Test logging behavior with permission errors"""
         from mediarelay.logging_config import SecurityEventLogger
 
-        # Try to write to a directory we don't have permission to
-        test_config.log_directory = "/root/logs"  # Typically not writable
-
-        try:
-            logger = SecurityEventLogger(test_config)
-            logger.log_auth_attempt("user", True, "127.0.0.1")
-        except PermissionError:
-            # Should handle appropriately
-            pass
-        except Exception:  # pylint: disable=broad-exception-caught
-            # Or other appropriate error handling
-            pass
+        test_config.log_directory = str(tmp_path)
+        logger = SecurityEventLogger(test_config)
+        with patch.object(
+            logger.logger.handlers[0],
+            "emit",
+            side_effect=PermissionError("denied"),
+        ):
+            with pytest.raises(PermissionError):
+                logger.log_auth_attempt("user", True, "127.0.0.1")
 
 
 class TestMemoryErrorHandling:
@@ -214,10 +211,7 @@ class TestMemoryErrorHandling:
         response = authenticated_client.get("/")
 
         # Should handle large directories without running out of memory
-        assert response.status_code in [
-            200,
-            500,
-        ]  # 500 acceptable if server limits directory size
+        assert response.status_code == 200
 
     def test_very_large_file_access(self, authenticated_client, temp_video_dir):
         """Test accessing metadata of very large files"""

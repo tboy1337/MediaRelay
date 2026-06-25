@@ -279,7 +279,7 @@ class TestMainFunction:
 
                 # Verify error message was printed
                 mock_print.assert_any_call(
-                    "Password is too short! Use at least 8 characters."
+                    "Password is too short! Use at least 12 characters."
                 )
                 mock_hash.assert_called_once_with("ValidPass123!")
                 mock_secret.assert_called_once()
@@ -424,7 +424,7 @@ class TestMainFunction:
                 generate_password.main()
 
                 mock_print.assert_any_call(
-                    "Password is too short! Use at least 8 characters."
+                    "Password is too short! Use at least 12 characters."
                 )
                 mock_hash.assert_called_once_with("ValidPassword123!")
                 mock_secret.assert_called_once()
@@ -553,10 +553,10 @@ class TestGeneratePasswordCompleteEdgeCases:
             side_effect=[
                 "testuser",
                 "n",
-                "password1",
-                "password2",
-                "password3",
-                "password3",
+                "password1long",
+                "password2long",
+                "password3long",
+                "password3long",
             ],
         ):
             with patch("builtins.print") as mock_print:

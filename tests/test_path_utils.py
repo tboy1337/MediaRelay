@@ -30,6 +30,10 @@ class TestGuessMediaMimeType:
             ("movie.mov", "video/quicktime"),
             ("track.mp3", "audio/mpeg"),
             ("track.ogg", "audio/ogg"),
+            ("movie.m4v", "video/x-m4v"),
+            ("movie.flv", "video/x-flv"),
+            ("track.aac", "audio/aac"),
+            ("track.wav", "audio/wav"),
             ("unknown.xyz", "application/octet-stream"),
         ],
     )
@@ -69,6 +73,8 @@ class TestGetSafePath:
             "subdir/../../outside",
             "%2e%2e%2fetc%2fpasswd",
             "%252e%252e%252f",
+            "..\\..\\windows\\system32",
+            "subdir\\..\\secret",
         ],
     )
     def test_path_traversal_rejected(

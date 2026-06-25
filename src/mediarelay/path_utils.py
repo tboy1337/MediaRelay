@@ -75,7 +75,7 @@ def get_safe_path(
     if not requested_path:
         return Path(config.video_directory)
 
-    for _ in range(2):
+    for _ in range(3):
         decoded_path = unquote(requested_path)
         if decoded_path == requested_path:
             break
@@ -90,7 +90,7 @@ def get_safe_path(
             )
         return None
 
-    if ".." in requested_path or "//" in requested_path:
+    if ".." in requested_path or "//" in requested_path or "\\" in requested_path:
         if security_logger:
             security_logger.log_security_violation(
                 "path_traversal",

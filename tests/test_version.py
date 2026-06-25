@@ -61,6 +61,16 @@ class TestVersionResolution:
         with patch.object(init_module, "__file__", str(init_file)):
             assert init_module._version_from_pyproject() == "9.9.9"
 
+    def test_version_from_pyproject_oserror(self, tmp_path: Path) -> None:
+        package_dir = tmp_path / "src" / "mediarelay"
+        package_dir.mkdir(parents=True)
+        init_file = package_dir / "__init__.py"
+        init_file.write_text("", encoding="utf-8")
+
+        with patch.object(init_module, "__file__", str(init_file)):
+            with patch.object(Path, "read_text", side_effect=OSError("read failed")):
+                assert init_module._version_from_pyproject() is None
+
     def test_module_exports_version_string(self) -> None:
         assert isinstance(mediarelay.__version__, str)
         assert mediarelay.__version__

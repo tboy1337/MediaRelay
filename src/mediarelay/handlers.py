@@ -23,6 +23,10 @@ if TYPE_CHECKING:
     from .server import MediaRelayServer
 
 
+def _session_username() -> str:
+    return str(session.get("username", "unknown"))  # type: ignore[misc]
+
+
 def handle_index_request(
     server: MediaRelayServer, subpath: str
 ) -> str | tuple[str, int] | Response:
@@ -39,6 +43,13 @@ def handle_index_request(
         log_error=server.app.logger.error,
     )
     if not safe_path or not safe_path.exists():
+        if server.security_logger and subpath:
+            server.security_logger.log_file_access(
+                subpath,
+                client_ip,
+                False,
+                _session_username(),
+            )
         return "Path not found", 404
 
     video_root = Path(server.config.video_directory)
@@ -57,8 +68,13 @@ def handle_index_request(
                     str(relative_path),
                     client_ip,
                     True,
-                    session.get("username", "unknown"),  # type: ignore[misc]
+                    _session_username(),
                 )
+
+            subtitle_path: str | None = None
+            srt_file = safe_path.with_suffix(".srt")
+            if srt_file.is_file():
+                subtitle_path = str(srt_file.relative_to(video_root)).replace("\\", "/")
 
             return render_template_string(
                 INDEX_HTML_TEMPLATE,
@@ -66,6 +82,7 @@ def handle_index_request(
                 video_path=str(relative_path).replace("\\", "/"),
                 video_mime_type=guess_media_mime_type(safe_path.name),
                 parent_path=parent_path,
+                subtitle_path=subtitle_path,
             )
         return "Not a video file", 400
 
@@ -74,18 +91,25 @@ def handle_index_request(
         for item in safe_path.iterdir():
             if item.is_dir() or item.suffix.lower() in server.config.allowed_extensions:
                 relative_path = item.relative_to(video_root)
+                item_stat = item.stat()
                 items.append(
                     {
                         "name": item.name,
                         "path": "/" + str(relative_path).replace("\\", "/"),
                         "is_dir": item.is_dir(),
-                        "size": item.stat().st_size if item.is_file() else 0,
+                        "size": item_stat.st_size if item.is_file() else 0,
                         "modified": datetime.fromtimestamp(
-                            item.stat().st_mtime
+                            item_stat.st_mtime
                         ).isoformat(),
                     }
                 )
     except PermissionError:
+        if server.security_logger:
+            server.security_logger.log_security_violation(
+                "access_denied",
+                f"Permission denied reading directory: {safe_path}",
+                client_ip,
+            )
         return "Access denied to directory", 403
     except OSError as error:
         server.app.logger.error(f"Error reading directory {safe_path}: {str(error)}")
@@ -126,6 +150,13 @@ def handle_stream_request(
         log_error=server.app.logger.error,
     )
     if not safe_path or not safe_path.is_file():
+        if server.security_logger:
+            server.security_logger.log_file_access(
+                video_path,
+                client_ip,
+                False,
+                _session_username(),
+            )
         return "Video not found", 404
 
     if safe_path.suffix.lower() not in server.config.allowed_extensions:
@@ -142,7 +173,7 @@ def handle_stream_request(
             video_path,
             client_ip,
             True,
-            session.get("username", "unknown"),  # type: ignore[misc]
+            _session_username(),
         )
 
     start_time = time.time()
@@ -195,14 +226,15 @@ def handle_api_files_request(
         for item in safe_path.iterdir():
             if item.is_dir() or item.suffix.lower() in server.config.allowed_extensions:
                 relative_path = item.relative_to(video_root)
+                item_stat = item.stat()
                 files.append(
                     {
                         "name": item.name,
                         "path": str(relative_path).replace("\\", "/"),
                         "is_directory": item.is_dir(),
-                        "size": item.stat().st_size if item.is_file() else 0,
+                        "size": item_stat.st_size if item.is_file() else 0,
                         "modified": datetime.fromtimestamp(
-                            item.stat().st_mtime
+                            item_stat.st_mtime
                         ).isoformat(),
                     }
                 )

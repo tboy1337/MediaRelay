@@ -184,6 +184,9 @@ INDEX_HTML_TEMPLATE = """
             <div class="video-player">
                 <video controls preload="metadata">
                     <source src="/stream/{{ video_path }}" type="{{ video_mime_type }}">
+                    {% if subtitle_path %}
+                    <track kind="subtitles" src="/stream/{{ subtitle_path }}" srclang="en" label="English" default>
+                    {% endif %}
                     Your browser does not support the video tag.
                 </video>
             </div>

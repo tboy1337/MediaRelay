@@ -51,7 +51,7 @@ class TestSecurityEventLogger:
         log_data = json.loads(log_content.strip())
 
         # The actual event data is in the "event" field
-        event_data = log_data["event"]
+        event_data = log_data
 
         assert event_data["event_type"] == "authentication"
         assert event_data["username"] == "testuser"
@@ -71,7 +71,7 @@ class TestSecurityEventLogger:
         log_data = json.loads(log_content.strip())
 
         # The actual event data is in the "event" field
-        event_data = log_data["event"]
+        event_data = log_data
 
         assert event_data["success"] is False
         assert event_data["username"] == "baduser"
@@ -87,10 +87,7 @@ class TestSecurityEventLogger:
         log_content = security_log.read_text()
         log_data = json.loads(log_content.strip())
 
-        # The logger wraps the event data in additional JSON structure
-        event_data = log_data[
-            "event"
-        ]  # event_data is already a dict, not a JSON string
+        event_data = log_data
         assert event_data["event_type"] == "file_access"
         assert event_data["file_path"] == "/test/video.mp4"
         assert event_data["success"] is True
@@ -110,7 +107,7 @@ class TestSecurityEventLogger:
         log_data = json.loads(log_content.strip())
 
         # The actual event data is in the "event" field
-        event_data = log_data["event"]
+        event_data = log_data
 
         assert event_data["event_type"] == "security_violation"
         assert event_data["violation_type"] == "path_traversal"
@@ -129,7 +126,7 @@ class TestSecurityEventLogger:
         log_data = json.loads(log_content.strip())
 
         # The actual event data is in the "event" field
-        event_data = log_data["event"]
+        event_data = log_data
 
         assert event_data["event_type"] == "rate_limit_exceeded"
         assert event_data["ip_address"] == "192.168.1.50"
@@ -174,13 +171,11 @@ class TestSecurityEventLoggerComprehensive:
         lines = [line for line in content.strip().split("\n") if line]
 
         assert len(lines) == 2
-        # First line should be INFO level
         first_log = json.loads(lines[0])
-        assert first_log["level"] == "INFO"
+        assert first_log["success"] is True
 
-        # Second line should be WARNING level
         second_log = json.loads(lines[1])
-        assert second_log["level"] == "WARNING"
+        assert second_log["success"] is False
 
     def test_log_file_access_levels(self, test_config, tmp_path):
         """Test log_file_access with different success levels"""
@@ -199,10 +194,10 @@ class TestSecurityEventLoggerComprehensive:
 
         assert len(lines) == 2
         first_log = json.loads(lines[0])
-        assert first_log["level"] == "INFO"
+        assert first_log["success"] is True
 
         second_log = json.loads(lines[1])
-        assert second_log["level"] == "WARNING"
+        assert second_log["success"] is False
 
     def test_security_event_data_structure(self, test_config, tmp_path):
         """Test security event data structure completeness"""
@@ -215,15 +210,8 @@ class TestSecurityEventLoggerComprehensive:
         content = security_log.read_text()
         log_data = json.loads(content.strip())
 
-        # Check main log structure
-        assert "timestamp" in log_data
-        assert "level" in log_data
-        assert "event" in log_data
-        assert "module" in log_data
-        assert "line" in log_data
-
-        # Check event data structure
-        event_data = log_data["event"]
+        # Check event data structure (single JSON object per line)
+        event_data = log_data
         assert "event_type" in event_data
         assert "username" in event_data
         assert "success" in event_data
@@ -258,7 +246,7 @@ class TestPerformanceLogger:
         log_data = json.loads(log_content.strip())
 
         # The actual metric data is in the "metric" field
-        metric_data = log_data["metric"]
+        metric_data = log_data
 
         assert metric_data["type"] == "request_duration"
         assert metric_data["endpoint"] == "/stream/video.mp4"
@@ -278,7 +266,7 @@ class TestPerformanceLogger:
         log_data = json.loads(log_content.strip())
 
         # The actual metric data is in the "metric" field
-        metric_data = log_data["metric"]
+        metric_data = log_data
 
         assert metric_data["type"] == "file_serve"
         assert metric_data["file_path"] == "/test/video.mp4"
@@ -298,7 +286,7 @@ class TestPerformanceLogger:
         log_data = json.loads(log_content.strip())
 
         # The actual metric data is in the "metric" field
-        metric_data = log_data["metric"]
+        metric_data = log_data
 
         assert metric_data["throughput_mbps"] == 0
 
@@ -335,12 +323,7 @@ class TestPerformanceLoggerComprehensive:
         content = perf_log.read_text()
         log_data = json.loads(content.strip())
 
-        # Check main structure
-        assert "timestamp" in log_data
-        assert "metric" in log_data
-
-        # Check metric data
-        metric_data = log_data["metric"]
+        metric_data = log_data
         assert metric_data["type"] == "request_duration"
         assert metric_data["endpoint"] == "/api/test"
         assert metric_data["duration_ms"] == 125.0
@@ -359,7 +342,7 @@ class TestPerformanceLoggerComprehensive:
         content = perf_log.read_text()
         log_data = json.loads(content.strip())
 
-        metric_data = log_data["metric"]
+        metric_data = log_data
         assert metric_data["type"] == "file_serve"
         assert metric_data["file_path"] == "/video.mp4"
         assert metric_data["file_size_bytes"] == 10485760
@@ -377,7 +360,7 @@ class TestPerformanceLoggerComprehensive:
         content = perf_log.read_text()
         log_data = json.loads(content.strip())
 
-        metric_data = log_data["metric"]
+        metric_data = log_data
         assert metric_data["throughput_mbps"] == 0  # Should handle division by zero
 
 
@@ -782,7 +765,7 @@ class TestLoggingErrorScenarios:
         for line in lines:
             # Should parse as valid JSON
             log_data = json.loads(line)
-            assert "event" in log_data
+            assert "event_type" in log_data
 
     def test_performance_logger_edge_values(self, test_config, tmp_path):
         """Test performance logger with edge values"""
@@ -829,5 +812,17 @@ class TestLoggingErrorScenarios:
                 mock_log_info.assert_any_call(expected_call)
 
 
-class TestLoggingComprehensiveEdgeCases:
-    """Comprehensive edge case tests for logging coverage"""
+class TestLogLogout:
+    """Tests for logout security logging."""
+
+    def test_log_logout_writes_json_event(self, test_config, tmp_path):
+        from mediarelay.logging_config import SecurityEventLogger
+
+        test_config.log_directory = str(tmp_path)
+        logger = SecurityEventLogger(test_config)
+        logger.log_logout("testuser", "127.0.0.1", "Test Browser")
+
+        event = json.loads((tmp_path / "security.log").read_text().strip())
+        assert event["event_type"] == "logout"
+        assert event["username"] == "testuser"
+        assert event["ip_address"] == "127.0.0.1"

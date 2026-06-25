@@ -279,6 +279,8 @@ Unauthenticated response (minimal):
 
 Authenticated response includes version, uptime, and configuration details. See [API Documentation](api_documentation.md#1-health-check).
 
+`/health` is subject to the same per-IP rate limit as other endpoints when rate limiting is enabled. Use a dedicated monitoring source or adjust `VIDEO_SERVER_RATE_LIMIT_PER_MIN` if probes share an IP with heavy traffic.
+
 ### 4. Performance Tuning
 
 #### Resource Allocation

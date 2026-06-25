@@ -247,6 +247,17 @@ class ServerConfig:
                 "Run mediarelay-genpass to create one."
             )
 
+        if not self.allowed_extensions:
+            raise ValueError(
+                "allowed_extensions cannot be empty. "
+                "Unset VIDEO_SERVER_ALLOWED_EXTENSIONS to use defaults."
+            )
+
+        if self.max_file_size < 0:
+            raise ValueError(
+                f"max_file_size cannot be negative, got: {self.max_file_size}"
+            )
+
         if self.is_production() and self.password_hash in _PLACEHOLDER_PASSWORD_HASHES:
             raise ValueError(
                 "VIDEO_SERVER_PASSWORD_HASH must be set to a real hash, not a "
@@ -342,7 +353,6 @@ def validate_deployment_config(config_file: Path | None = None) -> ServerConfig:
         ValueError: If configuration is invalid or uses placeholder credentials.
     """
     config = load_config(config_file)
-    config.validate_config()
 
     if not config.is_production():
         raise ValueError(

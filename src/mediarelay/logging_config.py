@@ -8,46 +8,48 @@ multiple handlers, and security event tracking.
 import json
 import logging
 import logging.handlers
+import os
+import platform
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TypedDict
 
 import colorlog
+import psutil
 
 from .config import ServerConfig
+
+
+class _JsonLineFormatter(logging.Formatter):
+    """Emit log records whose message is already a JSON object string."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        return record.getMessage()
 
 
 class SecurityEventLogger:
     """Specialized logger for security events and audit trails"""
 
-    def __init__(self, config: ServerConfig):
+    def __init__(self, config: ServerConfig) -> None:
         self.config = config
         self.logger = logging.getLogger("security")
-        self.handlers: list[logging.Handler] = []  # Track handlers for cleanup
+        self.handlers: list[logging.Handler] = []
         self._setup_security_logger()
 
     def _setup_security_logger(self) -> None:
         """Set up dedicated security event logging"""
-        # Create security log file handler
         security_log_file = Path(self.config.log_directory) / "security.log"
         security_handler = logging.handlers.RotatingFileHandler(
             security_log_file,
             maxBytes=self.config.log_max_bytes,
             backupCount=self.config.log_backup_count,
         )
-
-        # Security events use JSON format for better parsing
-        security_formatter = logging.Formatter(
-            '{"timestamp": "%(asctime)s", "level": "%(levelname)s", '
-            '"event": %(message)s, "module": "%(name)s", "line": %(lineno)d}'
-        )
-        security_handler.setFormatter(security_formatter)
-
+        security_handler.setFormatter(_JsonLineFormatter())
         self.logger.addHandler(security_handler)
-        self.handlers.append(security_handler)  # Track for cleanup
+        self.handlers.append(security_handler)
         self.logger.setLevel(logging.INFO)
-        self.logger.propagate = False  # Don't propagate to root logger
+        self.logger.propagate = False
 
     def log_auth_attempt(
         self, username: str, success: bool, ip_address: str, user_agent: str = ""
@@ -64,6 +66,17 @@ class SecurityEventLogger:
 
         level = logging.INFO if success else logging.WARNING
         self.logger.log(level, json.dumps(event_data))
+
+    def log_logout(self, username: str, ip_address: str, user_agent: str = "") -> None:
+        """Log user logout events."""
+        event_data = {
+            "event_type": "logout",
+            "username": username,
+            "ip_address": ip_address,
+            "user_agent": user_agent,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        self.logger.info(json.dumps(event_data))
 
     def log_file_access(
         self, file_path: str, ip_address: str, success: bool, user: str = ""
@@ -117,10 +130,10 @@ class SecurityEventLogger:
 class PerformanceLogger:
     """Logger for performance metrics and monitoring"""
 
-    def __init__(self, config: ServerConfig):
+    def __init__(self, config: ServerConfig) -> None:
         self.config = config
         self.logger = logging.getLogger("performance")
-        self.handlers: list[logging.Handler] = []  # Track handlers for cleanup
+        self.handlers: list[logging.Handler] = []
         self._setup_performance_logger()
 
     def _setup_performance_logger(self) -> None:
@@ -131,14 +144,9 @@ class PerformanceLogger:
             maxBytes=self.config.log_max_bytes,
             backupCount=self.config.log_backup_count,
         )
-
-        perf_formatter = logging.Formatter(
-            '{"timestamp": "%(asctime)s", "metric": %(message)s}'
-        )
-        perf_handler.setFormatter(perf_formatter)
-
+        perf_handler.setFormatter(_JsonLineFormatter())
         self.logger.addHandler(perf_handler)
-        self.handlers.append(perf_handler)  # Track for cleanup
+        self.handlers.append(perf_handler)
         self.logger.setLevel(logging.INFO)
         self.logger.propagate = False
 
@@ -200,24 +208,19 @@ def setup_logging(config: ServerConfig) -> LoggingComponents:
         Dict containing configured loggers and handlers
     """
 
-    # Create logs directory
     log_dir = Path(config.log_directory)
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    # Root logger configuration
     root_logger = logging.getLogger()
     try:
         log_level = getattr(logging, config.log_level.upper())  # type: ignore[misc]
         root_logger.setLevel(log_level)  # type: ignore[misc]
     except AttributeError:
-        # Invalid log level, fall back to INFO
         root_logger.setLevel(logging.INFO)
 
-    # Clear existing handlers
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
-    # Console handler with color support (optional for systemd/file-only deployments)
     console_handler: logging.Handler | None = None
     if config.log_console:
         stream_handler = colorlog.StreamHandler(sys.stdout)
@@ -236,7 +239,6 @@ def setup_logging(config: ServerConfig) -> LoggingComponents:
         console_handler = stream_handler
         root_logger.addHandler(console_handler)
 
-    # File handler for general application logs
     app_log_file = log_dir / "app.log"
     file_handler = logging.handlers.RotatingFileHandler(
         app_log_file, maxBytes=config.log_max_bytes, backupCount=config.log_backup_count
@@ -248,7 +250,6 @@ def setup_logging(config: ServerConfig) -> LoggingComponents:
     file_handler.setFormatter(file_formatter)
     root_logger.addHandler(file_handler)
 
-    # Error-only handler for critical issues
     error_log_file = log_dir / "error.log"
     error_handler = logging.handlers.RotatingFileHandler(
         error_log_file,
@@ -259,11 +260,9 @@ def setup_logging(config: ServerConfig) -> LoggingComponents:
     error_handler.setFormatter(file_formatter)
     root_logger.addHandler(error_handler)
 
-    # Initialize specialized loggers
     security_logger = SecurityEventLogger(config)
     performance_logger = PerformanceLogger(config)
 
-    # Flask request logging
     flask_logger = logging.getLogger("werkzeug")
     flask_logger.setLevel(logging.WARNING if config.is_production() else logging.INFO)
 
@@ -303,21 +302,11 @@ def get_request_logger(name: str) -> logging.Logger:
     return logging.getLogger(f"request.{name}")
 
 
-def log_system_info(config: ServerConfig) -> None:
-    """Log system information for debugging and monitoring"""
-    logger = logging.getLogger("system")
-
-    import platform
-
+def _collect_system_info(config: ServerConfig) -> dict[str, Any]:  # type: ignore[explicit-any]
+    """Build system information dictionary for startup logging."""
+    current_dir = os.getcwd()
     try:
-        # Try to get disk usage for current directory instead of root
-        import os
-
-        import psutil
-
-        current_dir = os.getcwd()
-
-        system_info = {  # type: ignore[misc]
+        return {
             "platform": platform.platform(),
             "python_version": platform.python_version(),
             "cpu_count": psutil.cpu_count(),
@@ -325,9 +314,8 @@ def log_system_info(config: ServerConfig) -> None:
             "disk_free_gb": round(psutil.disk_usage(current_dir).free / (1024**3), 2),
             "config": config.to_dict(),  # type: ignore[misc]
         }
-    except ImportError:
-        # Fallback without psutil
-        system_info = {
+    except (ImportError, OSError):
+        return {
             "platform": platform.platform(),
             "python_version": platform.python_version(),
             "cpu_count": "unknown",
@@ -336,27 +324,31 @@ def log_system_info(config: ServerConfig) -> None:
             "config": config.to_dict(),  # type: ignore[misc]
         }
 
-    logger.info(f"System Information: {json.dumps(system_info, indent=2)}")  # type: ignore[misc]
+
+def log_system_info(config: ServerConfig) -> None:
+    """Log system information for debugging and monitoring"""
+    logger = logging.getLogger("system")
+    system_info = _collect_system_info(config)  # type: ignore[misc]
+    logger.info(
+        "System Information: %s",
+        json.dumps(system_info, indent=2),  # type: ignore[misc]
+    )
 
 
 if __name__ == "__main__":
-    # Test logging configuration
     from .config import load_config
 
     config = load_config()
     logging_components = setup_logging(config)
 
-    # Test different log levels
     logging.debug("This is a debug message")
     logging.info("This is an info message")
     logging.warning("This is a warning message")
     logging.error("This is an error message")
 
-    # Test security logger
     security_logger = logging_components["security_logger"]
     security_logger.log_auth_attempt("testuser", True, "127.0.0.1", "Test Browser")
 
-    # Test performance logger
     perf_logger = logging_components["performance_logger"]
     perf_logger.log_request_duration("/test", 0.250, 200)
 

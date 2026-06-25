@@ -41,6 +41,7 @@ from .logging_config import (
     PerformanceLogger,
     SecurityEventLogger,
     cleanup_logging,
+    get_request_logger,
     log_system_info,
     setup_logging,
 )
@@ -189,6 +190,11 @@ class MediaRelayServer:
         else:
             self.limiter = None
 
+    def _request_id_suffix(self) -> str:
+        """Return a log suffix with the current request ID when available."""
+        request_id = getattr(g, "request_id", None)
+        return f" [request_id={request_id}]" if request_id else ""
+
     def _register_routes(self) -> None:
         """Register all application routes."""
 
@@ -218,15 +224,20 @@ class MediaRelayServer:
                     )
                 return "Request URI Too Long", 414
 
-            self.app.logger.debug(
-                f"Request {g.request_id}: {request.method} {request.path} "  # type: ignore[misc]
-                f"from {client_ip}"
+            get_request_logger("mediarelay").debug(
+                "Request %s: %s %s from %s",
+                g.request_id,  # type: ignore[misc]
+                request.method,
+                request.path,
+                client_ip,
             )
             return None
 
         @self.app.after_request
         def after_request(response: Response) -> Response:
             """Process responses and add security headers."""
+            if hasattr(g, "request_id"):
+                response.headers["X-Request-ID"] = str(g.request_id)  # type: ignore[misc]
             for header, value in self.config.security_headers.items():
                 response.headers[header] = value
             if self.config.session_cookie_secure:
@@ -283,9 +294,8 @@ class MediaRelayServer:
             client_ip = self.get_client_ip()
 
             if self.security_logger:
-                self.security_logger.log_auth_attempt(
+                self.security_logger.log_logout(
                     username,
-                    True,
                     client_ip,
                     request.headers.get("User-Agent", ""),
                 )
@@ -326,6 +336,7 @@ class MediaRelayServer:
             """Handle bad request errors."""
             self.app.logger.warning(
                 f"Bad request from {self.get_client_ip()}: {error}"  # type: ignore[misc]
+                f"{self._request_id_suffix()}"
             )
             return "Bad Request - Invalid parameters", 400
 
@@ -340,7 +351,8 @@ class MediaRelayServer:
             if self.security_logger:
                 self.security_logger.log_security_violation(
                     "forbidden_access",
-                    f"Forbidden access attempt: {request.path}",
+                    f"Forbidden access attempt: {request.path}"
+                    f"{self._request_id_suffix()}",
                     self.get_client_ip(),
                 )
             return "Access Forbidden", 403
@@ -348,6 +360,10 @@ class MediaRelayServer:
         @self.app.errorhandler(404)  # type: ignore[misc]
         def not_found(_error: Any) -> tuple[str, int]:  # type: ignore[misc, explicit-any]
             """Handle not found errors."""
+            self.app.logger.warning(
+                f"Resource not found: {request.path} from {self.get_client_ip()}"
+                f"{self._request_id_suffix()}"
+            )
             return "Resource Not Found", 404
 
         @self.app.errorhandler(413)  # type: ignore[misc]
@@ -368,7 +384,10 @@ class MediaRelayServer:
         @self.app.errorhandler(500)  # type: ignore[misc]
         def internal_error(error: Any) -> tuple[str, int]:  # type: ignore[misc, explicit-any]
             """Handle internal server errors."""
-            self.app.logger.error(f"Server error: {str(error)}", exc_info=True)  # type: ignore[misc]
+            self.app.logger.error(
+                f"Server error: {str(error)}{self._request_id_suffix()}",
+                exc_info=True,
+            )  # type: ignore[misc]
             return "Internal Server Error", 500
 
     def check_auth(self, username: str | None, password: str | None) -> bool:
@@ -474,6 +493,16 @@ class MediaRelayServer:
         ip_address = self.get_client_ip()
 
         if self.lockout_manager.is_locked_out(ip_address, auth.username):
+            remaining = self.lockout_manager.get_remaining_lockout_seconds(
+                ip_address, auth.username
+            )
+            if self.security_logger:
+                self.security_logger.log_security_violation(
+                    "account_lockout",
+                    f"Login attempt while locked out for user '{auth.username}' "
+                    f"({remaining}s remaining)",
+                    ip_address,
+                )
             return False
 
         if self.check_auth(auth.username, auth.password):
