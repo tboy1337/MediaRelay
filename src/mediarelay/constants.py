@@ -9,6 +9,8 @@ HSTS_HEADER_VALUE: str = "max-age=31536000; includeSubDomains"
 DEFAULT_PAGE_SIZE: int = 100
 MAX_PAGE_SIZE: int = 500
 MIN_PAGE_SIZE: int = 1
+DEFAULT_MAX_DIRECTORY_ENTRIES: int = 10000
+MAX_LOCKOUT_TRACKERS: int = 10000
 
 AUDIO_EXTENSIONS: frozenset[str] = frozenset({".mp3", ".aac", ".ogg", ".wav"})
 VIDEO_EXTENSIONS: frozenset[str] = frozenset(

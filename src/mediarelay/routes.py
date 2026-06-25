@@ -71,6 +71,10 @@ def register_routes(server: MediaRelayServer) -> None:
         if server.config.session_cookie_secure:
             response.headers["Strict-Transport-Security"] = HSTS_HEADER_VALUE
 
+        if not request.path.startswith("/stream/"):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Pragma"] = "no-cache"
+
         if hasattr(g, "start_time") and server.performance_logger:
             duration = time.time() - g.start_time  # type: ignore[misc]
             server.performance_logger.log_request_duration(

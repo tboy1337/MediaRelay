@@ -4,6 +4,7 @@ Unit tests for comprehensive error handling
 Tests for error handling, exception cases, and edge conditions.
 """
 
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -216,8 +217,7 @@ class TestLoggingErrorHandling:
             "emit",
             side_effect=OSError("No space left on device"),
         ):
-            with pytest.raises(OSError):
-                logger.log_auth_attempt("user", True, "127.0.0.1")
+            logger.log_auth_attempt("user", True, "127.0.0.1")
 
     def test_logging_permission_error(self, test_config, tmp_path):
         """Test logging behavior with permission errors"""
@@ -230,8 +230,7 @@ class TestLoggingErrorHandling:
             "emit",
             side_effect=PermissionError("denied"),
         ):
-            with pytest.raises(PermissionError):
-                logger.log_auth_attempt("user", True, "127.0.0.1")
+            logger.log_auth_attempt("user", True, "127.0.0.1")
 
 
 class TestMemoryErrorHandling:
@@ -247,6 +246,25 @@ class TestMemoryErrorHandling:
 
         # Should handle large directories without running out of memory
         assert response.status_code == 200
+
+    def test_directory_listing_exceeds_max_entries(
+        self, monkeypatch, authenticated_client, test_server, temp_video_dir
+    ):
+        """Directories above max_directory_entries return HTTP 413."""
+        monkeypatch.setenv("VIDEO_SERVER_MAX_DIRECTORY_ENTRIES", "5")
+        test_server.config.max_directory_entries = 5
+        listing_dir = temp_video_dir / "huge_dir"
+        listing_dir.mkdir()
+        for i in range(6):
+            (listing_dir / f"entry_{i:02d}.mp4").write_text("x")
+
+        response = authenticated_client.get("/huge_dir")
+        assert response.status_code == 413
+
+        api_response = authenticated_client.get("/api/files?path=huge_dir")
+        assert api_response.status_code == 413
+        data = json.loads(api_response.data)
+        assert "too many entries" in data["error"].lower()
 
     def test_very_large_file_access(self, authenticated_client, temp_video_dir):
         """Test accessing metadata of very large files"""
@@ -390,3 +408,27 @@ class TestHandlerErrorPaths:
                 with patch("mediarelay.handlers.get_safe_path", return_value=mock_dir):
                     result = handle_api_files_request(test_server)
         assert result[1] == 500
+
+    def test_api_files_handler_permission_error_returns_403(self, test_server):
+        """API files handler returns 403 on permission denied."""
+        import base64
+
+        from mediarelay.handlers import handle_api_files_request
+
+        mock_dir = MagicMock()
+        mock_dir.exists.return_value = True
+        mock_dir.is_dir.return_value = True
+        mock_dir.iterdir.side_effect = PermissionError("denied")
+
+        auth = base64.b64encode(b"testuser:testpass").decode()
+        test_server.security_logger = MagicMock()
+        with test_server.app.test_request_context(
+            "/api/files",
+            method="GET",
+            headers={"Authorization": f"Basic {auth}"},
+        ):
+            with patch.object(test_server, "check_authentication", return_value=True):
+                with patch("mediarelay.handlers.get_safe_path", return_value=mock_dir):
+                    result = handle_api_files_request(test_server)
+        assert result[1] == 403
+        test_server.security_logger.log_security_violation.assert_called_once()

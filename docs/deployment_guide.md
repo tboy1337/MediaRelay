@@ -96,6 +96,7 @@ VIDEO_SERVER_SECRET_KEY=your-generated-secret-key-here
 VIDEO_SERVER_USERNAME=your-username
 VIDEO_SERVER_PASSWORD_HASH=your-password-hash
 VIDEO_SERVER_SESSION_TIMEOUT=3600
+VIDEO_SERVER_SESSION_MAX_LIFETIME=86400
 
 # Session Cookie Settings
 # Requires HTTPS when true; set false only for local HTTP development
@@ -109,7 +110,7 @@ VIDEO_SERVER_LOG_DIR=./logs
 
 # Performance Settings
 VIDEO_SERVER_MAX_FILE_SIZE=21474836480  # 20GB default (set to 0 to disable limit)
-VIDEO_SERVER_THREADS=6
+VIDEO_SERVER_MAX_DIRECTORY_ENTRIES=10000
 
 # Logging
 VIDEO_SERVER_LOG_LEVEL=INFO
@@ -168,7 +169,7 @@ Ensure your video directory exists and contains your media files:
 └── documentaries/
 ```
 
-Supported formats: MP4, MKV, AVI, MOV, WebM, M4V, FLV, SRT
+Supported formats: MP4, MKV, AVI, MOV, WebM, M4V, FLV, SRT, MP3, AAC, OGG, WAV
 
 ## Production Deployment
 
@@ -183,10 +184,16 @@ New-NetFirewallRule -DisplayName "Video Server" -Direction Inbound -Protocol TCP
 ```
 
 **Linux (UFW):**
+
+When using a reverse proxy, allow only HTTP/HTTPS (443/80) and keep MediaRelay bound to `127.0.0.1:5000`:
+
 ```bash
-sudo ufw allow 5000
+sudo ufw allow 443/tcp
+sudo ufw allow 80/tcp
 sudo ufw enable
 ```
+
+Do not expose port 5000 publicly when a reverse proxy terminates TLS.
 
 #### SSL/TLS (Recommended)
 

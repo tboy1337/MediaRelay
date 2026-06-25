@@ -1350,6 +1350,21 @@ class TestProductionAuditFixes:
         assert "X-Request-ID" in response.headers
         assert len(response.headers["X-Request-ID"]) == 16
 
+    def test_index_response_has_no_store_cache_control(self, authenticated_client):
+        response = authenticated_client.get("/")
+        assert response.status_code == 200
+        assert response.headers.get("Cache-Control") == "no-store"
+        assert response.headers.get("Pragma") == "no-cache"
+
+    def test_stream_response_omits_no_store_cache_control(
+        self, authenticated_client, temp_video_dir
+    ):
+        response = authenticated_client.get("/stream/test_video.mp4")
+        assert response.status_code == 200
+        assert "Cache-Control" not in response.headers or (
+            response.headers.get("Cache-Control") != "no-store"
+        )
+
     def test_logout_uses_log_logout(self, test_server, test_config):
         credentials = base64.b64encode(
             f"{test_config.username}:testpass".encode("utf-8")

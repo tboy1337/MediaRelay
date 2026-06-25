@@ -111,15 +111,23 @@ def _listing_page_url(directory_path: str, page: int) -> str:
     return f"{base}?page={page}"
 
 
+@dataclass(frozen=True)
+class _DirectoryListingResult:
+    items: list[_DirectoryEntry]
+    exceeds_cap: bool
+
+
 def _collect_directory_items(
     directory: Path,
     video_root: Path,
     allowed_extensions: set[str],
+    max_entries: int,
     *,
     log_warning: Callable[[str], None] | None = None,
-) -> list[_DirectoryEntry]:
+) -> _DirectoryListingResult:
     """Collect listable directory entries, skipping dotfiles and unreadable items."""
     items: list[_DirectoryEntry] = []
+    exceeds_cap = False
     try:
         entries = list(directory.iterdir())
     except PermissionError:
@@ -134,6 +142,10 @@ def _collect_directory_items(
             continue
         if not item.is_dir() and item.suffix.lower() not in allowed_extensions:
             continue
+
+        if len(items) >= max_entries:
+            exceeds_cap = True
+            break
 
         try:
             relative_path = item.relative_to(video_root)
@@ -153,7 +165,7 @@ def _collect_directory_items(
             }
         )
 
-    return items
+    return _DirectoryListingResult(items=items, exceeds_cap=exceeds_cap)
 
 
 def handle_index_request(
@@ -223,12 +235,28 @@ def handle_index_request(
         return "Not a video file", 400
 
     try:
-        raw_items = _collect_directory_items(
+        listing = _collect_directory_items(
             safe_path,
             video_root,
             server.config.allowed_extensions,
+            server.config.max_directory_entries,
             log_warning=server.app.logger.warning,
         )
+        if listing.exceeds_cap:
+            if server.security_logger:
+                server.security_logger.log_security_violation(
+                    "directory_listing_truncated",
+                    (
+                        f"Directory {safe_path} exceeds maximum listing size "
+                        f"({server.config.max_directory_entries})"
+                    ),
+                    client_ip,
+                )
+            return (
+                f"Directory contains too many entries "
+                f"(maximum {server.config.max_directory_entries})",
+                413,
+            )
         items = [
             {
                 "name": entry["name"],
@@ -238,7 +266,7 @@ def handle_index_request(
                 "modified": entry["modified"],
                 "is_audio": not entry["is_dir"] and is_audio_file(entry["name"]),
             }
-            for entry in raw_items
+            for entry in listing.items
         ]
     except PermissionError:
         if server.security_logger:
@@ -377,12 +405,34 @@ def handle_api_files_request(
             return jsonify({"error": "Path is not a directory"}), 400  # type: ignore[misc]
 
         video_root = Path(server.config.video_directory)
-        raw_items = _collect_directory_items(
+        listing = _collect_directory_items(
             safe_path,
             video_root,
             server.config.allowed_extensions,
+            server.config.max_directory_entries,
             log_warning=server.app.logger.warning,
         )
+        if listing.exceeds_cap:
+            if server.security_logger:
+                server.security_logger.log_security_violation(
+                    "directory_listing_truncated",
+                    (
+                        f"Directory {safe_path} exceeds maximum listing size "
+                        f"({server.config.max_directory_entries})"
+                    ),
+                    client_ip,
+                )
+            return (
+                jsonify(
+                    {
+                        "error": (
+                            f"Directory contains too many entries "
+                            f"(maximum {server.config.max_directory_entries})"
+                        )
+                    }
+                ),
+                413,
+            )
         files = [
             {
                 "name": entry["name"],
@@ -391,7 +441,7 @@ def handle_api_files_request(
                 "size": entry["size"],
                 "modified": entry["modified"],
             }
-            for entry in raw_items
+            for entry in listing.items
         ]
 
         sorted_files = sorted(  # type: ignore[misc]
@@ -414,6 +464,14 @@ def handle_api_files_request(
             }
         )
 
-    except (OSError, PermissionError, ValueError) as error:
+    except PermissionError:
+        if server.security_logger:
+            server.security_logger.log_security_violation(
+                "access_denied",
+                f"Permission denied reading directory: {path_param!r}",
+                server.get_client_ip(),
+            )
+        return jsonify({"error": "Access denied to directory"}), 403  # type: ignore[misc]
+    except (OSError, ValueError) as error:
         server.app.logger.error(f"API files error: {str(error)}")
         return jsonify({"error": "Internal server error"}), 500  # type: ignore[misc]

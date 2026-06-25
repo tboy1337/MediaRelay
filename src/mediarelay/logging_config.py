@@ -17,8 +17,17 @@ from typing import Any, TypedDict
 
 import colorlog
 import psutil
+from flask import g, has_request_context
 
 from .config import ServerConfig
+
+
+def _current_request_id() -> str | None:
+    """Return the current Flask request ID when inside a request context."""
+    if not has_request_context():
+        return None
+    request_id = getattr(g, "request_id", None)
+    return str(request_id) if request_id is not None else None
 
 
 class _JsonLineFormatter(logging.Formatter):
@@ -51,73 +60,99 @@ class SecurityEventLogger:
         self.logger.setLevel(logging.INFO)
         self.logger.propagate = False
 
+    def _build_event_data(self, event_data: dict[str, Any]) -> dict[str, Any]:  # type: ignore[explicit-any]
+        """Attach request_id when available."""
+        request_id = _current_request_id()
+        if request_id is not None:
+            event_data["request_id"] = request_id
+        return event_data
+
+    def _safe_emit(self, level: int, message: str) -> None:
+        """Emit a security log record without breaking the request on I/O failure."""
+        try:
+            self.logger.log(level, message)
+        except (OSError, PermissionError) as error:
+            logging.getLogger("mediarelay").warning(
+                "Security log write failed: %s", error
+            )
+
     def log_auth_attempt(
         self, username: str, success: bool, ip_address: str, user_agent: str = ""
     ) -> None:
         """Log authentication attempts"""
-        event_data = {
-            "event_type": "authentication",
-            "username": username,
-            "success": success,
-            "ip_address": ip_address,
-            "user_agent": user_agent,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        event_data = self._build_event_data(
+            {
+                "event_type": "authentication",
+                "username": username,
+                "success": success,
+                "ip_address": ip_address,
+                "user_agent": user_agent,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         level = logging.INFO if success else logging.WARNING
-        self.logger.log(level, json.dumps(event_data))
+        self._safe_emit(level, json.dumps(event_data))
 
     def log_logout(self, username: str, ip_address: str, user_agent: str = "") -> None:
         """Log user logout events."""
-        event_data = {
-            "event_type": "logout",
-            "username": username,
-            "ip_address": ip_address,
-            "user_agent": user_agent,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-        self.logger.info(json.dumps(event_data))
+        event_data = self._build_event_data(
+            {
+                "event_type": "logout",
+                "username": username,
+                "ip_address": ip_address,
+                "user_agent": user_agent,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        self._safe_emit(logging.INFO, json.dumps(event_data))
 
     def log_file_access(
         self, file_path: str, ip_address: str, success: bool, user: str = ""
     ) -> None:
         """Log file access attempts"""
-        event_data = {
-            "event_type": "file_access",
-            "file_path": file_path,
-            "ip_address": ip_address,
-            "success": success,
-            "user": user,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        event_data = self._build_event_data(
+            {
+                "event_type": "file_access",
+                "file_path": file_path,
+                "ip_address": ip_address,
+                "success": success,
+                "user": user,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         level = logging.INFO if success else logging.WARNING
-        self.logger.log(level, json.dumps(event_data))
+        self._safe_emit(level, json.dumps(event_data))
 
     def log_security_violation(
         self, violation_type: str, details: str, ip_address: str
     ) -> None:
         """Log security violations"""
-        event_data = {
-            "event_type": "security_violation",
-            "violation_type": violation_type,
-            "details": details,
-            "ip_address": ip_address,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        event_data = self._build_event_data(
+            {
+                "event_type": "security_violation",
+                "violation_type": violation_type,
+                "details": details,
+                "ip_address": ip_address,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
-        self.logger.error(json.dumps(event_data))
+        self._safe_emit(logging.ERROR, json.dumps(event_data))
 
     def log_rate_limit_exceeded(self, ip_address: str, endpoint: str) -> None:
         """Log rate limit violations"""
-        event_data = {
-            "event_type": "rate_limit_exceeded",
-            "ip_address": ip_address,
-            "endpoint": endpoint,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        event_data = self._build_event_data(
+            {
+                "event_type": "rate_limit_exceeded",
+                "ip_address": ip_address,
+                "endpoint": endpoint,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
-        self.logger.warning(json.dumps(event_data))
+        self._safe_emit(logging.WARNING, json.dumps(event_data))
 
     def cleanup(self) -> None:
         """Clean up logger resources"""

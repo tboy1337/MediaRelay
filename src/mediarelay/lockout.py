@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from .constants import (
     DEFAULT_LOCKOUT_DURATION_SECONDS,
     DEFAULT_LOCKOUT_MAX_ATTEMPTS,
+    MAX_LOCKOUT_TRACKERS,
 )
 
 
@@ -66,6 +67,17 @@ class AccountLockoutManager:
                 return 0
             return int(tracker.lockout_until - current_time)
 
+    def _evict_oldest_tracker_if_needed(self) -> None:
+        """Remove the least-recently-used tracker when at capacity."""
+        if len(self._trackers) < MAX_LOCKOUT_TRACKERS:
+            return
+
+        def _tracker_last_attempt(key: str) -> float:
+            return self._trackers[key].last_attempt
+
+        oldest_key = min(self._trackers, key=_tracker_last_attempt)
+        del self._trackers[oldest_key]
+
     def record_failed_attempt(self, ip_address: str, username: str) -> bool:
         """Record a failed login attempt. Returns True if account is now locked out."""
         key = self._get_key(ip_address, username)
@@ -73,6 +85,7 @@ class AccountLockoutManager:
 
         with self._lock:
             if key not in self._trackers:
+                self._evict_oldest_tracker_if_needed()
                 self._trackers[key] = LoginAttemptTracker()
 
             tracker = self._trackers[key]

@@ -74,7 +74,7 @@ When authenticated (HTTP Basic Auth or session cookie), returns full details:
 {
     "status": "healthy",
     "timestamp": "2026-06-25T12:00:00.000000+00:00",
-    "version": "1.0.13",
+    "version": "1.0.14",
     "uptime_seconds": 3600,
     "video_directory_accessible": true,
     "config_valid": true,
@@ -168,6 +168,7 @@ GET /video.mp4          # Individual video file (shows player)
 - `400 Bad Request`: Invalid file type for video player
 - `401 Unauthorized`: Authentication required
 - `404 Not Found`: Path does not exist
+- `413 Payload Too Large`: Directory exceeds `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES`
 
 ### 4. Video Streaming
 
@@ -279,7 +280,9 @@ Accept: application/json
 - `200 OK`: File listing retrieved
 - `400 Bad Request`: Path is not a directory, or invalid `page` parameter
 - `401 Unauthorized`: Authentication required
+- `403 Forbidden`: Permission denied reading directory
 - `404 Not Found`: Path does not exist
+- `413 Payload Too Large`: Directory exceeds `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES`
 
 ## Error Responses
 
@@ -323,6 +326,11 @@ The API implements rate limiting to prevent abuse.
 - **Streaming (`/stream/`)**: Exempt from rate limiting to support range requests during playback
 
 ### Rate Limit Headers
+
+When rate limiting is enabled, flask-limiter may include standard rate-limit headers on throttled routes. Header names and presence depend on flask-limiter defaults and are not guaranteed on every response.
+
+Example (when present):
+
 ```http
 X-RateLimit-Limit: 60
 X-RateLimit-Remaining: 59
@@ -341,7 +349,7 @@ Rate Limit Exceeded - Too Many Requests
 
 ## Security Headers
 
-All responses include security headers:
+All responses except `/stream/` include `Cache-Control: no-store` to prevent browsers from caching authenticated listings.
 
 ```http
 X-Content-Type-Options: nosniff
@@ -449,15 +457,20 @@ Accept-Ranges: bytes
 ### 4. Health Monitoring
 
 #### Check Server Health
+
+Unauthenticated callers receive minimal status only (`{"status": "healthy"}`). Full details require HTTP Basic Auth or a valid session cookie.
+
 ```bash
 curl http://localhost:5000/health
+# Authenticated details:
+curl -u username:password http://localhost:5000/health
 ```
 
 ```json
 {
     "status": "healthy",
     "timestamp": "2023-12-01T12:00:00.000Z",
-    "version": "1.0.13",
+    "version": "1.0.14",
     "uptime_seconds": 7200,
     "video_directory_accessible": true,
     "config_valid": true
@@ -505,11 +518,15 @@ fetch('/api/files', { headers })
     .then(response => response.json())
     .then(data => console.log(data));
 
-// Stream video in HTML5 video element
+// Stream video in HTML5 video element (requires auth via session cookie or fetch with credentials)
 const video = document.createElement('video');
-video.src = '/stream/video.mp4';
-video.controls = true;
-document.body.appendChild(video);
+video.crossOrigin = 'use-credentials';
+fetch('/stream/video.mp4', { headers, credentials: 'include' })
+    .then(() => {
+        video.src = '/stream/video.mp4';
+        video.controls = true;
+        document.body.appendChild(video);
+    });
 ```
 
 ### cURL Examples

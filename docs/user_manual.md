@@ -24,7 +24,7 @@ The Video Streaming Server allows you to share your personal video library over 
 
 - **Secure Access**: Password-protected with session management
 - **Mobile Friendly**: Responsive design works on phones and tablets
-- **Multiple Formats**: Supports MP4, MKV, AVI, MOV, WebM, M4V, FLV
+- **Multiple Formats**: Supports MP4, MKV, AVI, MOV, WebM, M4V, FLV, plus audio (MP3, AAC, OGG, WAV)
 - **Subtitle Support**: SRT subtitle files are supported
 - **Directory Navigation**: Browse folders and subfolders easily
 - **Streaming Optimization**: Efficient video streaming with range requests
@@ -174,7 +174,8 @@ VIDEO_SERVER_PORT=8080              # Custom port
 VIDEO_SERVER_THREADS=12             # More threads for better performance
 
 # Security
-VIDEO_SERVER_SESSION_TIMEOUT=7200   # 2 hours
+VIDEO_SERVER_SESSION_TIMEOUT=7200   # 2 hours idle timeout
+VIDEO_SERVER_SESSION_MAX_LIFETIME=86400  # 24 hours absolute session cap
 VIDEO_SERVER_RATE_LIMIT_PER_MIN=120 # More requests per minute
 
 # Performance
@@ -258,8 +259,8 @@ If your IP changes frequently:
    - Or install client software
 
 3. **Access via Hostname**
-   - Use `http://yourname.duckdns.org:5000`
-   - Works even when IP changes
+   - Use `https://yourname.duckdns.org` through your reverse proxy (TLS required for remote access)
+   - Do not expose plain HTTP on port 5000 to the internet
 
 #### VPN Access
 

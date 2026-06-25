@@ -179,6 +179,21 @@ class TestAccountLockoutManager:
         assert not errors
         assert manager.is_locked_out("10.0.0.1", "user")
 
+    def test_lockout_tracker_eviction_when_at_capacity(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Oldest tracker entries are evicted when at MAX_LOCKOUT_TRACKERS."""
+        monkeypatch.setattr("mediarelay.lockout.MAX_LOCKOUT_TRACKERS", 2)
+        manager = AccountLockoutManager(max_attempts=10, lockout_duration=300)
+
+        manager.record_failed_attempt("1.1.1.1", "user1")
+        manager.record_failed_attempt("2.2.2.2", "user2")
+        assert len(manager._trackers) == 2  # pylint: disable=protected-access
+
+        manager.record_failed_attempt("3.3.3.3", "user3")
+        assert len(manager._trackers) == 2  # pylint: disable=protected-access
+        assert "3.3.3.3:user3" in manager._trackers  # pylint: disable=protected-access
+
 
 class TestLoginAttemptTracker:
     """Test cases for LoginAttemptTracker dataclass"""

@@ -305,15 +305,68 @@ class TestServerConfigEnvironmentVariables:
         with patch.dict(
             os.environ,
             {
-                "VIDEO_SERVER_ALLOWED_EXTENSIONS": ".mp4,.mkv,.custom",
+                "VIDEO_SERVER_ALLOWED_EXTENSIONS": ".mp4,.mkv,.webm",
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
                 "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
             },
             clear=True,
         ):
             config = ServerConfig()
-            expected_extensions = {".mp4", ".mkv", ".custom"}
+            expected_extensions = {".mp4", ".mkv", ".webm"}
             assert config.allowed_extensions == expected_extensions
+
+    def test_allowed_extensions_rejects_html(self, tmp_path):
+        """Test allowed_extensions rejects browser-renderable extensions."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_ALLOWED_EXTENSIONS": ".mp4,.html",
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+            },
+            clear=True,
+        ):
+            with pytest.raises(
+                ValueError, match="Invalid VIDEO_SERVER_ALLOWED_EXTENSIONS"
+            ):
+                ServerConfig()
+
+    def test_allowed_extensions_normalizes_uppercase(self, tmp_path):
+        """Test allowed_extensions lowercases extensions from environment."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_ALLOWED_EXTENSIONS": ".MP4,.MKV",
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+            },
+            clear=True,
+        ):
+            config = ServerConfig()
+            assert config.allowed_extensions == {".mp4", ".mkv"}
+
+    def test_max_directory_entries_environment(self, tmp_path):
+        """Test max_directory_entries from environment."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_MAX_DIRECTORY_ENTRIES": "500",
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+            },
+            clear=True,
+        ):
+            config = ServerConfig()
+            assert config.max_directory_entries == 500
 
     def test_allowed_extensions_empty_environment(self, tmp_path):
         """Test allowed_extensions rejects empty environment variable"""

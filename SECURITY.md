@@ -41,19 +41,23 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 
 - All file access is constrained to the configured video directory jail
 - Symlinks are resolved before containment checks
-- Path traversal payloads (including URL encoding and null bytes) are rejected and logged
+- Path traversal payloads (including URL encoding, NFKC normalization, and control characters) are rejected and logged
+- Custom `VIDEO_SERVER_ALLOWED_EXTENSIONS` must be a subset of the built-in media allowlist
 
 ### Network Controls
 
 - Configurable per-IP rate limiting (in-memory, single-process) on browsing and API routes
 - `/stream/` is exempt from rate limiting so video range requests are not throttled during seeking
 - Security headers on all responses (CSP, X-Frame-Options, etc.)
+- `Cache-Control: no-store` on all responses except `/stream/` (prevents caching authenticated listings)
 - HSTS when `VIDEO_SERVER_SESSION_COOKIE_SECURE=true`
 - HTML UI output uses Jinja2 autoescape for filenames and paths rendered in templates
+- Directory listings capped at `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES` (default 10000) to prevent memory exhaustion
+- Lockout tracker bounded at 10000 IP:username entries (oldest evicted when full)
 
 ### Audit Logging
 
-Security events are written to `logs/security.log` in JSON format, including authentication attempts, lockout events, path violations, and rate-limit breaches.
+Security events are written to `logs/security.log` in JSON format, including authentication attempts, lockout events, path violations, and rate-limit breaches. Each event includes a `request_id` when emitted during an HTTP request.
 
 Run `python scripts/verify.py` locally before release; it enforces black, isort, mypy, bandit, pylint, pip-audit, and pytest with 90%+ branch coverage.
 
@@ -78,7 +82,8 @@ Run `python scripts/verify.py` locally before release; it enforces black, isort,
 | Session IP binding | Sessions invalidate when the client IP changes (VPN/mobile networks may require re-login) |
 | GET logout disabled | Logout requires `POST /logout` to prevent CSRF-forced logout |
 | CSP inline styles | Embedded UI template requires `style-src 'unsafe-inline'` |
-| Extension-only file filter | No magic-byte content validation; only extension allowlist |
+| Extension-only file filter | No magic-byte content validation; only extension allowlist (custom extensions must match built-in set) |
+| Large directories | Listings above `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES` return HTTP 413 |
 
 ## Responsible Disclosure
 

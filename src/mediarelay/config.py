@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 
 from .constants import (
     AUDIO_EXTENSIONS,
+    DEFAULT_MAX_DIRECTORY_ENTRIES,
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
     MIN_PAGE_SIZE,
@@ -76,6 +77,26 @@ def _parse_samesite(value: str) -> str:
             f"{sorted(_VALID_SAMESITE_VALUES)}, got {value!r}"
         )
     return value
+
+
+def _validate_allowed_extensions(extensions: set[str]) -> None:
+    """Reject extensions outside the built-in media allowlist."""
+    invalid: list[str] = []
+    for ext in extensions:
+        if not ext.startswith(".") or ext != ext.lower():
+            invalid.append(ext)
+            continue
+        body = ext[1:]
+        if not body or not body.isalnum():
+            invalid.append(ext)
+            continue
+        if ext not in _DEFAULT_ALLOWED_EXTENSIONS:
+            invalid.append(ext)
+    if invalid:
+        raise ValueError(
+            f"Invalid VIDEO_SERVER_ALLOWED_EXTENSIONS: {sorted(invalid)}. "
+            f"Allowed values: {sorted(_DEFAULT_ALLOWED_EXTENSIONS)}"
+        )
 
 
 def _default_security_headers() -> dict[str, str]:
@@ -188,13 +209,20 @@ class ServerConfig:
     # File Settings
     allowed_extensions: set[str] = field(
         default_factory=lambda: (
-            set(
-                ext.strip()
+            {
+                ext.strip().lower()
                 for ext in os.getenv("VIDEO_SERVER_ALLOWED_EXTENSIONS", "").split(",")
                 if ext.strip()
-            )
+            }
             if os.getenv("VIDEO_SERVER_ALLOWED_EXTENSIONS") is not None
             else set(_DEFAULT_ALLOWED_EXTENSIONS)
+        )
+    )
+    max_directory_entries: int = field(
+        default_factory=lambda: _parse_int_env(
+            "VIDEO_SERVER_MAX_DIRECTORY_ENTRIES",
+            str(DEFAULT_MAX_DIRECTORY_ENTRIES),
+            min_val=1,
         )
     )
     max_file_size: int = field(
@@ -282,6 +310,8 @@ class ServerConfig:
                 "Unset VIDEO_SERVER_ALLOWED_EXTENSIONS to use defaults."
             )
 
+        _validate_allowed_extensions(self.allowed_extensions)
+
         if self.max_file_size < 0:
             raise ValueError(
                 f"max_file_size cannot be negative, got: {self.max_file_size}"
@@ -363,6 +393,7 @@ class ServerConfig:
             "video_directory": self.video_directory,
             "log_directory": self.log_directory,
             "allowed_extensions": list(self.allowed_extensions),
+            "max_directory_entries": self.max_directory_entries,
             "max_file_size": self.max_file_size,
             "log_level": self.log_level,
             "log_console": self.log_console,
@@ -445,6 +476,8 @@ VIDEO_SERVER_LOG_DIR=./logs
 # File Settings
 # Comma-separated extensions (leave unset for defaults: .mp4,.mkv,.avi,...)
 # VIDEO_SERVER_ALLOWED_EXTENSIONS=.mp4,.mkv,.avi,.mov,.webm,.m4v,.flv,.srt,.mp3,.aac,.ogg,.wav
+# Maximum directory entries per listing request (prevents memory exhaustion)
+VIDEO_SERVER_MAX_DIRECTORY_ENTRIES=10000
 # Maximum file size in bytes (21474836480 = 20GB, set to 0 to disable limit)
 VIDEO_SERVER_MAX_FILE_SIZE=21474836480
 

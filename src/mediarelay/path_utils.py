@@ -53,6 +53,17 @@ def resolve_path(path: Path) -> Path:
     return path.resolve()
 
 
+def _contains_unsafe_path_chars(path: str) -> bool:
+    """Return True when the path contains control or non-printable characters."""
+    for char in path:
+        code = ord(char)
+        if code < 32 or code == 127:
+            return True
+        if unicodedata.category(char).startswith("C"):
+            return True
+    return False
+
+
 def get_breadcrumbs(config: ServerConfig, path: Path) -> list[dict[str, str]]:
     """Generate breadcrumb navigation for a path within the video directory."""
     video_dir = Path(config.video_directory)
@@ -88,13 +99,13 @@ def get_safe_path(
             break
         requested_path = decoded_path
 
-    requested_path = unicodedata.normalize("NFC", requested_path)
+    requested_path = unicodedata.normalize("NFKC", requested_path)
 
-    if "\x00" in requested_path:
+    if _contains_unsafe_path_chars(requested_path):
         if security_logger:
             security_logger.log_security_violation(
                 "path_traversal",
-                f"Null byte in path: {requested_path!r}",
+                f"Unsafe characters in path: {requested_path!r}",
                 client_ip,
             )
         return None

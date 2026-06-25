@@ -59,6 +59,21 @@ class TestSecurityEventLogger:
         assert event_data["ip_address"] == "127.0.0.1"
         assert event_data["user_agent"] == "Test Browser"
 
+    def test_security_log_includes_request_id(self, test_config, tmp_path, test_server):
+        """Security events include request_id when inside a request context."""
+        test_config.log_directory = str(tmp_path)
+        logger = SecurityEventLogger(test_config)
+
+        with test_server.app.test_request_context("/"):
+            from flask import g
+
+            g.request_id = "deadbeef"
+            logger.log_auth_attempt("testuser", True, "127.0.0.1", "Test Browser")
+
+        security_log = tmp_path / "security.log"
+        log_data = json.loads(security_log.read_text().strip())
+        assert log_data["request_id"] == "deadbeef"
+
     def test_log_auth_attempt_failure(self, test_config, tmp_path):
         """Test logging failed authentication attempt"""
         test_config.log_directory = str(tmp_path)
