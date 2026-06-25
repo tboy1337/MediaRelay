@@ -74,7 +74,7 @@ When authenticated (HTTP Basic Auth or session cookie), returns full details:
 {
     "status": "healthy",
     "timestamp": "2026-06-25T12:00:00.000000+00:00",
-    "version": "1.0.9",
+    "version": "1.0.10",
     "uptime_seconds": 3600,
     "video_directory_accessible": true,
     "config_valid": true,
@@ -229,6 +229,7 @@ Accept: application/json
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | path | string | Optional directory path (default: root) |
+| page | integer | Page number for paginated listings (default: 1, minimum: 1) |
 
 #### Response
 ```json
@@ -250,25 +251,33 @@ Accept: application/json
         }
     ],
     "path": "movies",
-    "total_files": 2
+    "total_files": 42,
+    "page": 1,
+    "page_size": 100,
+    "total_items": 42,
+    "total_pages": 1
 }
 ```
 
 #### Response Fields
 | Field | Type | Description |
 |-------|------|-------------|
-| files | array | Array of file/directory objects |
+| files | array | Array of file/directory objects for the current page |
 | files[].name | string | File or directory name |
 | files[].path | string | Relative path from video root |
 | files[].is_directory | boolean | Whether item is a directory |
 | files[].size | number | File size in bytes (0 for directories) |
 | files[].modified | string | ISO 8601 modified timestamp |
 | path | string | Current directory path |
-| total_files | number | Total number of items |
+| total_files | number | Total items in the directory (all pages) |
+| page | integer | Current page number |
+| page_size | integer | Configured page size (`VIDEO_SERVER_PAGE_SIZE`) |
+| total_items | number | Total items in the directory (same as `total_files`) |
+| total_pages | integer | Total number of pages |
 
 #### Status Codes
 - `200 OK`: File listing retrieved
-- `400 Bad Request`: Path is not a directory
+- `400 Bad Request`: Path is not a directory, or invalid `page` parameter
 - `401 Unauthorized`: Authentication required
 - `404 Not Found`: Path does not exist
 
@@ -447,7 +456,7 @@ curl http://localhost:5000/health
 {
     "status": "healthy",
     "timestamp": "2023-12-01T12:00:00.000Z",
-    "version": "1.0.9",
+    "version": "1.0.10",
     "uptime_seconds": 7200,
     "video_directory_accessible": true,
     "config_valid": true

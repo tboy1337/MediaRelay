@@ -2,7 +2,7 @@
 Unit tests for logging configuration
 -----------------------------------
 Tests for logging setup, security event logging, and performance logging.
-Includes comprehensive tests for 100% coverage.
+Includes comprehensive logging and audit trail tests.
 """
 
 import json

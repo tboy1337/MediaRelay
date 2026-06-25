@@ -70,10 +70,50 @@ INDEX_HTML_TEMPLATE = """
             margin-bottom: 20px;
         }
 
-        video {
+        video, audio {
             width: 100%;
             height: auto;
             display: block;
+        }
+
+        .audio-file {
+            color: #6f42c1;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .pagination a,
+        .pagination span {
+            padding: 8px 16px;
+            border-radius: 5px;
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .pagination a {
+            background: #007bff;
+            color: white;
+        }
+
+        .pagination a:hover {
+            background: #0056b3;
+        }
+
+        .pagination .disabled {
+            background: #dee2e6;
+            color: #6c757d;
+            cursor: not-allowed;
+        }
+
+        .pagination .page-info {
+            color: #6c757d;
+            background: transparent;
         }
 
         .file-list {
@@ -182,6 +222,12 @@ INDEX_HTML_TEMPLATE = """
             </div>
 
             <div class="video-player">
+                {% if media_kind == 'audio' %}
+                <audio controls preload="metadata">
+                    <source src="/stream/{{ video_path }}" type="{{ video_mime_type }}">
+                    Your browser does not support the audio element.
+                </audio>
+                {% else %}
                 <video controls preload="metadata">
                     <source src="/stream/{{ video_path }}" type="{{ video_mime_type }}">
                     {% if subtitle_path %}
@@ -189,6 +235,7 @@ INDEX_HTML_TEMPLATE = """
                     {% endif %}
                     Your browser does not support the video tag.
                 </video>
+                {% endif %}
             </div>
         {% else %}
             <div class="header">
@@ -221,8 +268,8 @@ INDEX_HTML_TEMPLATE = """
                 {% for item in items %}
                     <li>
                         <a href="{{ item.path }}" class="file-item">
-                            <span class="file-icon {% if item.is_dir %}folder{% else %}video-file{% endif %}">
-                                {% if item.is_dir %}&#x1F4C1;{% else %}&#x1F3AC;{% endif %}
+                            <span class="file-icon {% if item.is_dir %}folder{% elif item.is_audio %}audio-file{% else %}video-file{% endif %}">
+                                {% if item.is_dir %}&#x1F4C1;{% elif item.is_audio %}&#x1F3B5;{% else %}&#x1F3AC;{% endif %}
                             </span>
                             <div class="file-info">
                                 <div class="file-name">{{ item.name }}</div>
@@ -238,8 +285,27 @@ INDEX_HTML_TEMPLATE = """
                 {% endfor %}
             </ul>
 
+            {% if total_items is defined and total_items > 0 %}
+            <div class="pagination">
+                {% if has_prev %}
+                <a href="{{ prev_page_url }}">&larr; Previous</a>
+                {% else %}
+                <span class="disabled">&larr; Previous</span>
+                {% endif %}
+                <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
+                {% if has_next %}
+                <a href="{{ next_page_url }}">Next &rarr;</a>
+                {% else %}
+                <span class="disabled">Next &rarr;</span>
+                {% endif %}
+            </div>
+            {% endif %}
+
             <div class="stats">
-                Total items: {{ items|length }} |
+                {% if total_items is defined and total_items > 0 %}
+                Showing {{ range_start }}&ndash;{{ range_end }} of {{ total_items }} items |
+                {% endif %}
+                Page items: {{ items|length }} |
                 Folders: {{ items|selectattr('is_dir')|list|length }} |
                 Files: {{ items|rejectattr('is_dir')|list|length }}
             </div>

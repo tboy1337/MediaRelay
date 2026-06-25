@@ -120,6 +120,14 @@ class ServerConfig:
             "VIDEO_SERVER_CLEANUP_INTERVAL", "30", min_val=1
         )
     )
+    page_size: int = field(
+        default_factory=lambda: _parse_int_env(
+            "VIDEO_SERVER_PAGE_SIZE",
+            "100",
+            min_val=1,
+            max_val=500,
+        )
+    )
 
     # Security Settings
     secret_key: str = field(
@@ -335,6 +343,7 @@ class ServerConfig:
             "channel_timeout": self.channel_timeout,
             "connection_limit": self.connection_limit,
             "cleanup_interval": self.cleanup_interval,
+            "page_size": self.page_size,
             "username": self.username,
             "session_timeout": self.session_timeout,
             "lockout_max_attempts": self.lockout_max_attempts,
@@ -408,6 +417,7 @@ VIDEO_SERVER_THREADS=6
 VIDEO_SERVER_CHANNEL_TIMEOUT=300
 VIDEO_SERVER_CONNECTION_LIMIT=1000
 VIDEO_SERVER_CLEANUP_INTERVAL=30
+VIDEO_SERVER_PAGE_SIZE=100
 
 # Security Settings (REQUIRED — run mediarelay-genpass to generate real values)
 VIDEO_SERVER_SECRET_KEY=your-secret-key-here

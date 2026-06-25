@@ -145,6 +145,16 @@ class TestAccountLockoutManager:
         assert manager.record_failed_attempt("192.168.1.1", "testuser") is False
         assert manager.get_failed_attempts("192.168.1.1", "testuser") == 1
 
+    def test_expired_lockout_resets_inside_record_failed_attempt(self) -> None:
+        """Expired lockout resets when record_failed_attempt runs without is_locked_out."""
+        manager = AccountLockoutManager(max_attempts=2, lockout_duration=1)
+        manager.record_failed_attempt("10.0.0.1", "user")
+        assert manager.record_failed_attempt("10.0.0.1", "user") is True
+
+        time.sleep(1.1)
+        assert manager.record_failed_attempt("10.0.0.1", "user") is False
+        assert manager.get_failed_attempts("10.0.0.1", "user") == 1
+
 
 class TestLoginAttemptTracker:
     """Test cases for LoginAttemptTracker dataclass"""
@@ -459,7 +469,7 @@ class TestHealthEndpointSecurity:
         if response.status_code == 200:
             assert data["status"] == "healthy"
         else:
-            assert data["status"] in ["degraded", "unhealthy"]
+            assert data["status"] in ["healthy", "unhealthy"]
 
 
 class TestURLLengthValidation:
@@ -969,7 +979,7 @@ class TestSecurityPerformance:
         start_time = time.time()
 
         with test_server.app.test_request_context():
-            with patch("mediarelay.server.check_password_hash", return_value=True):
+            with patch("mediarelay.auth.check_password_hash", return_value=True):
                 for _ in range(50):
                     test_server.check_auth(test_config.username, "testpass")
 

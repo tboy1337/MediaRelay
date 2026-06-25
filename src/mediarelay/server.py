@@ -1,51 +1,39 @@
-"""MediaRelay server core: Flask app, authentication, routing, and Waitress runtime."""
+"""MediaRelay server core: Flask app orchestration and Waitress runtime."""
 
 from __future__ import annotations
 
-import hmac
 import logging
 import os
-import secrets
 import signal
 import sys
 import threading
 import time
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import click
-from flask import Flask, Response, g, jsonify, request, session
+from flask import Flask, Response, request
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from waitress import serve
 from werkzeug.middleware.proxy_fix import ProxyFix
-from werkzeug.security import check_password_hash
 
-from . import __version__
+from .auth import auth_required_response as _auth_required_response
+from .auth import check_auth as _check_auth
+from .auth import check_authentication as _check_authentication
 from .config import ServerConfig, create_sample_env_file, load_config
-from .constants import (
-    HSTS_HEADER_VALUE,
-    LOCKOUT_CLEANUP_INTERVAL_SECONDS,
-    MAX_PATH_LENGTH,
-    MAX_URL_LENGTH,
-)
-from .handlers import (
-    handle_api_files_request,
-    handle_index_request,
-    handle_stream_request,
-)
+from .constants import LOCKOUT_CLEANUP_INTERVAL_SECONDS
+from .error_handlers import register_error_handlers
 from .lockout import AccountLockoutManager
 from .logging_config import (
     LoggingComponents,
     PerformanceLogger,
     SecurityEventLogger,
     cleanup_logging,
-    get_request_logger,
     log_system_info,
     setup_logging,
 )
 from .path_utils import get_breadcrumbs, get_safe_path
+from .routes import register_routes
 
 
 class MediaRelayServer:
@@ -67,8 +55,8 @@ class MediaRelayServer:
         self._warn_ephemeral_secret_key()
         self._warn_behind_proxy()
         self._setup_rate_limiting()
-        self._register_routes()
-        self._register_error_handlers()
+        register_routes(self)
+        register_error_handlers(self)
 
     def _warn_ephemeral_secret_key(self) -> None:
         """Warn when the secret key is auto-generated instead of set in the environment."""
@@ -87,22 +75,26 @@ class MediaRelayServer:
                 "trusted reverse proxy. Direct exposure allows IP spoofing."
             )
 
-    def _start_lockout_cleanup(self) -> None:
-        """Schedule periodic cleanup of expired lockout tracker entries."""
-
-        def _run_cleanup() -> None:
-            self.lockout_manager.cleanup_expired()
-            self._lockout_cleanup_timer = threading.Timer(
-                LOCKOUT_CLEANUP_INTERVAL_SECONDS, _run_cleanup
-            )
-            self._lockout_cleanup_timer.daemon = True
-            self._lockout_cleanup_timer.start()
-
+    def _schedule_next_lockout_cleanup(self) -> None:
+        """Schedule the next lockout tracker cleanup run."""
         self._lockout_cleanup_timer = threading.Timer(
-            LOCKOUT_CLEANUP_INTERVAL_SECONDS, _run_cleanup
+            LOCKOUT_CLEANUP_INTERVAL_SECONDS, self._run_lockout_cleanup
         )
         self._lockout_cleanup_timer.daemon = True
         self._lockout_cleanup_timer.start()
+
+    def _run_lockout_cleanup(self) -> None:
+        """Run lockout cleanup and reschedule; survives individual cleanup failures."""
+        try:
+            self.lockout_manager.cleanup_expired()
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            # Timer must keep firing even if a single cleanup pass fails.
+            self.app.logger.error("Lockout cleanup failed: %s", error, exc_info=True)
+        self._schedule_next_lockout_cleanup()
+
+    def _start_lockout_cleanup(self) -> None:
+        """Schedule periodic cleanup of expired lockout tracker entries."""
+        self._schedule_next_lockout_cleanup()
 
     def _stop_lockout_cleanup(self) -> None:
         """Cancel the periodic lockout cleanup timer."""
@@ -124,16 +116,7 @@ class MediaRelayServer:
 
     def auth_required_response(self) -> Response:
         """Build a 401 response, including Retry-After when the account is locked out."""
-        headers = {"WWW-Authenticate": 'Basic realm="Video Streaming Server"'}
-        auth = request.authorization
-        if auth and auth.username:
-            client_ip = self.get_client_ip()
-            if self.lockout_manager.is_locked_out(client_ip, auth.username):
-                remaining = self.lockout_manager.get_remaining_lockout_seconds(
-                    client_ip, auth.username
-                )
-                headers["Retry-After"] = str(max(1, int(remaining)))
-        return Response("Authentication Required", 401, headers)
+        return _auth_required_response(self)
 
     def _create_app(self) -> Flask:
         """Create and configure Flask application."""
@@ -192,263 +175,14 @@ class MediaRelayServer:
 
     def _request_id_suffix(self) -> str:
         """Return a log suffix with the current request ID when available."""
+        from flask import g
+
         request_id = getattr(g, "request_id", None)
         return f" [request_id={request_id}]" if request_id else ""
 
-    def _register_routes(self) -> None:
-        """Register all application routes."""
-
-        @self.app.before_request
-        def before_request() -> tuple[str, int] | None:
-            """Process requests before handling."""
-            g.start_time = time.time()
-            g.request_id = secrets.token_hex(8)
-            client_ip = self.get_client_ip()
-
-            full_url = request.url
-            if len(full_url) > MAX_URL_LENGTH:
-                if self.security_logger:
-                    self.security_logger.log_security_violation(
-                        "url_too_long",
-                        f"URL length {len(full_url)} exceeds maximum {MAX_URL_LENGTH}",
-                        client_ip,
-                    )
-                return "Request URI Too Long", 414
-
-            if len(request.path) > MAX_PATH_LENGTH:
-                if self.security_logger:
-                    self.security_logger.log_security_violation(
-                        "path_too_long",
-                        f"Path length {len(request.path)} exceeds maximum {MAX_PATH_LENGTH}",
-                        client_ip,
-                    )
-                return "Request URI Too Long", 414
-
-            get_request_logger("mediarelay").debug(
-                "Request %s: %s %s from %s",
-                g.request_id,  # type: ignore[misc]
-                request.method,
-                request.path,
-                client_ip,
-            )
-            return None
-
-        @self.app.after_request
-        def after_request(response: Response) -> Response:
-            """Process responses and add security headers."""
-            if hasattr(g, "request_id"):
-                response.headers["X-Request-ID"] = str(g.request_id)  # type: ignore[misc]
-            for header, value in self.config.security_headers.items():
-                response.headers[header] = value
-            if self.config.session_cookie_secure:
-                response.headers["Strict-Transport-Security"] = HSTS_HEADER_VALUE
-
-            if hasattr(g, "start_time") and self.performance_logger:
-                duration = time.time() - g.start_time  # type: ignore[misc]
-                self.performance_logger.log_request_duration(
-                    request.endpoint or request.path, duration, response.status_code  # type: ignore[misc]
-                )
-
-            return response
-
-        @self.app.route("/health")
-        def health_check() -> Response | tuple[Response, int]:
-            """Health check endpoint for monitoring."""
-            is_authenticated = self.check_authentication()
-
-            try:
-                is_healthy = self.config.check_runtime_health()
-            except (OSError, PermissionError, RuntimeError):
-                is_healthy = False
-
-            status = "healthy" if is_healthy else "unhealthy"
-            status_code = 200 if is_healthy else 503
-
-            if not is_authenticated:
-                return jsonify({"status": status}), status_code  # type: ignore[misc]
-
-            config_valid = self.config.check_runtime_health()
-
-            health_data = {  # type: ignore[misc]
-                "status": status,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "version": __version__,
-                "uptime_seconds": round(
-                    time.time() - getattr(self, "_start_time", time.time()), 2  # type: ignore[misc]
-                ),
-                "video_directory_accessible": is_healthy,
-                "config_valid": config_valid,
-                "rate_limiting_enabled": self.config.rate_limit_enabled,
-            }
-
-            return jsonify(health_data), status_code  # type: ignore[misc]
-
-        @self.app.route("/logout", methods=["POST"])
-        def logout() -> Response | tuple[Response, int]:
-            """Logout endpoint that properly invalidates the session."""
-            if not self.check_authentication():
-                return self.auth_required_response()
-
-            username: str = str(session.get("username", "unknown"))  # type: ignore[misc]
-            client_ip = self.get_client_ip()
-
-            if self.security_logger:
-                self.security_logger.log_logout(
-                    username,
-                    client_ip,
-                    request.headers.get("User-Agent", ""),
-                )
-            self.app.logger.info(f"User '{username}' logged out from {client_ip}")
-
-            session.clear()
-
-            return Response(
-                "Logged out successfully. Close browser to complete logout.",
-                200,
-                {
-                    "WWW-Authenticate": 'Basic realm="Video Streaming Server"',
-                    "Clear-Site-Data": '"cookies", "storage"',
-                },
-            )
-
-        @self.app.route("/logout", methods=["GET"])
-        def logout_get() -> tuple[str, int]:
-            """Reject GET logout to prevent CSRF-forced logout."""
-            return "Method Not Allowed - use POST to logout", 405
-
-        @self.app.route("/")
-        @self.app.route("/<path:subpath>")
-        def index(subpath: str = "") -> str | tuple[str, int] | Response:
-            """Handle directory listing and video playback pages."""
-            return handle_index_request(self, subpath)
-
-        @self.app.route("/stream/<path:video_path>")
-        def stream(video_path: str) -> Response | tuple[str, int]:
-            """Stream video files with range support."""
-            return handle_stream_request(self, video_path)
-
-        @self.app.route("/api/files")
-        def api_files() -> Response | tuple[Response, int]:
-            """API endpoint for file listing."""
-            return handle_api_files_request(self)
-
-    def _register_error_handlers(self) -> None:
-        """Register custom error handlers."""
-
-        @self.app.errorhandler(400)  # type: ignore[misc]
-        def bad_request(error: Any) -> tuple[str, int]:  # type: ignore[misc, explicit-any]
-            """Handle bad request errors."""
-            self.app.logger.warning(
-                f"Bad request from {self.get_client_ip()}: {error}"  # type: ignore[misc]
-                f"{self._request_id_suffix()}"
-            )
-            return "Bad Request - Invalid parameters", 400
-
-        @self.app.errorhandler(401)  # type: ignore[misc]
-        def unauthorized(_error: Any) -> tuple[Response, int]:  # type: ignore[misc, explicit-any]
-            """Handle unauthorized access."""
-            return (self.auth_required_response(), 401)
-
-        @self.app.errorhandler(403)  # type: ignore[misc]
-        def forbidden(_error: Any) -> tuple[str, int]:  # type: ignore[misc, explicit-any]
-            """Handle forbidden access."""
-            if self.security_logger:
-                self.security_logger.log_security_violation(
-                    "forbidden_access",
-                    f"Forbidden access attempt: {request.path}"
-                    f"{self._request_id_suffix()}",
-                    self.get_client_ip(),
-                )
-            return "Access Forbidden", 403
-
-        @self.app.errorhandler(404)  # type: ignore[misc]
-        def not_found(_error: Any) -> tuple[str, int]:  # type: ignore[misc, explicit-any]
-            """Handle not found errors."""
-            self.app.logger.warning(
-                f"Resource not found: {request.path} from {self.get_client_ip()}"
-                f"{self._request_id_suffix()}"
-            )
-            return "Resource Not Found", 404
-
-        @self.app.errorhandler(413)  # type: ignore[misc]
-        def request_entity_too_large(_error: Any) -> tuple[str, int]:  # type: ignore[misc, explicit-any]
-            """Handle file too large errors."""
-            return "File Too Large", 413
-
-        @self.app.errorhandler(429)  # type: ignore[misc]
-        def rate_limit_handler(_error: Any) -> tuple[str, int]:  # type: ignore[misc, explicit-any]
-            """Handle rate limit exceeded."""
-            if self.security_logger:
-                self.security_logger.log_rate_limit_exceeded(
-                    self.get_client_ip(),
-                    request.endpoint or request.path,
-                )
-            return "Rate Limit Exceeded - Too Many Requests", 429
-
-        @self.app.errorhandler(500)  # type: ignore[misc]
-        def internal_error(error: Any) -> tuple[str, int]:  # type: ignore[misc, explicit-any]
-            """Handle internal server errors."""
-            self.app.logger.error(
-                f"Server error: {str(error)}{self._request_id_suffix()}",
-                exc_info=True,
-            )  # type: ignore[misc]
-            return "Internal Server Error", 500
-
     def check_auth(self, username: str | None, password: str | None) -> bool:
         """Verify username and password with lockout protection."""
-        ip_address = self.get_client_ip()
-        user_agent = request.headers.get("User-Agent", "")
-
-        if not username or not password:
-            if self.security_logger:
-                self.security_logger.log_auth_attempt(
-                    username or "empty",
-                    False,
-                    ip_address,
-                    user_agent,
-                )
-            return False
-
-        if self.lockout_manager.is_locked_out(ip_address, username):
-            remaining = self.lockout_manager.get_remaining_lockout_seconds(
-                ip_address, username
-            )
-            if self.security_logger:
-                self.security_logger.log_security_violation(
-                    "account_lockout",
-                    f"Login attempt while locked out for user '{username}' "
-                    f"({remaining}s remaining)",
-                    ip_address,
-                )
-            return False
-
-        valid = hmac.compare_digest(
-            username, self.config.username
-        ) and check_password_hash(self.config.password_hash, password)
-
-        if self.security_logger:
-            self.security_logger.log_auth_attempt(
-                username,
-                valid,
-                ip_address,
-                user_agent,
-            )
-
-        if valid:
-            self.lockout_manager.record_successful_login(ip_address, username)
-        else:
-            now_locked = self.lockout_manager.record_failed_attempt(
-                ip_address, username
-            )
-            if now_locked and self.security_logger:
-                self.security_logger.log_security_violation(
-                    "account_locked",
-                    f"Account locked out after {self.config.lockout_max_attempts} "
-                    f"failed attempts for user '{username}'",
-                    ip_address,
-                )
-
-        return valid
+        return _check_auth(self, username, password)
 
     def get_safe_path(self, requested_path: str | None) -> Path | None:
         """Ensure the requested path is within the video directory."""
@@ -467,59 +201,7 @@ class MediaRelayServer:
 
     def check_authentication(self) -> bool:
         """Check if the current request is authenticated with lockout protection."""
-        current_time = time.time()
-        if session.get("authenticated"):  # type: ignore[misc]
-            last_activity = session.get("last_activity", 0)  # type: ignore[misc]
-            if current_time - last_activity <= self.config.session_timeout:  # type: ignore[misc]
-                login_ip = session.get("login_ip")  # type: ignore[misc]
-                client_ip = self.get_client_ip()
-                if login_ip and login_ip != client_ip:
-                    if self.security_logger:
-                        self.security_logger.log_security_violation(
-                            "session_ip_mismatch",
-                            (
-                                f"Session invalidated due to IP change from "
-                                f"{login_ip} to {client_ip}"
-                            ),
-                            client_ip,
-                        )
-                    session.clear()
-                    return False
-                session["last_activity"] = current_time
-                return True
-
-            session.clear()
-
-        auth = request.authorization
-        if not auth or not auth.username or not auth.password:
-            return False
-
-        ip_address = self.get_client_ip()
-
-        if self.lockout_manager.is_locked_out(ip_address, auth.username):
-            remaining = self.lockout_manager.get_remaining_lockout_seconds(
-                ip_address, auth.username
-            )
-            if self.security_logger:
-                self.security_logger.log_security_violation(
-                    "account_lockout",
-                    f"Login attempt while locked out for user '{auth.username}' "
-                    f"({remaining}s remaining)",
-                    ip_address,
-                )
-            return False
-
-        if self.check_auth(auth.username, auth.password):
-            session.clear()
-            session["authenticated"] = True
-            session["username"] = auth.username
-            session["last_activity"] = current_time
-            session["login_time"] = current_time
-            session["login_ip"] = self.get_client_ip()
-            session.permanent = True
-            return True
-
-        return False
+        return _check_authentication(self)
 
     def run(self) -> None:
         """Start the production server."""

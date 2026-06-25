@@ -2,7 +2,7 @@
 Unit tests for configuration management
 --------------------------------------
 Tests for ServerConfig class and environment variable handling.
-Includes comprehensive tests for 100% coverage.
+Includes comprehensive configuration validation tests.
 """
 
 import builtins

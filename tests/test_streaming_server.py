@@ -3,7 +3,7 @@ Integration tests for Video Streaming Server
 -------------------------------------------
 Comprehensive tests for the main streaming server functionality including
 authentication, file serving, security, and API endpoints.
-Includes comprehensive tests for 100% coverage.
+Includes comprehensive integration and streaming tests.
 """
 
 import base64
@@ -120,6 +120,7 @@ class TestMediaRelayServerComprehensive:
         assert "<!DOCTYPE html>" in template
         assert "Video Streaming Server" in template
         assert "<video controls" in template
+        assert "<audio controls" in template
         assert "breadcrumb" in template
 
     def test_handle_index_request_comprehensive(self, test_server, temp_video_dir):
@@ -463,7 +464,7 @@ class TestAPIEndpoints:
         data = json.loads(response.data)
 
         # Unauthenticated requests should only get status
-        assert data["status"] in ["healthy", "degraded", "unhealthy"]
+        assert data["status"] in ["healthy", "unhealthy"]
 
     def test_health_check_endpoint_authenticated(self, authenticated_client):
         """Test health check endpoint with authentication (detailed info)"""
@@ -473,7 +474,7 @@ class TestAPIEndpoints:
         data = json.loads(response.data)
 
         # Authenticated requests should get full details
-        assert data["status"] in ["healthy", "degraded", "unhealthy"]
+        assert data["status"] in ["healthy", "unhealthy"]
         assert "timestamp" in data
         assert "version" in data
         assert data["version"] != "2.0.0"
@@ -1242,6 +1243,32 @@ class TestGracefulShutdown:
                     server.run()
             mock_start.assert_called_once()
 
+    @patch("mediarelay.server.serve")
+    def test_signal_handler_raises_keyboard_interrupt(self, mock_serve):
+        """SIGINT handler should raise KeyboardInterrupt to stop Waitress."""
+        import signal as signal_module
+
+        shutdown_handler: object = None
+
+        def capture_signal(signum: int, handler: object) -> None:
+            nonlocal shutdown_handler
+            if signum == signal_module.SIGINT:
+                shutdown_handler = handler
+
+        def invoke_handler_from_serve(*_args: object, **_kwargs: object) -> None:
+            assert shutdown_handler is not None
+            with pytest.raises(KeyboardInterrupt):
+                shutdown_handler(signal_module.SIGINT, None)  # type: ignore[operator]
+
+        mock_serve.side_effect = invoke_handler_from_serve
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = ServerConfig(video_directory=temp_dir, password_hash="test_hash")
+            server = MediaRelayServer(config)
+            with patch("mediarelay.server.signal.signal", side_effect=capture_signal):
+                with patch.object(server, "_shutdown_cleanup"):
+                    server.run()
+
 
 class TestVideoMimeTypeInPlayer:
     """Tests that the HTML player receives correct MIME types."""
@@ -1251,6 +1278,18 @@ class TestVideoMimeTypeInPlayer:
         response = authenticated_client.get("/test_video.mkv")
         assert response.status_code == 200
         assert 'type="video/x-matroska"' in response.get_data(as_text=True)
+
+    def test_mp3_player_uses_audio_element(self, authenticated_client, temp_video_dir):
+        """MP3 files should render an audio player, not a video element."""
+        audio_file = temp_video_dir / "track.mp3"
+        audio_file.write_text("fake audio", encoding="utf-8")
+
+        response = authenticated_client.get("/track.mp3")
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert "<audio controls" in html
+        assert "<video controls" not in html
+        assert 'type="audio/mpeg"' in html
 
 
 class TestProductionAuditFixes:
@@ -1329,3 +1368,63 @@ class TestProductionAuditFixes:
                 mock_warning.assert_called_once()
                 assert "missing" in str(mock_warning.call_args)
                 assert "abcd1234" in str(mock_warning.call_args)
+
+    def test_directory_pagination_html(
+        self, authenticated_client, test_server, temp_video_dir
+    ):
+        test_server.config.page_size = 10
+        listing_dir = temp_video_dir / "pagination_test"
+        listing_dir.mkdir()
+        for i in range(25):
+            (listing_dir / f"page_item_{i:02d}.mp4").write_text("x")
+
+        page_one = authenticated_client.get("/pagination_test")
+        assert page_one.status_code == 200
+        html_one = page_one.get_data(as_text=True)
+        assert "Showing 1&ndash;10 of" in html_one or "Showing 1–10 of" in html_one
+        assert "page_item_09.mp4" in html_one
+        assert "page_item_15.mp4" not in html_one
+        assert "Next" in html_one
+
+        page_two = authenticated_client.get("/pagination_test?page=2")
+        assert page_two.status_code == 200
+        html_two = page_two.get_data(as_text=True)
+        assert "page_item_15.mp4" in html_two
+
+    def test_directory_pagination_api(
+        self, authenticated_client, test_server, temp_video_dir
+    ):
+        test_server.config.page_size = 5
+        listing_dir = temp_video_dir / "api_pagination"
+        listing_dir.mkdir()
+        for i in range(12):
+            (listing_dir / f"api_item_{i:02d}.mp4").write_text("x")
+
+        response = authenticated_client.get("/api/files?path=api_pagination&page=2")
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["page"] == 2
+        assert data["page_size"] == 5
+        assert data["total_items"] == 12
+        assert data["total_pages"] == 3
+        assert len(data["files"]) == 5
+
+    def test_invalid_page_parameter_returns_400(self, authenticated_client):
+        response = authenticated_client.get("/?page=0")
+        assert response.status_code == 400
+
+        response = authenticated_client.get("/?page=abc")
+        assert response.status_code == 400
+
+    def test_page_beyond_last_returns_empty_slice(
+        self, authenticated_client, test_server, temp_video_dir
+    ):
+        test_server.config.page_size = 10
+        listing_dir = temp_video_dir / "beyond_last"
+        listing_dir.mkdir()
+        (listing_dir / "only.mp4").write_text("x")
+
+        response = authenticated_client.get("/beyond_last?page=99")
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert "only.mp4" not in html

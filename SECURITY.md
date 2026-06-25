@@ -68,6 +68,7 @@ Security events are written to `logs/security.log` in JSON format, including aut
 | In-memory rate limiter | Limits reset on restart; not shared across multiple processes |
 | Shared-IP lockout | Lockout is keyed by IP + username; users behind the same NAT may affect each other |
 | Single-user model | One username/password pair; no role-based access control |
+| Session IP binding | Sessions invalidate when the client IP changes (VPN/mobile networks may require re-login) |
 | GET logout disabled | Logout requires `POST /logout` to prevent CSRF-forced logout |
 
 ## Responsible Disclosure

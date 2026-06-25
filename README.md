@@ -24,12 +24,12 @@ A video streaming server that allows you to securely share your personal video l
 - **Performance Metrics**: Request timing and throughput monitoring  
 - **Comprehensive Logging**: Application, security, error, and performance logs
 - **Multi-threaded**: Configurable concurrency for high performance
-- **Resource Monitoring**: Memory and disk usage tracking
+- **Resource Monitoring**: CPU, memory, and disk snapshot logged at server startup (`log_system_info`)
 
 ### 🛠️ Advanced Features
 - **Environment Configuration**: Full environment variable support
 - **90%+ Test Coverage**: Comprehensive test suite with branch coverage and security tests
-- **Service Management**: System service configurations for Windows and Linux
+- **Service Management**: System service configurations — see [Deployment Guide](docs/deployment_guide.md)
 - **Log Rotation**: Automatic log rotation and archival
 - **API Support**: RESTful JSON API for integration
 

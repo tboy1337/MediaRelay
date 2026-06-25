@@ -40,10 +40,23 @@ Windows users can also download pre-built executables from [GitHub Releases](htt
 1. Download `MediaRelay.zip` from [GitHub Releases](https://github.com/tboy1337/MediaRelay/releases).
 2. Extract `MediaRelay.exe` to a folder of your choice.
 3. Create a `.env` file in the same directory (copy from `.env.example` or run `mediarelay-config` if you have Python installed).
-4. Generate credentials with `mediarelay-genpass` and update `.env`.
-5. Run `MediaRelay.exe` from that directory.
+4. Generate credentials with `mediarelay-genpass --non-interactive` (or interactive `mediarelay-genpass`) and update `.env`.
+5. Restrict `.env` permissions where supported (`icacls` on Windows, `chmod 600 .env` on Linux/macOS).
+6. Run `MediaRelay.exe` from that directory.
 
 The executable bundles the server only. Use `pip install mediarelay` if you need `mediarelay-genpass`, `mediarelay-config`, or `mediarelay-validate` without Python tooling.
+
+**Windows service (executable):**
+
+```cmd
+nssm install MediaRelay "C:\path\to\MediaRelay.exe"
+nssm set MediaRelay AppDirectory "C:\path\to\MediaRelay"
+nssm set MediaRelay AppStdout "C:\path\to\MediaRelay\logs\service.log"
+nssm set MediaRelay AppStderr "C:\path\to\MediaRelay\logs\service-error.log"
+nssm start MediaRelay
+```
+
+Place `.env` in `AppDirectory`. Generate credentials on a machine with Python (`mediarelay-genpass --non-interactive`) and copy the values into `.env` before starting the service.
 
 ### 2. Install from source (development)
 
@@ -199,6 +212,7 @@ server {
         proxy_read_timeout 300;
         proxy_connect_timeout 300;
         proxy_send_timeout 300;
+        proxy_buffering off;
     }
 }
 ```
@@ -266,7 +280,9 @@ Create `~/Library/LaunchAgents/com.mediarelay.plist`:
     <string>com.mediarelay</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/path/to/MediaRelay/venv/bin/mediarelay</string>
+        <string>/bin/bash</string>
+        <string>-lc</string>
+        <string>set -a &amp;&amp; source /path/to/MediaRelay/.env &amp;&amp; exec /path/to/MediaRelay/venv/bin/mediarelay</string>
     </array>
     <key>WorkingDirectory</key>
     <string>/path/to/MediaRelay</string>
@@ -289,7 +305,15 @@ Load the agent:
 launchctl load ~/Library/LaunchAgents/com.mediarelay.plist
 ```
 
-Place your `.env` file in the WorkingDirectory. Set `VIDEO_SERVER_SESSION_COOKIE_SECURE=true` only when serving over HTTPS.
+Place your `.env` file in the WorkingDirectory. The wrapper above sources it before launch. Set `VIDEO_SERVER_SESSION_COOKIE_SECURE=true` only when serving over HTTPS.
+
+#### Scripted credential generation
+
+```bash
+mediarelay-genpass --non-interactive --username tboy1337
+```
+
+Copy the printed `VIDEO_SERVER_*` lines into `.env`. Restrict file permissions: `chmod 600 .env`.
 
 #### Windows Service
 
@@ -370,15 +394,19 @@ sysctl -p
 
 ### Port Forwarding
 
-For external access, configure your router:
+For external access, **forward ports to your reverse proxy (443/80), not directly to MediaRelay**. MediaRelay should bind to `127.0.0.1:5000` and only be reachable through HTTPS.
+
+If you forward directly to port 5000 without TLS:
+
+- Sessions may fail when `VIDEO_SERVER_SESSION_COOKIE_SECURE=true`
+- Credentials and media travel in cleartext
+
+Recommended router setup:
 
 1. Access your router's admin interface
 2. Navigate to Port Forwarding settings
-3. Add rule:
-   - **External Port**: 5000 (or your custom port)
-   - **Internal Port**: 5000
-   - **Internal IP**: Your server's local IP
-   - **Protocol**: TCP
+3. Add rules for **443** (and **80** if needed) to your proxy host
+4. Do **not** expose port 5000 publicly unless it is firewalled to localhost-only
 
 ### Dynamic DNS (Optional)
 
@@ -507,7 +535,15 @@ tail -f logs/performance.log | grep "duration_ms"
 1. **Weekly**: Review security logs
 2. **Monthly**: Update dependencies
 3. **Quarterly**: Security audit
-4. **Annually**: Credential rotation
+4. **Annually**: Credential rotation (see below)
+
+### Credential rotation
+
+1. Run `mediarelay-genpass --non-interactive` (or interactive `mediarelay-genpass`).
+2. Update `VIDEO_SERVER_SECRET_KEY`, `VIDEO_SERVER_PASSWORD_HASH`, and optionally `VIDEO_SERVER_USERNAME` in `.env`.
+3. Restart MediaRelay (`systemctl restart mediarelay`, `nssm restart MediaRelay`, or relaunch the executable).
+4. Run `mediarelay-validate` and verify login with the new password.
+5. Invalidate old sessions (restart clears in-memory sessions; users must log in again).
 
 ### Updates
 

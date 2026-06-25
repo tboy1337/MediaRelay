@@ -13,6 +13,7 @@ from mediarelay.path_utils import (
     get_breadcrumbs,
     get_safe_path,
     guess_media_mime_type,
+    is_audio_file,
     resolve_path,
 )
 
@@ -42,6 +43,30 @@ class TestGuessMediaMimeType:
 
     def test_guess_media_mime_type_case_insensitive_extension(self) -> None:
         assert guess_media_mime_type("movie.MKV") == "video/x-matroska"
+
+    def test_guess_media_mime_type_via_stdlib_mimetypes(self) -> None:
+        """Extensions not in the fallback map should use mimetypes.guess_type."""
+        guessed = guess_media_mime_type("clip.wmv")
+        assert guessed != "application/octet-stream"
+        assert guessed.startswith("video/")
+
+
+class TestIsAudioFile:
+    """Tests for is_audio_file helper."""
+
+    @pytest.mark.parametrize(
+        "filename",
+        ["track.mp3", "track.aac", "track.ogg", "track.wav", "TRACK.MP3"],
+    )
+    def test_audio_extensions(self, filename: str) -> None:
+        assert is_audio_file(filename) is True
+
+    @pytest.mark.parametrize(
+        "filename",
+        ["movie.mp4", "movie.mkv", "document.srt"],
+    )
+    def test_non_audio_extensions(self, filename: str) -> None:
+        assert is_audio_file(filename) is False
 
 
 class TestGetSafePath:

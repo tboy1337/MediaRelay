@@ -120,20 +120,20 @@ For detailed installation instructions including system requirements, security s
 
 #### Remote Access
 
-To access from anywhere on the internet:
+**Do not expose MediaRelay over plain HTTP on the public internet.** Use one of these approaches:
 
-1. **Configure Port Forwarding**
-   - Access your router's admin panel
-   - Forward port 5000 to your computer
-   - Save the settings
+1. **Reverse proxy with HTTPS (recommended)** — Bind MediaRelay to `127.0.0.1`, set `VIDEO_SERVER_BEHIND_PROXY=true`, and terminate TLS at nginx, Caddy, or similar. See the [Deployment Guide](deployment_guide.md) and [SECURITY.md](../SECURITY.md).
+2. **VPN** — Access the server over a private VPN without port-forwarding the app port directly.
 
-2. **Find Your Public IP**
-   - Visit whatismyip.com
-   - Note your public IP address
+If you must use port forwarding, forward **only to your reverse proxy** (ports 443/80), not directly to MediaRelay port 5000.
 
-3. **Access Remotely**
-   - Go to `http://your-public-ip:5000`
-   - Login with your credentials
+Steps when using a reverse proxy:
+
+1. Configure your router to forward ports **443** (and optionally **80** for redirects) to the machine running the proxy.
+2. Point your domain's DNS at your public IP (or use dynamic DNS).
+3. Access `https://your-domain.com` and log in with your credentials.
+
+For local network access only, `http://localhost:5000` or `http://your-lan-ip:5000` is acceptable.
 
 ### Using the Interface
 
@@ -142,6 +142,7 @@ To access from anywhere on the internet:
 - **Breadcrumbs**: Shows your current location
 - **Folder Icons** (📁): Click to enter directories
 - **Video Icons** (🎬): Click to play videos
+- **Audio Icons** (🎵): Click to play audio files (MP3, AAC, OGG, WAV)
 - **Up Arrow**: Go to parent directory
 
 #### Video Player
@@ -154,6 +155,7 @@ To access from anywhere on the internet:
 #### Directory Features
 
 - **Sorting**: Folders first, then files alphabetically
+- **Pagination**: Large directories are split into pages (configurable via `VIDEO_SERVER_PAGE_SIZE`)
 - **File Info**: Shows file size and modification date
 - **Statistics**: Total files and folder counts
 

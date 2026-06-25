@@ -2,7 +2,7 @@
 Unit tests for generate_password module
 ---------------------------------------
 Tests for password generation utility functionality.
-Includes comprehensive tests for 100% coverage.
+Includes comprehensive password and secret-key generation tests.
 """
 
 import string
@@ -86,7 +86,7 @@ class TestPasswordGeneration:
 
 
 class TestGeneratePasswordCompleteCoverage:
-    """Tests specifically designed to achieve 100% coverage of generate_password.py"""
+    """Tests for generate_password module edge cases."""
 
     def test_generate_strong_password_all_requirements(self):
         """Test generate_strong_password meets all requirements"""
@@ -638,3 +638,15 @@ class TestNonInteractiveGeneration:
         assert "VIDEO_SERVER_SECRET_KEY=" in result.output
         assert "VIDEO_SERVER_USERNAME=tboy1337" in result.output
         assert "VIDEO_SERVER_PASSWORD_HASH=" in result.output
+
+
+class TestInteractiveInterrupt:
+    """Tests for graceful handling of interactive cancellation."""
+
+    def test_interactive_keyboard_interrupt_exits_130(self):
+        from mediarelay.generate_password import _run_interactive
+
+        with patch("builtins.input", side_effect=KeyboardInterrupt()):
+            with pytest.raises(SystemExit) as exc_info:
+                _run_interactive()
+            assert exc_info.value.code == 130

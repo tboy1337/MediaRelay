@@ -69,29 +69,35 @@ def _run_interactive() -> None:
 
     secret_key = generate_flask_secret_key()
 
-    username = input("Enter your preferred username: ").strip()
-    while not username:
-        print("Username cannot be empty!")
+    try:
         username = input("Enter your preferred username: ").strip()
+        while not username:
+            print("Username cannot be empty!")
+            username = input("Enter your preferred username: ").strip()
 
-    use_generated = input("Generate a strong password? (y/n): ").strip().lower() == "y"
+        use_generated = (
+            input("Generate a strong password? (y/n): ").strip().lower() == "y"
+        )
 
-    if use_generated:
-        password = generate_strong_password()
-        print(f"\nGenerated password: {password}")
-        print("IMPORTANT: Save this password in a secure location!")
-    else:
-        while True:
-            password = input("\nEnter your password: ")
-            if len(password) < 12:
-                print("Password is too short! Use at least 12 characters.")
-                continue
+        if use_generated:
+            password = generate_strong_password()
+            print(f"\nGenerated password: {password}")
+            print("IMPORTANT: Save this password in a secure location!")
+        else:
+            while True:
+                password = input("\nEnter your password: ")
+                if len(password) < 12:
+                    print("Password is too short! Use at least 12 characters.")
+                    continue
 
-            confirm = input("Confirm password: ")
-            if password != confirm:
-                print("Passwords don't match! Try again.")
-                continue
-            break
+                confirm = input("Confirm password: ")
+                if password != confirm:
+                    print("Passwords don't match! Try again.")
+                    continue
+                break
+    except (KeyboardInterrupt, EOFError):
+        print("\nAborted.", file=sys.stderr)
+        sys.exit(130)
 
     password_hash = generate_password_hash(password)
 

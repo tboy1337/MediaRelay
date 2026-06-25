@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import unquote
 
 from .config import ServerConfig
+from .constants import AUDIO_EXTENSIONS
 
 if TYPE_CHECKING:
     from .logging_config import SecurityEventLogger
@@ -26,6 +27,11 @@ _EXTENSION_MIME_FALLBACKS: dict[str, str] = {
     ".ogg": "audio/ogg",
     ".wav": "audio/wav",
 }
+
+
+def is_audio_file(filename: str) -> bool:
+    """Return True when the filename has a known audio extension."""
+    return Path(filename).suffix.lower() in AUDIO_EXTENSIONS
 
 
 def guess_media_mime_type(filename: str) -> str:

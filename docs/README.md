@@ -9,6 +9,7 @@ Welcome to the MediaRelay documentation. Use the guides below for setup, deploym
 | [User Manual](user_manual.md) | End-user setup, browsing, streaming, and troubleshooting |
 | [Deployment Guide](deployment_guide.md) | Production deployment, reverse proxy, services, and tuning |
 | [API Documentation](api_documentation.md) | REST and HTML endpoints, authentication, and examples |
+| [Configuration Reference](configuration_reference.md) | Complete environment variable reference |
 | [Security Policy](../SECURITY.md) | Vulnerability reporting, security model, and deployment checklist |
 
 ## Quick Links
