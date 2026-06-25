@@ -37,8 +37,8 @@ from waitress import serve
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.security import check_password_hash
 
-from config import ServerConfig, load_config
-from logging_config import (
+from .config import ServerConfig, load_config
+from .logging_config import (
     PerformanceLogger,
     SecurityEventLogger,
     log_system_info,
@@ -1115,7 +1115,7 @@ def main(
     """Enhanced Video Streaming Server - Production Ready"""
 
     if generate_config:
-        from config import create_sample_env_file
+        from .config import create_sample_env_file
 
         create_sample_env_file()
         return

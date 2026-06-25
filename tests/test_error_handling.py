@@ -11,8 +11,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from config import ServerConfig, _get_default_video_directory
-from streaming_server import MediaRelayServer
+from mediarelay.config import ServerConfig, _get_default_video_directory
+from mediarelay.streaming_server import MediaRelayServer
 
 
 class TestConfigErrorHandling:
@@ -160,7 +160,7 @@ class TestLoggingErrorHandling:
 
     def test_logging_disk_full_simulation(self, test_config, tmp_path):
         """Test logging behavior when disk is full"""
-        from logging_config import SecurityEventLogger
+        from mediarelay.logging_config import SecurityEventLogger
 
         test_config.log_directory = str(tmp_path)
         logger = SecurityEventLogger(test_config)
@@ -176,7 +176,7 @@ class TestLoggingErrorHandling:
 
     def test_logging_permission_error(self, test_config):
         """Test logging behavior with permission errors"""
-        from logging_config import SecurityEventLogger
+        from mediarelay.logging_config import SecurityEventLogger
 
         # Try to write to a directory we don't have permission to
         test_config.log_directory = "/root/logs"  # Typically not writable

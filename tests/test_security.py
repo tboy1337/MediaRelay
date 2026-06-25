@@ -15,7 +15,7 @@ from unittest.mock import Mock, patch
 import pytest
 from flask import session
 
-from streaming_server import (
+from mediarelay.streaming_server import (
     LOCKOUT_DURATION_SECONDS,
     MAX_FAILED_ATTEMPTS,
     MAX_PATH_LENGTH,
@@ -798,7 +798,7 @@ class TestSecurityLogging:
         test_config.log_directory = str(tmp_path)
 
         # Reset security logger with new config
-        from logging_config import SecurityEventLogger
+        from mediarelay.logging_config import SecurityEventLogger
 
         test_server.security_logger = SecurityEventLogger(test_config)
 
@@ -829,7 +829,7 @@ class TestSecurityLogging:
         """Test that security violations log appropriate metadata"""
         test_server.config.log_directory = str(tmp_path)
 
-        from logging_config import SecurityEventLogger
+        from mediarelay.logging_config import SecurityEventLogger
 
         security_logger = SecurityEventLogger(test_server.config)
 
@@ -979,7 +979,7 @@ class TestSecurityPerformance:
 
         test_server.config.log_directory = str(tmp_path)
 
-        from logging_config import SecurityEventLogger
+        from mediarelay.logging_config import SecurityEventLogger
 
         security_logger = SecurityEventLogger(test_server.config)
 

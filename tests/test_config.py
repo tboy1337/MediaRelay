@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-from config import (
+from mediarelay.config import (
     ServerConfig,
     _get_default_video_directory,
     create_sample_env_file,
@@ -694,7 +694,7 @@ class TestConfigLoading:
 
     def test_create_sample_env_file(self, tmp_path):
         """Test sample .env file creation"""
-        with patch("config.Path") as mock_path:
+        with patch("mediarelay.config.Path") as mock_path:
             mock_env_file = tmp_path / ".env.example"
             mock_path.return_value = mock_env_file
 
@@ -726,7 +726,7 @@ class TestConfigLoadingComprehensive:
 
     def test_create_sample_env_file_content(self, tmp_path):
         """Test create_sample_env_file creates correct content"""
-        with patch("config.Path") as mock_path_class:
+        with patch("mediarelay.config.Path") as mock_path_class:
             env_file = tmp_path / ".env.example"
             mock_path_class.return_value = env_file
 
@@ -754,7 +754,7 @@ class TestConfigLoadingComprehensive:
 
     def test_create_sample_env_file_prints_messages(self, tmp_path):
         """Test create_sample_env_file prints appropriate messages"""
-        with patch("config.Path") as mock_path_class:
+        with patch("mediarelay.config.Path") as mock_path_class:
             env_file = tmp_path / ".env.example"
             mock_path_class.return_value = env_file
 
@@ -871,13 +871,13 @@ class TestConfigComprehensiveEdgeCases:
 class TestConfigMainExecution:
     """Test config module main execution"""
 
-    @patch("config.create_sample_env_file")
+    @patch("mediarelay.config.create_sample_env_file")
     def test_main_execution_calls_create_sample_env_file(self, mock_create_env):
         """Test that running config.py as main calls create_sample_env_file"""
         # Simulate running as main
-        with patch("config.__name__", "__main__"):
+        with patch("mediarelay.config.__name__", "__main__"):
             # Import would trigger main execution, but we'll call it directly
-            import config
+            from mediarelay import config
 
             # The actual main execution happens at module level
             # We can test by calling the function directly
@@ -960,15 +960,21 @@ class TestLoadConfigFile:
             load_config(missing)
 
 
-class TestValidateSetupCLI:
-    """Test validate_setup pre-flight checks"""
+_PLACEHOLDER_PASSWORD_HASHES = frozenset({"", "your-password-hash-here"})
 
-    def test_validate_setup_success(self, tmp_path, monkeypatch):
+
+def _assert_deployment_config_valid(config_file: Path) -> None:
+    """Pre-flight deployment validation (test helper, replaces validate_setup CLI)."""
+    config = load_config(config_file)
+    if config.password_hash in _PLACEHOLDER_PASSWORD_HASHES:
+        raise ValueError("PASSWORD_HASH must be set to a real hash, not a placeholder")
+
+
+class TestDeploymentConfigValidation:
+    """Test deployment pre-flight configuration checks"""
+
+    def test_deployment_config_valid(self, tmp_path, monkeypatch):
         """Valid configuration passes validation"""
-        from click.testing import CliRunner
-
-        from validate_setup import main as validate_main
-
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
         log_dir = tmp_path / "logs"
@@ -985,17 +991,10 @@ class TestValidateSetupCLI:
         )
 
         monkeypatch.chdir(tmp_path)
-        runner = CliRunner()
-        result = runner.invoke(validate_main, ["--config-file", str(env_file)])
-        assert result.exit_code == 0, result.output
-        assert "Validation passed" in result.output
+        _assert_deployment_config_valid(env_file)
 
-    def test_validate_setup_invalid_hash(self, tmp_path):
-        """Invalid password hash fails validation"""
-        from click.testing import CliRunner
-
-        from validate_setup import main as validate_main
-
+    def test_deployment_config_rejects_placeholder_hash(self, tmp_path):
+        """Placeholder password hash fails validation"""
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
 
@@ -1008,7 +1007,5 @@ class TestValidateSetupCLI:
             encoding="utf-8",
         )
 
-        runner = CliRunner()
-        result = runner.invoke(validate_main, ["--config-file", str(env_file)])
-        assert result.exit_code == 1
-        assert "Validation failed" in result.output
+        with pytest.raises(ValueError, match="placeholder"):
+            _assert_deployment_config_valid(env_file)

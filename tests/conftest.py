@@ -15,8 +15,8 @@ from typing import Any
 import pytest
 from werkzeug.security import generate_password_hash
 
-from config import ServerConfig
-from streaming_server import MediaRelayServer
+from mediarelay.config import ServerConfig
+from mediarelay.streaming_server import MediaRelayServer
 
 
 @pytest.fixture(scope="session")

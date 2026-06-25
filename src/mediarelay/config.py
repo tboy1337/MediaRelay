@@ -87,8 +87,8 @@ class ServerConfig:
     # nosec B104: Binding to 0.0.0.0 is intentional for a server that needs to be
     # accessible from other machines. Users should configure firewall rules appropriately.
     host: str = field(
-        default_factory=lambda: os.getenv("VIDEO_SERVER_HOST", "0.0.0.0")
-    )  # nosec B104
+        default_factory=lambda: os.getenv("VIDEO_SERVER_HOST", "0.0.0.0")  # nosec B104
+    )
     port: int = field(
         default_factory=lambda: _parse_int_env(
             "VIDEO_SERVER_PORT", "5000", min_val=1, max_val=65535
@@ -341,5 +341,10 @@ FLASK_ENV=production
     print("Copy this to .env and update the values for your deployment")
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Console entry point for mediarelay-config."""
     create_sample_env_file()
+
+
+if __name__ == "__main__":
+    main()

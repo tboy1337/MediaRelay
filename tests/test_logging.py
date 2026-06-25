@@ -13,8 +13,8 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from config import ServerConfig
-from logging_config import (
+from mediarelay.config import ServerConfig
+from mediarelay.logging_config import (
     PerformanceLogger,
     SecurityEventLogger,
     get_request_logger,
@@ -436,7 +436,7 @@ class TestLoggingSetup:
             flask_logger = logging.getLogger("werkzeug")
             assert flask_logger.level == logging.INFO
 
-    @patch("logging_config.structlog")
+    @patch("mediarelay.logging_config.structlog")
     def test_structlog_configuration(self, mock_structlog, test_config, tmp_path):
         """Test structlog configuration"""
         test_config.log_directory = str(tmp_path)
@@ -524,7 +524,7 @@ class TestLoggingSetupComprehensive:
             assert log_dir.exists()
             assert log_dir.is_dir()
 
-    @patch("logging_config.structlog")
+    @patch("mediarelay.logging_config.structlog")
     def test_structlog_configuration_comprehensive(
         self, mock_structlog, test_config, tmp_path
     ):
