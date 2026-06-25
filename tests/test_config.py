@@ -1025,6 +1025,40 @@ class TestDeploymentConfigValidation:
         monkeypatch.chdir(tmp_path)
         validate_deployment_config(env_file)
 
+    def test_deployment_config_rejects_non_production(self, tmp_path):
+        """Deployment validation requires FLASK_ENV=production"""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+
+        env_file = tmp_path / "test.env"
+        env_file.write_text(
+            f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_SECRET_KEY=secure-production-key\n"
+            f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
+            f"FLASK_ENV=development\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="FLASK_ENV must be 'production'"):
+            validate_deployment_config(env_file)
+
+    def test_deployment_config_rejects_placeholder_secret(self, tmp_path):
+        """Placeholder secret key fails deployment validation in production"""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+
+        env_file = tmp_path / "test.env"
+        env_file.write_text(
+            f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_SECRET_KEY=your-secret-key-here\n"
+            f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
+            f"FLASK_ENV=production\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="VIDEO_SERVER_SECRET_KEY"):
+            validate_deployment_config(env_file)
+
     def test_deployment_config_rejects_placeholder_hash(self, tmp_path):
         """Placeholder password hash fails validation"""
         video_dir = tmp_path / "videos"

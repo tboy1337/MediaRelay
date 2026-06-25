@@ -13,5 +13,4 @@ click
 
 # Logging and Monitoring
 colorlog
-structlog
 psutil

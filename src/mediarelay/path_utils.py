@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import mimetypes
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -11,6 +12,33 @@ from .config import ServerConfig
 
 if TYPE_CHECKING:
     from .logging_config import SecurityEventLogger
+
+_EXTENSION_MIME_FALLBACKS: dict[str, str] = {
+    ".mkv": "video/x-matroska",
+    ".webm": "video/webm",
+    ".m4v": "video/x-m4v",
+    ".flv": "video/x-flv",
+    ".mov": "video/quicktime",
+    ".avi": "video/x-msvideo",
+    ".mp4": "video/mp4",
+    ".mp3": "audio/mpeg",
+    ".aac": "audio/aac",
+    ".ogg": "audio/ogg",
+    ".wav": "audio/wav",
+}
+
+
+def guess_media_mime_type(filename: str) -> str:
+    """Return the MIME type for a media filename."""
+    suffix = Path(filename).suffix.lower()
+    if suffix in _EXTENSION_MIME_FALLBACKS:
+        return _EXTENSION_MIME_FALLBACKS[suffix]
+
+    guessed, _encoding = mimetypes.guess_type(filename)
+    if guessed:
+        return guessed
+
+    return "application/octet-stream"
 
 
 def resolve_path(path: Path) -> Path:

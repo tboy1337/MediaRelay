@@ -17,6 +17,7 @@ from mediarelay.config import ServerConfig
 from mediarelay.logging_config import (
     PerformanceLogger,
     SecurityEventLogger,
+    cleanup_logging,
     get_request_logger,
     log_system_info,
     setup_logging,
@@ -436,21 +437,6 @@ class TestLoggingSetup:
             flask_logger = logging.getLogger("werkzeug")
             assert flask_logger.level == logging.INFO
 
-    @patch("mediarelay.logging_config.structlog")
-    def test_structlog_configuration(self, mock_structlog, test_config, tmp_path):
-        """Test structlog configuration"""
-        test_config.log_directory = str(tmp_path)
-
-        setup_logging(test_config)
-
-        mock_structlog.configure.assert_called_once()
-        call_args = mock_structlog.configure.call_args
-
-        assert "processors" in call_args.kwargs
-        assert "logger_factory" in call_args.kwargs
-        assert "cache_logger_on_first_use" in call_args.kwargs
-        assert call_args.kwargs["cache_logger_on_first_use"] is True
-
 
 class TestLoggingSetupComprehensive:
     """Comprehensive tests for logging setup"""
@@ -524,29 +510,25 @@ class TestLoggingSetupComprehensive:
             assert log_dir.exists()
             assert log_dir.is_dir()
 
-    @patch("mediarelay.logging_config.structlog")
-    def test_structlog_configuration_comprehensive(
-        self, mock_structlog, test_config, tmp_path
-    ):
-        """Test comprehensive structlog configuration"""
+    def test_setup_logging_console_disabled(self, test_config, tmp_path):
+        """Console handler is omitted when log_console is false."""
         test_config.log_directory = str(tmp_path)
+        test_config.log_console = False
 
-        setup_logging(test_config)
+        components = setup_logging(test_config)
+        assert components["console_handler"] is None
 
-        # Verify structlog.configure was called
-        mock_structlog.configure.assert_called_once()
+    def test_cleanup_logging_closes_handlers(self, test_config, tmp_path):
+        """cleanup_logging closes security, performance, and root handlers."""
+        test_config.log_directory = str(tmp_path)
+        components = setup_logging(test_config)
 
-        # Check call arguments
-        call_args = mock_structlog.configure.call_args
-        kwargs = call_args.kwargs
+        security_handler = components["security_logger"].handlers[0]
+        cleanup_logging(components)
 
-        assert "processors" in kwargs
-        assert "context_class" in kwargs
-        assert "logger_factory" in kwargs
-        assert "wrapper_class" in kwargs
-        assert "cache_logger_on_first_use" in kwargs
-        assert kwargs["cache_logger_on_first_use"] is True
-        assert kwargs["context_class"] is dict
+        assert len(components["security_logger"].handlers) == 0
+        assert len(components["root_logger"].handlers) == 0
+        assert security_handler not in components["root_logger"].handlers
 
 
 class TestUtilityFunctions:

@@ -23,30 +23,30 @@ This guide covers production deployment of the Video Streaming Server with compr
 
 ## Installation
 
-### 1. Download and Setup
+### 1. Install from PyPI (recommended)
 
 ```bash
-# Clone the repository
-git clone https://github.com/tboy1337/MediaRelay.git
-cd MediaRelay
-
-# Create virtual environment (recommended)
 python -m venv venv
+source venv/bin/activate   # Linux/macOS
+venv\Scripts\activate      # Windows
 
-# Activate virtual environment
-# Windows:
-venv\Scripts\activate
-# macOS/Linux:
-source venv/bin/activate
-
-# Install production dependencies
-pip install -r requirements.txt
-
-# For development environment (optional)
-pip install -r requirements-dev.txt
+pip install mediarelay
 ```
 
-### 2. Configuration
+Windows users can also download pre-built executables from [GitHub Releases](https://github.com/tboy1337/MediaRelay/releases).
+
+### 2. Install from source (development)
+
+```bash
+git clone https://github.com/tboy1337/MediaRelay.git
+cd MediaRelay
+python -m venv venv
+source venv/bin/activate   # Linux/macOS
+venv\Scripts\activate      # Windows
+pip install -e ".[dev]"
+```
+
+### 3. Configuration
 
 #### Environment Variables
 
@@ -192,7 +192,9 @@ server {
 }
 ```
 
-When using nginx (or another reverse proxy), set `VIDEO_SERVER_BEHIND_PROXY=true` in your `.env` file so client IPs, rate limiting, and account lockout use the forwarded address (leftmost `X-Forwarded-For` entry). Keep `VIDEO_SERVER_SESSION_COOKIE_SECURE=true` when serving over HTTPS. For plain-HTTP local development only, set `VIDEO_SERVER_SESSION_COOKIE_SECURE=false`.
+When using nginx (or another reverse proxy), set `VIDEO_SERVER_BEHIND_PROXY=true` in your `.env` file so client IPs, rate limiting, and account lockout use the forwarded address (leftmost `X-Forwarded-For` entry). **Only enable this when MediaRelay is not directly reachable from the internet** — bind to `127.0.0.1` and expose only through the proxy. If `BEHIND_PROXY=true` without a trusted proxy, attackers can spoof client IPs.
+
+Keep `VIDEO_SERVER_SESSION_COOKIE_SECURE=true` when serving over HTTPS. For plain-HTTP local development only, set `VIDEO_SERVER_SESSION_COOKIE_SECURE=false`.
 
 #### Account Lockout
 
@@ -226,7 +228,7 @@ RestartSec=10
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ProtectHome=yes
+ProtectHome=read-only
 ReadWritePaths=/path/to/MediaRelay/logs /path/to/videos
 
 [Install]
@@ -264,21 +266,18 @@ The application includes built-in log rotation. Logs are stored in:
 #### Health Monitoring
 
 The server provides a health check endpoint:
+
 ```bash
 curl http://localhost:5000/health
 ```
 
-Response example:
+Unauthenticated response (minimal):
+
 ```json
-{
-    "status": "healthy",
-    "timestamp": "2023-12-01T12:00:00Z",
-    "version": "1.0.4",
-    "uptime_seconds": 3600,
-    "video_directory_accessible": true,
-    "config_valid": true
-}
+{"status": "healthy"}
 ```
+
+Authenticated response includes version, uptime, and configuration details. See [API Documentation](api_documentation.md#1-health-check).
 
 ### 4. Performance Tuning
 
@@ -457,11 +456,12 @@ tail -f logs/performance.log | grep "duration_ms"
 ### Updates
 
 ```bash
-# Update application
-git pull origin main
+# Update from PyPI
+pip install --upgrade mediarelay
 
-# Update dependencies
-pip install -r requirements.txt --upgrade
+# Or from source
+git pull origin main
+pip install -e ".[dev]"
 
 # Restart service
 sudo systemctl restart mediarelay  # Linux
@@ -478,8 +478,8 @@ perfmon       # Windows
 # Monitor application logs
 tail -f logs/performance.log
 
-# Test endpoint response times
-curl -w "@curl-format.txt" -o /dev/null -s http://localhost:5000/health
+# Test health endpoint
+curl -o /dev/null -s -w "%{http_code}\n" http://localhost:5000/health
 ```
 
 ## Support and Maintenance

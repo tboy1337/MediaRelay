@@ -264,3 +264,49 @@ class TestNetworkErrorHandling:
 
 class TestFileSystemErrorHandling:
     """Test cases for file system error handling"""
+
+
+class TestHandlerErrorPaths:
+    """Tests for handler 500 error responses."""
+
+    def test_stream_handler_os_error_returns_500(self, test_server):
+        """Stream handler returns 500 when send_from_directory fails."""
+        import base64
+
+        from mediarelay.handlers import handle_stream_request
+
+        auth = base64.b64encode(b"testuser:testpass").decode()
+        with test_server.app.test_request_context(
+            "/stream/test_video.mp4",
+            method="GET",
+            headers={"Authorization": f"Basic {auth}"},
+        ):
+            with patch.object(test_server, "check_authentication", return_value=True):
+                with patch(
+                    "mediarelay.handlers.send_from_directory",
+                    side_effect=OSError("disk error"),
+                ):
+                    result = handle_stream_request(test_server, "test_video.mp4")
+        assert result == ("Error streaming file", 500)
+
+    def test_api_files_handler_os_error_returns_500(self, test_server):
+        """API files handler returns 500 on filesystem errors."""
+        import base64
+
+        from mediarelay.handlers import handle_api_files_request
+
+        mock_dir = MagicMock()
+        mock_dir.exists.return_value = True
+        mock_dir.is_dir.return_value = True
+        mock_dir.iterdir.side_effect = OSError("read error")
+
+        auth = base64.b64encode(b"testuser:testpass").decode()
+        with test_server.app.test_request_context(
+            "/api/files",
+            method="GET",
+            headers={"Authorization": f"Basic {auth}"},
+        ):
+            with patch.object(test_server, "check_authentication", return_value=True):
+                with patch("mediarelay.handlers.get_safe_path", return_value=mock_dir):
+                    result = handle_api_files_request(test_server)
+        assert result[1] == 500

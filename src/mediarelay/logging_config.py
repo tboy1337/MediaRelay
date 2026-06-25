@@ -11,10 +11,9 @@ import logging.handlers
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, TypedDict
 
 import colorlog
-import structlog
 
 from .config import ServerConfig
 
@@ -182,7 +181,18 @@ class PerformanceLogger:
         self.handlers.clear()
 
 
-def setup_logging(config: ServerConfig) -> dict[str, Any]:  # type: ignore[explicit-any]
+class LoggingComponents(TypedDict):
+    """Return type for setup_logging."""
+
+    root_logger: logging.Logger
+    security_logger: SecurityEventLogger
+    performance_logger: PerformanceLogger
+    console_handler: logging.Handler | None
+    file_handler: logging.Handler
+    error_handler: logging.Handler
+
+
+def setup_logging(config: ServerConfig) -> LoggingComponents:
     """
     Set up comprehensive logging system for the application
 
@@ -193,25 +203,6 @@ def setup_logging(config: ServerConfig) -> dict[str, Any]:  # type: ignore[expli
     # Create logs directory
     log_dir = Path(config.log_directory)
     log_dir.mkdir(parents=True, exist_ok=True)
-
-    # Configure structlog for structured logging
-    structlog.configure(
-        processors=[
-            structlog.stdlib.filter_by_level,
-            structlog.stdlib.add_logger_name,
-            structlog.stdlib.add_log_level,  # type: ignore[misc]
-            structlog.stdlib.PositionalArgumentsFormatter(),
-            structlog.processors.TimeStamper(fmt="ISO"),
-            structlog.processors.StackInfoRenderer(),
-            structlog.processors.format_exc_info,
-            structlog.processors.UnicodeDecoder(),
-            structlog.processors.JSONRenderer(),
-        ],
-        context_class=dict,
-        logger_factory=structlog.stdlib.LoggerFactory(),
-        wrapper_class=structlog.stdlib.BoundLogger,
-        cache_logger_on_first_use=True,
-    )
 
     # Root logger configuration
     root_logger = logging.getLogger()
@@ -226,21 +217,24 @@ def setup_logging(config: ServerConfig) -> dict[str, Any]:  # type: ignore[expli
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
-    # Console handler with color support
-    console_handler = colorlog.StreamHandler(sys.stdout)
-    console_formatter = colorlog.ColoredFormatter(
-        "%(log_color)s%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        log_colors={
-            "DEBUG": "cyan",
-            "INFO": "green",
-            "WARNING": "yellow",
-            "ERROR": "red",
-            "CRITICAL": "red,bg_white",
-        },
-    )
-    console_handler.setFormatter(console_formatter)
-    root_logger.addHandler(console_handler)
+    # Console handler with color support (optional for systemd/file-only deployments)
+    console_handler: logging.Handler | None = None
+    if config.log_console:
+        stream_handler = colorlog.StreamHandler(sys.stdout)
+        console_formatter = colorlog.ColoredFormatter(
+            "%(log_color)s%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+            log_colors={
+                "DEBUG": "cyan",
+                "INFO": "green",
+                "WARNING": "yellow",
+                "ERROR": "red",
+                "CRITICAL": "red,bg_white",
+            },
+        )
+        stream_handler.setFormatter(console_formatter)
+        console_handler = stream_handler
+        root_logger.addHandler(console_handler)
 
     # File handler for general application logs
     app_log_file = log_dir / "app.log"
@@ -285,6 +279,23 @@ def setup_logging(config: ServerConfig) -> dict[str, Any]:  # type: ignore[expli
         "file_handler": file_handler,
         "error_handler": error_handler,
     }
+
+
+def cleanup_logging(components: LoggingComponents) -> None:
+    """Close and remove all logging handlers created by setup_logging."""
+    security_logger = components.get("security_logger")
+    if isinstance(security_logger, SecurityEventLogger):
+        security_logger.cleanup()
+
+    performance_logger = components.get("performance_logger")
+    if isinstance(performance_logger, PerformanceLogger):
+        performance_logger.cleanup()
+
+    root_logger = components.get("root_logger")
+    if isinstance(root_logger, logging.Logger):
+        for handler in list(root_logger.handlers):
+            handler.close()
+            root_logger.removeHandler(handler)
 
 
 def get_request_logger(name: str) -> logging.Logger:
@@ -333,7 +344,7 @@ if __name__ == "__main__":
     from .config import load_config
 
     config = load_config()
-    logging_components = setup_logging(config)  # type: ignore[misc]
+    logging_components = setup_logging(config)
 
     # Test different log levels
     logging.debug("This is a debug message")
@@ -342,11 +353,11 @@ if __name__ == "__main__":
     logging.error("This is an error message")
 
     # Test security logger
-    security_logger = logging_components["security_logger"]  # type: ignore[misc]
-    security_logger.log_auth_attempt("testuser", True, "127.0.0.1", "Test Browser")  # type: ignore[misc]
+    security_logger = logging_components["security_logger"]
+    security_logger.log_auth_attempt("testuser", True, "127.0.0.1", "Test Browser")
 
     # Test performance logger
-    perf_logger = logging_components["performance_logger"]  # type: ignore[misc]
-    perf_logger.log_request_duration("/test", 0.250, 200)  # type: ignore[misc]
+    perf_logger = logging_components["performance_logger"]
+    perf_logger.log_request_duration("/test", 0.250, 200)
 
     print("Logging test completed. Check the logs directory for output files.")

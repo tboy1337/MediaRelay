@@ -16,7 +16,7 @@ from flask import (
     session,
 )
 
-from .path_utils import get_breadcrumbs, get_safe_path
+from .path_utils import get_breadcrumbs, get_safe_path, guess_media_mime_type
 from .templates import INDEX_HTML_TEMPLATE
 
 if TYPE_CHECKING:
@@ -64,6 +64,7 @@ def handle_index_request(
                 INDEX_HTML_TEMPLATE,
                 video_file=safe_path.name,
                 video_path=str(relative_path).replace("\\", "/"),
+                video_mime_type=guess_media_mime_type(safe_path.name),
                 parent_path=parent_path,
             )
         return "Not a video file", 400

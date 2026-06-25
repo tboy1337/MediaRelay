@@ -47,7 +47,7 @@ Sessions are automatically created upon successful authentication and include:
 Check server health and status.
 
 **Endpoint**: `GET /health`
-**Authentication**: None required
+**Authentication**: Optional — unauthenticated callers receive minimal information
 **Rate Limit**: Not limited
 
 #### Request
@@ -56,31 +56,46 @@ GET /health HTTP/1.1
 Host: localhost:5000
 ```
 
-#### Response
+#### Response (unauthenticated)
+
+Returns only whether the server can access the video directory:
+
+```json
+{
+    "status": "healthy"
+}
+```
+
+#### Response (authenticated)
+
+When authenticated (HTTP Basic Auth or session cookie), returns full details:
+
 ```json
 {
     "status": "healthy",
-    "timestamp": "2023-12-01T12:00:00.000Z",
-    "version": "1.0.5",
+    "timestamp": "2026-06-25T12:00:00.000000+00:00",
+    "version": "1.0.6",
     "uptime_seconds": 3600,
     "video_directory_accessible": true,
-    "config_valid": true
+    "config_valid": true,
+    "rate_limiting_enabled": true
 }
 ```
 
 #### Status Codes
 - `200 OK`: Server is healthy
-- `503 Service Unavailable`: Server has issues
+- `503 Service Unavailable`: Video directory is inaccessible
 
-#### Response Fields
+#### Response Fields (authenticated only)
 | Field | Type | Description |
 |-------|------|-------------|
-| status | string | "healthy", "degraded", or "unhealthy" |
-| timestamp | string | ISO 8601 timestamp |
-| version | string | Installed package version (from PyPI metadata) |
+| status | string | `"healthy"` or `"unhealthy"` |
+| timestamp | string | ISO 8601 timestamp (UTC) |
+| version | string | Installed package version |
 | uptime_seconds | number | Server uptime in seconds |
 | video_directory_accessible | boolean | Whether video directory is accessible |
-| config_valid | boolean | Whether configuration is valid |
+| config_valid | boolean | Whether configuration passed validation |
+| rate_limiting_enabled | boolean | Whether rate limiting is active |
 
 ### 2. Directory Listing
 
@@ -228,28 +243,36 @@ Accept: application/json
 
 ## Error Responses
 
-All API endpoints return consistent error responses.
+Most endpoints return **plain text** error messages with the appropriate HTTP status code. The JSON API (`/api/files`) returns JSON error bodies.
 
-### Error Format
-```json
-{
-    "error": "Error description",
-    "code": "ERROR_CODE",
-    "timestamp": "2023-12-01T12:00:00.000Z"
-}
+### HTML and streaming endpoints
+
+```http
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Basic realm="Video Streaming Server"
+
+Authentication Required
 ```
 
-### Common Error Codes
+Common plain-text responses:
 
-| HTTP Status | Code | Description |
-|-------------|------|-------------|
-| 400 | BAD_REQUEST | Invalid request parameters |
-| 401 | UNAUTHORIZED | Authentication required |
-| 403 | FORBIDDEN | Access denied |
-| 404 | NOT_FOUND | Resource not found |
-| 413 | PAYLOAD_TOO_LARGE | Request entity too large |
-| 429 | RATE_LIMIT_EXCEEDED | Too many requests |
-| 500 | INTERNAL_ERROR | Server error |
+| HTTP Status | Body |
+|-------------|------|
+| 400 | `Bad Request - Invalid parameters` |
+| 401 | `Authentication Required` |
+| 403 | `Access Forbidden` |
+| 404 | `Resource Not Found` |
+| 413 | `File Too Large` |
+| 429 | `Rate Limit Exceeded - Too Many Requests` |
+| 500 | `Internal Server Error` |
+
+### JSON API (`/api/files`)
+
+```json
+{
+    "error": "Authentication required"
+}
+```
 
 ## Rate Limiting
 
@@ -268,26 +291,31 @@ X-RateLimit-Reset: 1638360000
 ```
 
 ### Rate Limit Exceeded Response
-```json
-{
-    "error": "Rate limit exceeded",
-    "code": "RATE_LIMIT_EXCEEDED",
-    "retry_after": 60
-}
+
+Plain text with HTTP 429:
+
+```http
+HTTP/1.1 429 Too Many Requests
+
+Rate Limit Exceeded - Too Many Requests
 ```
 
 ## Security Headers
 
-All API responses include security headers:
+All responses include security headers:
 
 ```http
 X-Content-Type-Options: nosniff
 X-Frame-Options: SAMEORIGIN
 X-XSS-Protection: 1; mode=block
-Strict-Transport-Security: max-age=31536000; includeSubDomains
-Content-Security-Policy: default-src 'self'; media-src 'self'
+Content-Security-Policy: default-src 'self'; media-src 'self'; style-src 'self' 'unsafe-inline'
 Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
+X-Permitted-Cross-Domain-Policies: none
+Strict-Transport-Security: max-age=31536000; includeSubDomains
 ```
+
+`Strict-Transport-Security` is sent only when `VIDEO_SERVER_SESSION_COOKIE_SECURE=true`.
 
 ## Request/Response Examples
 
@@ -389,7 +417,7 @@ curl http://localhost:5000/health
 {
     "status": "healthy",
     "timestamp": "2023-12-01T12:00:00.000Z",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "uptime_seconds": 7200,
     "video_directory_accessible": true,
     "config_valid": true

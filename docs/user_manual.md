@@ -34,32 +34,30 @@ The Video Streaming Server allows you to share your personal video library over 
 
 ### Quick Setup
 
-1. **Download the Application**
+1. **Install MediaRelay**
    ```bash
-   git clone https://github.com/tboy1337/MediaRelay.git
-   cd MediaRelay
+   pip install mediarelay
    ```
 
-2. **Install Dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+   For development from source, see the [README](../README.md#1-installation).
 
-3. **Configure Your Settings**
+2. **Configure Your Settings**
    ```bash
    mediarelay-config  # Creates .env.example
-   cp .env.example .env
+   cp .env.example .env   # Linux/macOS
+   copy .env.example .env # Windows
    # Edit .env file with your settings
    ```
 
-4. **Set Up Security**
+3. **Set Up Security**
    ```bash
    mediarelay-genpass
    # Follow prompts to create secure password
    ```
 
-5. **Start the Server**
+4. **Validate and Start**
    ```bash
+   mediarelay-validate
    mediarelay
    ```
 
@@ -205,7 +203,7 @@ Currently supports one user account. For multiple users, you can:
 
 - **Auto-login**: Remembers you after first authentication
 - **Timeout**: Sessions expire after inactivity
-- **Security**: Session data is encrypted
+- **Security**: Sessions use signed, HTTP-only cookies (use HTTPS in production)
 
 #### Access Logging
 

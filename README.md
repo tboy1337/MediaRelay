@@ -189,23 +189,31 @@ VIDEO_SERVER_SESSION_COOKIE_SECURE=true
 VIDEO_SERVER_SESSION_COOKIE_HTTPONLY=true
 VIDEO_SERVER_SESSION_COOKIE_SAMESITE=Strict
 
-# Reverse proxy (set true when behind nginx)
+# Reverse proxy (set true ONLY when behind a trusted reverse proxy)
 VIDEO_SERVER_BEHIND_PROXY=false
 
 # Account lockout (failed login protection)
 VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS=5
 VIDEO_SERVER_LOCKOUT_DURATION=900
 
-# Optional: override allowed media extensions (comma-separated)
-# VIDEO_SERVER_ALLOWED_EXTENSIONS=.mp4,.mkv,.avi,.mov,.webm
-
-# Production mode (rejects placeholder credentials)
-FLASK_ENV=production
-
 # Logging
 VIDEO_SERVER_LOG_LEVEL=INFO
 VIDEO_SERVER_LOG_DIR=./logs
+VIDEO_SERVER_LOG_CONSOLE=true
+
+# Production mode (rejects placeholder credentials)
+FLASK_ENV=production
 ```
+
+## Development
+
+Run the full quality gate locally:
+
+```bash
+python scripts/verify.py
+```
+
+This runs black, isort, mypy, bandit, pylint, and pytest with 90% branch coverage.
 
 ## 🔒 Security
 
@@ -223,8 +231,12 @@ X-Content-Type-Options: nosniff
 X-Frame-Options: SAMEORIGIN  
 X-XSS-Protection: 1; mode=block
 Strict-Transport-Security: max-age=31536000  # Only when SESSION_COOKIE_SECURE=true
-Content-Security-Policy: default-src 'self'
+Content-Security-Policy: default-src 'self'; media-src 'self'; style-src 'self' 'unsafe-inline'
 ```
+
+### Reverse Proxy Warning
+
+Set `VIDEO_SERVER_BEHIND_PROXY=true` only when MediaRelay runs behind a trusted reverse proxy (nginx, Caddy, etc.) and is bound to localhost. Direct internet exposure with this flag enabled allows IP spoofing via `X-Forwarded-For`, weakening lockout and rate limits. See [SECURITY.md](SECURITY.md).
 
 ### Security Monitoring
 
@@ -307,9 +319,10 @@ mediarelay
 
 ### Support
 
-- **Documentation**: Check `docs/` directory
+- **Documentation**: [docs/README.md](docs/README.md)
 - **Logs**: Review application logs in `logs/`
 - **Health Check**: `curl http://localhost:5000/health`
+- **Security**: [SECURITY.md](SECURITY.md)
 - **Issues**: Create GitHub issue with logs and configuration
 
 ## 📄 License

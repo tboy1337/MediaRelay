@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import secrets
+import signal
 import sys
 import threading
 import time
@@ -35,8 +36,10 @@ from .handlers import (
 )
 from .lockout import AccountLockoutManager
 from .logging_config import (
+    LoggingComponents,
     PerformanceLogger,
     SecurityEventLogger,
+    cleanup_logging,
     log_system_info,
     setup_logging,
 )
@@ -57,8 +60,10 @@ class MediaRelayServer:
             lockout_duration=config.lockout_duration,
         )
         self._lockout_cleanup_timer: threading.Timer | None = None
+        self._logging_components: LoggingComponents | None = None
         self._setup_logging()
         self._warn_ephemeral_secret_key()
+        self._warn_behind_proxy()
         self._setup_rate_limiting()
         self._register_routes()
         self._register_error_handlers()
@@ -69,6 +74,15 @@ class MediaRelayServer:
             self.app.logger.warning(
                 "VIDEO_SERVER_SECRET_KEY not set in environment; using auto-generated "
                 "key. Sessions will not persist across restarts."
+            )
+
+    def _warn_behind_proxy(self) -> None:
+        """Warn when reverse-proxy mode is enabled without a trusted proxy in front."""
+        if self.config.behind_proxy:
+            self.app.logger.warning(
+                "VIDEO_SERVER_BEHIND_PROXY is enabled: client IP and rate limits use "
+                "X-Forwarded-For. Only enable this when MediaRelay is behind a "
+                "trusted reverse proxy. Direct exposure allows IP spoofing."
             )
 
     def _start_lockout_cleanup(self) -> None:
@@ -144,10 +158,19 @@ class MediaRelayServer:
 
     def _setup_logging(self) -> None:
         """Initialize logging system."""
-        logging_components = setup_logging(self.config)  # type: ignore[misc]
-        self.security_logger = logging_components["security_logger"]  # type: ignore[misc]
-        self.performance_logger = logging_components["performance_logger"]  # type: ignore[misc]
+        components = setup_logging(self.config)
+        self._logging_components = components
+        self.security_logger = components["security_logger"]
+        self.performance_logger = components["performance_logger"]
         log_system_info(self.config)
+
+    def _shutdown_cleanup(self) -> None:
+        """Release background resources and flush log handlers on shutdown."""
+        self._stop_lockout_cleanup()
+        if self._logging_components is not None:
+            cleanup_logging(self._logging_components)
+            self._logging_components = None
+        logging.shutdown()
 
     def _setup_rate_limiting(self) -> None:
         """Configure rate limiting."""
@@ -470,10 +493,18 @@ class MediaRelayServer:
         self.app.logger.info(f"  Production mode: {self.config.is_production()}")
         self.app.logger.info(f"  Rate limiting: {self.config.rate_limit_enabled}")
 
-        print("Video Streaming Server starting...")
+        print("MediaRelay starting...")
         print(f"Server running on http://{self.config.host}:{self.config.port}")
         print(f"Video directory: {self.config.video_directory}")
         print("Press Ctrl+C to stop the server")
+
+        def _request_shutdown(signum: int, _frame: object) -> None:
+            self.app.logger.info("Shutdown signal received: %s", signum)
+            raise KeyboardInterrupt
+
+        signal.signal(signal.SIGINT, _request_shutdown)
+        if hasattr(signal, "SIGTERM"):
+            signal.signal(signal.SIGTERM, _request_shutdown)
 
         try:
             serve(
@@ -486,12 +517,13 @@ class MediaRelayServer:
                 connection_limit=1000,
             )
         except KeyboardInterrupt:
-            self._stop_lockout_cleanup()
-            self.app.logger.info("Server shutdown requested by user")
-            print("\nServer stopped by user")
+            self.app.logger.info("Server shutdown requested")
+            print("\nServer stopped")
         except Exception as error:
             self.app.logger.error(f"Server error: {str(error)}", exc_info=True)
             raise
+        finally:
+            self._shutdown_cleanup()
 
 
 @click.command()

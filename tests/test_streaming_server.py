@@ -8,6 +8,7 @@ Includes comprehensive tests for 100% coverage.
 
 import base64
 import json
+import logging
 import os
 import tempfile
 import time
@@ -838,7 +839,7 @@ class TestServerRunMethod:
             assert kwargs["threads"] == 4
 
             # Verify startup messages
-            mock_print.assert_any_call("Video Streaming Server starting...")
+            mock_print.assert_any_call("MediaRelay starting...")
             mock_print.assert_any_call(f"Server running on http://127.0.0.1:5000")
 
     @patch("mediarelay.server.serve")
@@ -851,11 +852,11 @@ class TestServerRunMethod:
             config = ServerConfig(video_directory=temp_dir, password_hash="test_hash")
             server = MediaRelayServer(config)
 
-            with patch.object(server, "_stop_lockout_cleanup") as mock_stop:
+            with patch.object(server, "_shutdown_cleanup") as mock_shutdown:
                 server.run()
 
-            mock_stop.assert_called_once()
-            mock_print.assert_any_call("\nServer stopped by user")
+            mock_shutdown.assert_called_once()
+            mock_print.assert_any_call("\nServer stopped")
 
     @patch("mediarelay.server.serve")
     def test_run_method_generic_exception(self, mock_serve):
@@ -1047,3 +1048,126 @@ class TestCLIConfigFile:
                     ["--config-file", str(env_file)],
                 )
                 mock_load.assert_called_once_with(env_file)
+
+
+class TestServerWarnings:
+    """Tests for startup warning helpers."""
+
+    def test_warn_ephemeral_secret_key_logs_warning(self, test_server, monkeypatch):
+        """Warn when VIDEO_SERVER_SECRET_KEY is not set in environment."""
+        monkeypatch.delenv("VIDEO_SERVER_SECRET_KEY", raising=False)
+        with patch.object(test_server.app.logger, "warning") as mock_warning:
+            test_server._warn_ephemeral_secret_key()
+        mock_warning.assert_called_once()
+        assert "VIDEO_SERVER_SECRET_KEY not set" in mock_warning.call_args[0][0]
+
+    def test_warn_behind_proxy_logs_warning(self, test_server):
+        """Warn when reverse-proxy mode is enabled."""
+        test_server.config.behind_proxy = True
+        with patch.object(test_server.app.logger, "warning") as mock_warning:
+            test_server._warn_behind_proxy()
+        mock_warning.assert_called_once()
+        assert "VIDEO_SERVER_BEHIND_PROXY is enabled" in mock_warning.call_args[0][0]
+
+
+class TestMainCliOptions:
+    """Tests for mediarelay CLI flags."""
+
+    @patch("mediarelay.server.MediaRelayServer")
+    @patch("mediarelay.server.load_config")
+    @patch("mediarelay.server.create_sample_env_file")
+    def test_main_generate_config(
+        self, mock_create_env, mock_load_config, mock_server_class
+    ):
+        """--generate-config writes sample env and exits."""
+        from click.testing import CliRunner
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["--generate-config"])
+        assert result.exit_code == 0
+        mock_create_env.assert_called_once()
+        mock_load_config.assert_not_called()
+        mock_server_class.assert_not_called()
+
+    @patch("mediarelay.server.MediaRelayServer")
+    @patch("mediarelay.server.load_config")
+    def test_main_host_port_debug_overrides(
+        self, mock_load_config, mock_server_class, monkeypatch
+    ):
+        """CLI host, port, and debug flags override loaded config."""
+        from click.testing import CliRunner
+
+        mock_config = MagicMock()
+        mock_config.is_production.return_value = True
+        mock_load_config.return_value = mock_config
+        mock_server = MagicMock()
+        mock_server_class.return_value = mock_server
+
+        runner = CliRunner()
+        result = runner.invoke(
+            main,
+            ["--host", "10.0.0.1", "--port", "9000", "--debug"],
+        )
+        assert result.exit_code == 0
+        assert mock_config.host == "10.0.0.1"
+        assert mock_config.port == 9000
+        assert mock_config.debug is True
+
+    @patch("mediarelay.server.MediaRelayServer")
+    @patch("mediarelay.server.load_config")
+    def test_main_debug_in_production_warns(
+        self, mock_load_config, mock_server_class, caplog
+    ):
+        """--debug with FLASK_ENV=production emits a warning."""
+        from click.testing import CliRunner
+
+        mock_config = MagicMock()
+        mock_config.is_production.return_value = True
+        mock_load_config.return_value = mock_config
+        mock_server_class.return_value = MagicMock()
+
+        runner = CliRunner()
+        with caplog.at_level(logging.WARNING):
+            runner.invoke(main, ["--debug"])
+        assert any(
+            "Debug mode should not be enabled" in r.message for r in caplog.records
+        )
+
+
+class TestGracefulShutdown:
+    """Tests for signal-driven shutdown and resource cleanup."""
+
+    @patch("mediarelay.server.serve")
+    def test_shutdown_cleanup_called_on_keyboard_interrupt(self, mock_serve):
+        """finally block runs cleanup after KeyboardInterrupt."""
+        mock_serve.side_effect = KeyboardInterrupt()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = ServerConfig(video_directory=temp_dir, password_hash="test_hash")
+            server = MediaRelayServer(config)
+            with patch.object(server, "_shutdown_cleanup") as mock_cleanup:
+                server.run()
+            mock_cleanup.assert_called_once()
+
+    @patch("mediarelay.server.serve")
+    def test_lockout_cleanup_timer_started(self, mock_serve):
+        """Lockout cleanup timer is scheduled when server starts."""
+        mock_serve.side_effect = KeyboardInterrupt()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = ServerConfig(video_directory=temp_dir, password_hash="test_hash")
+            server = MediaRelayServer(config)
+            with patch.object(server, "_start_lockout_cleanup") as mock_start:
+                with patch.object(server, "_shutdown_cleanup"):
+                    server.run()
+            mock_start.assert_called_once()
+
+
+class TestVideoMimeTypeInPlayer:
+    """Tests that the HTML player receives correct MIME types."""
+
+    def test_mkv_player_uses_matroska_mime(self, authenticated_client):
+        """MKV files should use video/x-matroska in the player."""
+        response = authenticated_client.get("/test_video.mkv")
+        assert response.status_code == 200
+        assert 'type="video/x-matroska"' in response.get_data(as_text=True)

@@ -188,6 +188,9 @@ class ServerConfig:
             "VIDEO_SERVER_LOG_BACKUP_COUNT", "5", min_val=0
         )
     )
+    log_console: bool = field(
+        default_factory=lambda: _parse_bool_env("VIDEO_SERVER_LOG_CONSOLE", "true")
+    )
 
     # Rate Limiting
     rate_limit_enabled: bool = field(
@@ -287,6 +290,7 @@ class ServerConfig:
             "allowed_extensions": list(self.allowed_extensions),
             "max_file_size": self.max_file_size,
             "log_level": self.log_level,
+            "log_console": self.log_console,
             "rate_limit_enabled": self.rate_limit_enabled,
             "rate_limit_per_minute": self.rate_limit_per_minute,
             "session_cookie_secure": self.session_cookie_secure,
@@ -326,11 +330,12 @@ def validate_deployment_config(config_file: Path | None = None) -> ServerConfig:
         ValueError: If configuration is invalid or uses placeholder credentials.
     """
     config = load_config(config_file)
+    config.validate_config()
 
-    if config.password_hash in _PLACEHOLDER_PASSWORD_HASHES:
+    if not config.is_production():
         raise ValueError(
-            "VIDEO_SERVER_PASSWORD_HASH must be set to a real hash, not a "
-            "placeholder. Run mediarelay-genpass to create one."
+            "FLASK_ENV must be 'production' for deployment validation. "
+            "Set FLASK_ENV=production in your environment or .env file."
         )
 
     return config
@@ -338,7 +343,7 @@ def validate_deployment_config(config_file: Path | None = None) -> ServerConfig:
 
 def create_sample_env_file() -> None:
     """Create a sample .env file with default values"""
-    sample_env = """# Video Streaming Server Configuration
+    sample_env = """# MediaRelay Configuration
 # Copy this file to .env and modify the values as needed
 
 # Server Settings
@@ -347,7 +352,7 @@ VIDEO_SERVER_PORT=5000
 VIDEO_SERVER_DEBUG=false
 VIDEO_SERVER_THREADS=6
 
-# Security Settings (REQUIRED)
+# Security Settings (REQUIRED — run mediarelay-genpass to generate real values)
 VIDEO_SERVER_SECRET_KEY=your-secret-key-here
 VIDEO_SERVER_USERNAME=tboy1337
 VIDEO_SERVER_PASSWORD_HASH=your-password-hash-here
@@ -356,6 +361,7 @@ VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS=5
 VIDEO_SERVER_LOCKOUT_DURATION=900
 
 # Session Cookie Settings
+# Set SESSION_COOKIE_SECURE=false for local HTTP development without TLS
 VIDEO_SERVER_SESSION_COOKIE_SECURE=true
 VIDEO_SERVER_SESSION_COOKIE_HTTPONLY=true
 VIDEO_SERVER_SESSION_COOKIE_SAMESITE=Strict
@@ -374,15 +380,17 @@ VIDEO_SERVER_MAX_FILE_SIZE=21474836480
 VIDEO_SERVER_LOG_LEVEL=INFO
 VIDEO_SERVER_LOG_MAX_BYTES=10485760
 VIDEO_SERVER_LOG_BACKUP_COUNT=5
+VIDEO_SERVER_LOG_CONSOLE=true
 
 # Rate Limiting
 VIDEO_SERVER_RATE_LIMIT=true
 VIDEO_SERVER_RATE_LIMIT_PER_MIN=60
 
-# Reverse Proxy (set true when behind nginx or similar)
+# Reverse Proxy — ONLY enable when behind a trusted reverse proxy (nginx, etc.)
+# If enabled without a proxy, client IPs can be spoofed via X-Forwarded-For
 VIDEO_SERVER_BEHIND_PROXY=false
 
-# Environment
+# Environment (production enforces real credentials at startup)
 FLASK_ENV=production
 """
 

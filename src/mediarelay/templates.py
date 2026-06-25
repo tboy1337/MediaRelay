@@ -183,7 +183,7 @@ INDEX_HTML_TEMPLATE = """
 
             <div class="video-player">
                 <video controls preload="metadata">
-                    <source src="/stream/{{ video_path }}" type="video/mp4">
+                    <source src="/stream/{{ video_path }}" type="{{ video_mime_type }}">
                     Your browser does not support the video tag.
                 </video>
             </div>

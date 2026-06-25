@@ -1,27 +1,37 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec for MediaRelay Windows executable."""
 
-from PyInstaller.utils.hooks import collect_submodules
+import os
 
 block_cipher = None
 
-hiddenimports = collect_submodules("mediarelay") + [
-    "flask_limiter",
-    "waitress",
-    "structlog",
-    "colorlog",
-    "psutil",
-    "dotenv",
-    "click",
-    "werkzeug.middleware.proxy_fix",
-]
+_src_root = os.path.abspath("src")
 
 a = Analysis(
     ["src/mediarelay/server.py"],
-    pathex=["src"],
+    pathex=[_src_root],
     binaries=[],
-    datas=[(".env.example", ".")],
-    hiddenimports=hiddenimports,
+    datas=[],
+    hiddenimports=[
+        "mediarelay",
+        "mediarelay.config",
+        "mediarelay.constants",
+        "mediarelay.handlers",
+        "mediarelay.lockout",
+        "mediarelay.logging_config",
+        "mediarelay.path_utils",
+        "mediarelay.templates",
+        "mediarelay.generate_password",
+        "flask",
+        "werkzeug",
+        "waitress",
+        "flask_limiter",
+        "limits",
+        "click",
+        "dotenv",
+        "colorlog",
+        "psutil",
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -31,6 +41,7 @@ a = Analysis(
     cipher=block_cipher,
     noarchive=False,
 )
+
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 exe = EXE(

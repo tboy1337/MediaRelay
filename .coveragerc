@@ -1,4 +1,4 @@
-# Coverage configuration for Video Streaming Server
+# Coverage configuration for MediaRelay
 # Comprehensive coverage configuration for production testing
 
 [run]
@@ -121,7 +121,7 @@ sort = Cover
 [html]
 # HTML report configuration
 directory = htmlcov
-title = Video Streaming Server Coverage Report
+title = MediaRelay Coverage Report
 
 # Show contexts in HTML
 show_contexts = True
