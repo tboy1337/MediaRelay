@@ -45,31 +45,43 @@ A video streaming server that allows you to securely share your personal video l
 
 ### 1. Installation
 
-```bash
-# Clone the repository
-git clone https://github.com/tboy1337/MediaRelay.git
-cd MediaRelay
+**Recommended — install from PyPI:**
 
+```bash
 # Create virtual environment (recommended)
 python -m venv venv
 source venv/bin/activate  # Linux/macOS
 venv\Scripts\activate     # Windows
 
-# Install the package
 pip install mediarelay
+```
 
-# For development (editable install with testing and linting tools)
+That installs the `mediarelay`, `mediarelay-config`, and `mediarelay-genpass` commands. No need to clone the repository.
+
+**From source (development or contributing):**
+
+```bash
+git clone https://github.com/tboy1337/MediaRelay.git
+cd MediaRelay
+
+python -m venv venv
+source venv/bin/activate  # Linux/macOS
+venv\Scripts\activate     # Windows
+
 pip install -e ".[dev]"
 ```
+
+Use `pip install -e .` instead of `pip install -e ".[dev]"` if you only need the application without test and lint tools.
 
 ### 2. Configuration
 
 ```bash
 # Generate sample configuration
-python config.py
+mediarelay-config
 
 # Copy and edit configuration
-copy .env.example .env
+copy .env.example .env   # Windows
+cp .env.example .env     # Linux/macOS
 # Edit .env with your settings
 ```
 
@@ -125,9 +137,10 @@ Once the server is running, you can access it in your web browser at:
 
 #### Step-by-Step Configuration Process
 
-1. **Create your configuration file**:
+1. **Create your configuration file** (if you do not already have `.env.example` from a source checkout, run `mediarelay-config` first):
    ```bash
-   copy .env.example .env
+   copy .env.example .env   # Windows
+   cp .env.example .env     # Linux/macOS
    ```
 
 2. **Generate security credentials**:
@@ -259,7 +272,7 @@ response = requests.get(video_url, auth=auth, stream=True)
 
 **Server won't start**: Check logs in `logs/error.log`
 **Authentication issues**: 
-  - Verify your `.env` file has all three security values from `generate_password.py`
+  - Verify your `.env` file has all three security values from `mediarelay-genpass`
   - Ensure you're using the correct username and password you generated
   - Regenerate credentials if needed: `mediarelay-genpass`
 **Performance problems**: Increase thread count (`VIDEO_SERVER_THREADS`)
