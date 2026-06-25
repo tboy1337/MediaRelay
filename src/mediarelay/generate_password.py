@@ -90,7 +90,7 @@ def main() -> None:
     print("   - VIDEO_SERVER_USERNAME with your chosen username above")
     print("   - VIDEO_SERVER_PASSWORD_HASH with the generated password hash above")
     print("3. Configure other settings in .env as needed (directories, ports, etc.)")
-    print("4. Save the .env file and run: python streaming_server.py")
+    print("4. Save the .env file and run: mediarelay")
     print(f"\nYou'll use the username '{username}' and your chosen password to log in")
 
 

@@ -10,16 +10,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from config import create_sample_env_file
-from streaming_server import main
+from mediarelay.config import create_sample_env_file
+from mediarelay.streaming_server import main
 
 
 class TestStreamingServerMain:
     """Test cases for streaming server main function"""
 
-    @patch("streaming_server.click.command")
-    @patch("streaming_server.load_config")
-    @patch("streaming_server.MediaRelayServer")
+    @patch("mediarelay.streaming_server.click.command")
+    @patch("mediarelay.streaming_server.load_config")
+    @patch("mediarelay.streaming_server.MediaRelayServer")
     def test_main_function_basic_flow(
         self,
         mock_server_class,
@@ -39,10 +39,10 @@ class TestStreamingServerMain:
         mock_server_class.return_value = mock_server
 
         # Test normal execution
-        with patch("sys.argv", ["streaming_server.py"]):
+        with patch("sys.argv", ["mediarelay.streaming_server.py"]):
             try:
                 # Call main with mocked dependencies
-                with patch("streaming_server.click.command") as mock_cmd:
+                with patch("mediarelay.streaming_server.click.command") as mock_cmd:
                     pass  # The actual main function is decorated, so we test components
             except SystemExit:
                 pass  # Expected for CLI apps
@@ -77,15 +77,15 @@ class TestStreamingServerMain:
 class TestConfigMainEntryPoint:
     """Test cases for config module main entry point"""
 
-    @patch("config.create_sample_env_file")
+    @patch("mediarelay.config.create_sample_env_file")
     def test_config_main_creates_sample_env(self, mock_create_env):
         """Test config module main entry point"""
         # Import and run the main entry point
-        import config
+        from mediarelay import config
 
         # Simulate running as main module
         if hasattr(config, "__name__"):
-            with patch("config.__name__", "__main__"):
+            with patch("mediarelay.config.__name__", "__main__"):
                 config.create_sample_env_file()
 
         mock_create_env.assert_called_once()
@@ -94,11 +94,11 @@ class TestConfigMainEntryPoint:
 class TestLoggingMainEntryPoint:
     """Test cases for logging_config main entry point"""
 
-    @patch("logging_config.setup_logging")
-    @patch("config.load_config")
+    @patch("mediarelay.logging_config.setup_logging")
+    @patch("mediarelay.config.load_config")
     def test_logging_main_entry_point(self, mock_load_config, mock_setup_logging):
         """Test logging_config main entry point"""
-        import logging_config
+        from mediarelay import logging_config
 
         # Mock config
         mock_config = MagicMock()
@@ -112,7 +112,7 @@ class TestLoggingMainEntryPoint:
         mock_setup_logging.return_value = mock_components
 
         # This tests the main entry point behavior if run directly
-        with patch("logging_config.__name__", "__main__"):
+        with patch("mediarelay.logging_config.__name__", "__main__"):
             try:
                 # The logging main should set up logging and run tests
                 pass  # Test would run the actual main block
@@ -123,8 +123,8 @@ class TestLoggingMainEntryPoint:
 class TestServerStartupAndShutdown:
     """Test cases for server startup and shutdown procedures"""
 
-    @patch("streaming_server.MediaRelayServer")
-    @patch("streaming_server.load_config")
+    @patch("mediarelay.streaming_server.MediaRelayServer")
+    @patch("mediarelay.streaming_server.load_config")
     def test_server_startup_sequence(self, mock_load_config, mock_server_class):
         """Test server startup sequence"""
         mock_config = MagicMock()
@@ -138,8 +138,8 @@ class TestServerStartupAndShutdown:
         with patch("sys.exit"):
             pass  # Would test full startup sequence
 
-    @patch("streaming_server.MediaRelayServer")
-    @patch("streaming_server.load_config")
+    @patch("mediarelay.streaming_server.MediaRelayServer")
+    @patch("mediarelay.streaming_server.load_config")
     def test_keyboard_interrupt_handling(self, mock_load_config, mock_server_class):
         """Test KeyboardInterrupt handling during server operation"""
         mock_config = MagicMock()
@@ -154,8 +154,8 @@ class TestServerStartupAndShutdown:
             with patch("builtins.print") as mock_print:
                 pass  # Would test interrupt handling
 
-    @patch("streaming_server.MediaRelayServer")
-    @patch("streaming_server.load_config")
+    @patch("mediarelay.streaming_server.MediaRelayServer")
+    @patch("mediarelay.streaming_server.load_config")
     def test_configuration_error_handling(
         self, mock_load_config, mock_server_class
     ):  # pylint: disable=unused-argument
@@ -176,7 +176,7 @@ class TestProductionServerRun:
             mock_logger = MagicMock()
             mock_app.logger = mock_logger
 
-            with patch("streaming_server.serve") as mock_serve:
+            with patch("mediarelay.streaming_server.serve") as mock_serve:
                 mock_serve.side_effect = KeyboardInterrupt()  # Simulate shutdown
 
                 try:
@@ -198,8 +198,8 @@ class TestProductionServerRun:
 class TestCLIArgumentHandling:
     """Test cases for CLI argument handling"""
 
-    @patch("streaming_server.load_config")
-    @patch("streaming_server.MediaRelayServer")
+    @patch("mediarelay.streaming_server.load_config")
+    @patch("mediarelay.streaming_server.MediaRelayServer")
     def test_host_override(
         self, mock_server_class, mock_load_config
     ):  # pylint: disable=unused-argument
@@ -212,8 +212,8 @@ class TestCLIArgumentHandling:
         # This would require click testing utilities for full test
         assert mock_config.host == "localhost"  # Default
 
-    @patch("streaming_server.load_config")
-    @patch("streaming_server.MediaRelayServer")
+    @patch("mediarelay.streaming_server.load_config")
+    @patch("mediarelay.streaming_server.MediaRelayServer")
     def test_port_override(
         self, mock_server_class, mock_load_config
     ):  # pylint: disable=unused-argument
@@ -225,8 +225,8 @@ class TestCLIArgumentHandling:
         # Test that config.port gets updated from CLI args
         assert mock_config.port == 5000  # Default
 
-    @patch("streaming_server.load_config")
-    @patch("streaming_server.MediaRelayServer")
+    @patch("mediarelay.streaming_server.load_config")
+    @patch("mediarelay.streaming_server.MediaRelayServer")
     def test_debug_override(
         self, mock_server_class, mock_load_config
     ):  # pylint: disable=unused-argument
@@ -247,7 +247,8 @@ class TestMainFunctionComprehensiveEdgeCases:
         from click.testing import CliRunner
 
         with patch(
-            "streaming_server.load_config", side_effect=ValueError("Config error")
+            "mediarelay.streaming_server.load_config",
+            side_effect=ValueError("Config error"),
         ):
             runner = CliRunner()
             result = runner.invoke(main, [])
@@ -258,10 +259,10 @@ class TestMainFunctionComprehensiveEdgeCases:
         """Test main function with KeyboardInterrupt coverage"""
         from click.testing import CliRunner
 
-        with patch("streaming_server.load_config") as mock_load_config:
+        with patch("mediarelay.streaming_server.load_config") as mock_load_config:
             mock_config = MagicMock()
             mock_load_config.return_value = mock_config
-            with patch("streaming_server.MediaRelayServer") as mock_server:
+            with patch("mediarelay.streaming_server.MediaRelayServer") as mock_server:
                 mock_server.return_value.run.side_effect = KeyboardInterrupt
                 runner = CliRunner()
                 result = runner.invoke(main, [])
@@ -272,10 +273,10 @@ class TestMainFunctionComprehensiveEdgeCases:
         """Test main function with general exception coverage"""
         from click.testing import CliRunner
 
-        with patch("streaming_server.load_config") as mock_load_config:
+        with patch("mediarelay.streaming_server.load_config") as mock_load_config:
             mock_config = MagicMock()
             mock_load_config.return_value = mock_config
-            with patch("streaming_server.MediaRelayServer") as mock_server:
+            with patch("mediarelay.streaming_server.MediaRelayServer") as mock_server:
                 mock_server.return_value.run.side_effect = RuntimeError("Server error")
                 runner = CliRunner()
                 result = runner.invoke(main, [])
@@ -286,7 +287,7 @@ class TestMainFunctionComprehensiveEdgeCases:
         """Test main function with generate_config option coverage"""
         from click.testing import CliRunner
 
-        with patch("config.create_sample_env_file") as mock_create:
+        with patch("mediarelay.config.create_sample_env_file") as mock_create:
             runner = CliRunner()
             result = runner.invoke(main, ["--generate-config"])
 

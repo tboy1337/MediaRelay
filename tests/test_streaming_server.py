@@ -18,8 +18,8 @@ import pytest
 from click.testing import CliRunner
 from flask import session
 
-from config import ServerConfig
-from streaming_server import MediaRelayServer, main
+from mediarelay.config import ServerConfig
+from mediarelay.streaming_server import MediaRelayServer, main
 
 
 class TestMediaRelayServer:
@@ -705,8 +705,8 @@ class TestFileTypeHandling:
 class TestMainFunctionComprehensive:
     """Comprehensive tests for the main function"""
 
-    @patch("streaming_server.MediaRelayServer")
-    @patch("streaming_server.load_config")
+    @patch("mediarelay.streaming_server.MediaRelayServer")
+    @patch("mediarelay.streaming_server.load_config")
     def test_main_function_normal_operation(self, mock_load_config, mock_server_class):
         """Test main function normal operation"""
         # Setup mocks
@@ -723,7 +723,7 @@ class TestMainFunctionComprehensive:
         mock_server_class.assert_called_once_with(mock_config)
         mock_server.run.assert_called_once()
 
-    @patch("streaming_server.load_config")
+    @patch("mediarelay.streaming_server.load_config")
     def test_main_function_value_error(self, mock_load_config):
         """Test main function with ValueError"""
         mock_load_config.side_effect = ValueError("Configuration error")
@@ -734,8 +734,8 @@ class TestMainFunctionComprehensive:
         assert result.exit_code == 1
         assert "Configuration Error: Configuration error" in result.output
 
-    @patch("streaming_server.load_config")
-    @patch("streaming_server.MediaRelayServer")
+    @patch("mediarelay.streaming_server.load_config")
+    @patch("mediarelay.streaming_server.MediaRelayServer")
     def test_main_function_keyboard_interrupt(
         self, mock_server_class, mock_load_config
     ):
@@ -753,8 +753,8 @@ class TestMainFunctionComprehensive:
         assert result.exit_code == 0
         assert "Shutdown complete" in result.output
 
-    @patch("streaming_server.load_config")
-    @patch("streaming_server.MediaRelayServer")
+    @patch("mediarelay.streaming_server.load_config")
+    @patch("mediarelay.streaming_server.MediaRelayServer")
     def test_main_function_generic_exception(self, mock_server_class, mock_load_config):
         """Test main function with generic exception"""
         mock_config = Mock()
@@ -773,7 +773,7 @@ class TestMainFunctionComprehensive:
 class TestServerRunMethod:
     """Test the server run method comprehensively"""
 
-    @patch("streaming_server.serve")
+    @patch("mediarelay.streaming_server.serve")
     @patch("builtins.print")
     def test_run_method_successful_start(self, mock_print, mock_serve):
         """Test successful server start"""
@@ -800,7 +800,7 @@ class TestServerRunMethod:
             mock_print.assert_any_call("Video Streaming Server starting...")
             mock_print.assert_any_call(f"Server running on http://127.0.0.1:5000")
 
-    @patch("streaming_server.serve")
+    @patch("mediarelay.streaming_server.serve")
     @patch("builtins.print")
     def test_run_method_keyboard_interrupt(self, mock_print, mock_serve):
         """Test server run with KeyboardInterrupt"""
@@ -814,7 +814,7 @@ class TestServerRunMethod:
 
             mock_print.assert_any_call("\nServer stopped by user")
 
-    @patch("streaming_server.serve")
+    @patch("mediarelay.streaming_server.serve")
     def test_run_method_generic_exception(self, mock_serve):
         """Test server run with generic exception"""
         mock_serve.side_effect = RuntimeError("Server error")
@@ -917,7 +917,7 @@ class TestErrorHandlers:
     def test_internal_error_handler(self, test_server):
         """Test 500 error handler via triggered exception"""
 
-        @test_server.app.route("/test-500")
+        @test_server.app.route("/test-500")  # type: ignore[untyped-decorator]
         def trigger_error() -> None:
             raise RuntimeError("intentional test failure")
 
@@ -989,14 +989,14 @@ class TestCLIConfigFile:
             encoding="utf-8",
         )
 
-        with patch("streaming_server.load_config") as mock_load:
+        with patch("mediarelay.streaming_server.load_config") as mock_load:
             mock_load.return_value = MagicMock(
                 host="127.0.0.1",
                 port=5000,
                 debug=False,
                 video_directory=str(video_dir),
             )
-            with patch("streaming_server.MediaRelayServer") as mock_server:
+            with patch("mediarelay.streaming_server.MediaRelayServer") as mock_server:
                 mock_server.return_value.run.side_effect = KeyboardInterrupt()
                 runner = CliRunner()
                 runner.invoke(

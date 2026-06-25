@@ -55,11 +55,11 @@ python -m venv venv
 source venv/bin/activate  # Linux/macOS
 venv\Scripts\activate     # Windows
 
-# Install dependencies
-pip install -r requirements.txt
+# Install the package
+pip install mediarelay
 
-# For development (includes testing and linting tools)
-pip install -r requirements-dev.txt
+# For development (editable install with testing and linting tools)
+pip install -e ".[dev]"
 ```
 
 ### 2. Configuration
@@ -79,7 +79,7 @@ Generate required security credentials:
 
 ```bash
 # Generate Flask secret key and password hash
-python generate_password.py
+mediarelay-genpass
 ```
 
 The script will:
@@ -111,10 +111,10 @@ VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$abc123$def456...
 
 ```bash
 # Start the server
-python streaming_server.py
+mediarelay
 
 # Or with custom configuration
-python streaming_server.py --host 0.0.0.0 --port 8080
+mediarelay --host 0.0.0.0 --port 8080
 ```
 
 Once the server is running, you can access it in your web browser at:
@@ -132,7 +132,7 @@ Once the server is running, you can access it in your web browser at:
 
 2. **Generate security credentials**:
    ```bash
-   python generate_password.py
+   mediarelay-genpass
    ```
 
 3. **Update your `.env` file** with the generated values:
@@ -142,9 +142,9 @@ Once the server is running, you can access it in your web browser at:
 
 4. **Configure other settings** as needed (video directory, port, etc.)
 
-5. **Validate configuration before production deployment**:
+5. **Start the server** (configuration is validated on startup):
    ```bash
-   python validate_setup.py
+   mediarelay
    ```
 
 #### Key Environment Variables
@@ -156,7 +156,7 @@ VIDEO_SERVER_PORT=5000
 VIDEO_SERVER_DIRECTORY=/path/to/videos
 VIDEO_SERVER_THREADS=6
 
-# Security (Required - Generate using python generate_password.py)
+# Security (Required - Generate using mediarelay-genpass)
 VIDEO_SERVER_USERNAME=your_username                    # Your chosen username
 VIDEO_SERVER_PASSWORD_HASH=your_secure_hash            # Generated password hash
 VIDEO_SERVER_SECRET_KEY=your_secret_key                # Generated Flask secret key
@@ -261,7 +261,7 @@ response = requests.get(video_url, auth=auth, stream=True)
 **Authentication issues**: 
   - Verify your `.env` file has all three security values from `generate_password.py`
   - Ensure you're using the correct username and password you generated
-  - Regenerate credentials if needed: `python generate_password.py`
+  - Regenerate credentials if needed: `mediarelay-genpass`
 **Performance problems**: Increase thread count (`VIDEO_SERVER_THREADS`)
 **Network access**: Check firewall and port forwarding
 **Missing .env file**: Copy `.env.example` to `.env` and configure
@@ -271,7 +271,7 @@ response = requests.get(video_url, auth=auth, stream=True)
 ```bash
 VIDEO_SERVER_DEBUG=true
 VIDEO_SERVER_LOG_LEVEL=DEBUG
-python streaming_server.py
+mediarelay
 ```
 
 ### Support

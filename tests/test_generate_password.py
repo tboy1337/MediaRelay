@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from werkzeug.security import generate_password_hash
 
-import generate_password
+from mediarelay import generate_password
 
 
 class TestSecretKeyGeneration:
@@ -103,7 +103,7 @@ class TestGeneratePasswordCompleteCoverage:
     def test_generate_strong_password_loop_behavior(self):
         """Test that generate_strong_password loops until requirements are met"""
         # Mock secrets.choice to return predictable sequences
-        with patch("generate_password.secrets.choice") as mock_choice:
+        with patch("mediarelay.generate_password.secrets.choice") as mock_choice:
             # First attempt: no uppercase letters
             # Second attempt: no digits
             # Third attempt: valid password
@@ -170,12 +170,14 @@ class TestMainFunction:
             "y",
         ]  # Username, choose generated password
 
-        with patch("generate_password.generate_strong_password") as mock_gen:
+        with patch("mediarelay.generate_password.generate_strong_password") as mock_gen:
             mock_gen.return_value = "TestPass123!"
-            with patch("generate_password.generate_password_hash") as mock_hash:
+            with patch(
+                "mediarelay.generate_password.generate_password_hash"
+            ) as mock_hash:
                 mock_hash.return_value = "hashed_password"
                 with patch(
-                    "generate_password.generate_flask_secret_key"
+                    "mediarelay.generate_password.generate_flask_secret_key"
                 ) as mock_secret:
                     mock_secret.return_value = "test_secret_key"
 
@@ -212,9 +214,11 @@ class TestMainFunction:
             "MyPassword123!",
         ]  # Username, no generated, password, confirm
 
-        with patch("generate_password.generate_password_hash") as mock_hash:
+        with patch("mediarelay.generate_password.generate_password_hash") as mock_hash:
             mock_hash.return_value = "hashed_password"
-            with patch("generate_password.generate_flask_secret_key") as mock_secret:
+            with patch(
+                "mediarelay.generate_password.generate_flask_secret_key"
+            ) as mock_secret:
                 mock_secret.return_value = "test_secret_key"
 
                 generate_password.main()
@@ -236,12 +240,14 @@ class TestMainFunction:
             "y",  # Generate password
         ]
 
-        with patch("generate_password.generate_strong_password") as mock_gen:
+        with patch("mediarelay.generate_password.generate_strong_password") as mock_gen:
             mock_gen.return_value = "TestPass123!"
-            with patch("generate_password.generate_password_hash") as mock_hash:
+            with patch(
+                "mediarelay.generate_password.generate_password_hash"
+            ) as mock_hash:
                 mock_hash.return_value = "hashed_password"
                 with patch(
-                    "generate_password.generate_flask_secret_key"
+                    "mediarelay.generate_password.generate_flask_secret_key"
                 ) as mock_secret:
                     mock_secret.return_value = "test_secret_key"
 
@@ -264,9 +270,11 @@ class TestMainFunction:
             "ValidPass123!",  # Confirm password
         ]
 
-        with patch("generate_password.generate_password_hash") as mock_hash:
+        with patch("mediarelay.generate_password.generate_password_hash") as mock_hash:
             mock_hash.return_value = "hashed_password"
-            with patch("generate_password.generate_flask_secret_key") as mock_secret:
+            with patch(
+                "mediarelay.generate_password.generate_flask_secret_key"
+            ) as mock_secret:
                 mock_secret.return_value = "test_secret_key"
 
                 generate_password.main()
@@ -291,9 +299,11 @@ class TestMainFunction:
             "MyPassword123!",  # Matching confirmation
         ]
 
-        with patch("generate_password.generate_password_hash") as mock_hash:
+        with patch("mediarelay.generate_password.generate_password_hash") as mock_hash:
             mock_hash.return_value = "hashed_password"
-            with patch("generate_password.generate_flask_secret_key") as mock_secret:
+            with patch(
+                "mediarelay.generate_password.generate_flask_secret_key"
+            ) as mock_secret:
                 mock_secret.return_value = "test_secret_key"
 
                 generate_password.main()
@@ -312,11 +322,13 @@ class TestMainFunction:
             "y",
         ]  # Username, choose generated password
 
-        with patch("generate_password.generate_strong_password"):
-            with patch("generate_password.generate_password_hash") as mock_hash:
+        with patch("mediarelay.generate_password.generate_strong_password"):
+            with patch(
+                "mediarelay.generate_password.generate_password_hash"
+            ) as mock_hash:
                 mock_hash.return_value = "test_hash_value"
                 with patch(
-                    "generate_password.generate_flask_secret_key"
+                    "mediarelay.generate_password.generate_flask_secret_key"
                 ) as mock_secret:
                     mock_secret.return_value = "test_secret_key"
 
@@ -328,7 +340,7 @@ class TestMainFunction:
                         "1. Copy the .env.example file to .env",
                         "2. Replace the following values in your .env file:",
                         "3. Configure other settings in .env as needed (directories, ports, etc.)",
-                        "4. Save the .env file and run: python streaming_server.py",
+                        "4. Save the .env file and run: mediarelay",
                         "\nYou'll use the username 'testuser' and your chosen password to log in",
                     ]
 
@@ -341,12 +353,14 @@ class TestMainFunction:
         """Test main function with generated password"""
         mock_input.side_effect = ["testuser", "y"]
 
-        with patch("generate_password.generate_strong_password") as mock_gen:
+        with patch("mediarelay.generate_password.generate_strong_password") as mock_gen:
             mock_gen.return_value = "TestPass123!"
-            with patch("generate_password.generate_password_hash") as mock_hash:
+            with patch(
+                "mediarelay.generate_password.generate_password_hash"
+            ) as mock_hash:
                 mock_hash.return_value = "hashed_password"
                 with patch(
-                    "generate_password.generate_flask_secret_key"
+                    "mediarelay.generate_password.generate_flask_secret_key"
                 ) as mock_secret:
                     mock_secret.return_value = "test_secret_key"
 
@@ -371,9 +385,11 @@ class TestMainFunction:
         """Test main function with custom password"""
         mock_input.side_effect = ["testuser", "n", "MyPassword123!", "MyPassword123!"]
 
-        with patch("generate_password.generate_password_hash") as mock_hash:
+        with patch("mediarelay.generate_password.generate_password_hash") as mock_hash:
             mock_hash.return_value = "hashed_password"
-            with patch("generate_password.generate_flask_secret_key") as mock_secret:
+            with patch(
+                "mediarelay.generate_password.generate_flask_secret_key"
+            ) as mock_secret:
                 mock_secret.return_value = "test_secret_key"
 
                 generate_password.main()
@@ -400,9 +416,11 @@ class TestMainFunction:
             "ValidPassword123!",  # Confirm password
         ]
 
-        with patch("generate_password.generate_password_hash") as mock_hash:
+        with patch("mediarelay.generate_password.generate_password_hash") as mock_hash:
             mock_hash.return_value = "hashed_password"
-            with patch("generate_password.generate_flask_secret_key") as mock_secret:
+            with patch(
+                "mediarelay.generate_password.generate_flask_secret_key"
+            ) as mock_secret:
                 mock_secret.return_value = "test_secret_key"
 
                 generate_password.main()
@@ -426,9 +444,11 @@ class TestMainFunction:
             "MyPassword123!",  # Matching confirmation
         ]
 
-        with patch("generate_password.generate_password_hash") as mock_hash:
+        with patch("mediarelay.generate_password.generate_password_hash") as mock_hash:
             mock_hash.return_value = "hashed_password"
-            with patch("generate_password.generate_flask_secret_key") as mock_secret:
+            with patch(
+                "mediarelay.generate_password.generate_flask_secret_key"
+            ) as mock_secret:
                 mock_secret.return_value = "test_secret_key"
 
                 generate_password.main()
@@ -443,11 +463,13 @@ class TestMainFunction:
         """Test that main function prints all instructions"""
         mock_input.side_effect = ["testuser", "y"]
 
-        with patch("generate_password.generate_strong_password"):
-            with patch("generate_password.generate_password_hash") as mock_hash:
+        with patch("mediarelay.generate_password.generate_strong_password"):
+            with patch(
+                "mediarelay.generate_password.generate_password_hash"
+            ) as mock_hash:
                 mock_hash.return_value = "test_hash_value"
                 with patch(
-                    "generate_password.generate_flask_secret_key"
+                    "mediarelay.generate_password.generate_flask_secret_key"
                 ) as mock_secret:
                     mock_secret.return_value = "test_secret_key"
 
@@ -460,7 +482,7 @@ class TestMainFunction:
                         "1. Copy the .env.example file to .env",
                         "2. Replace the following values in your .env file:",
                         "3. Configure other settings in .env as needed (directories, ports, etc.)",
-                        "4. Save the .env file and run: python streaming_server.py",
+                        "4. Save the .env file and run: mediarelay",
                         "\nYou'll use the username 'testuser' and your chosen password to log in",
                     ]
 
@@ -471,9 +493,11 @@ class TestMainFunction:
         """Test the main function as entry point"""
         with patch("builtins.input", side_effect=["testuser", "y"]):
             with patch("builtins.print"):
-                with patch("generate_password.generate_strong_password"):
-                    with patch("generate_password.generate_password_hash"):
-                        with patch("generate_password.generate_flask_secret_key"):
+                with patch("mediarelay.generate_password.generate_strong_password"):
+                    with patch("mediarelay.generate_password.generate_password_hash"):
+                        with patch(
+                            "mediarelay.generate_password.generate_flask_secret_key"
+                        ):
                             # This should not raise any exceptions
                             generate_password.main()
 
@@ -487,12 +511,16 @@ class TestGeneratePasswordCompleteEdgeCases:
         # Test with automatic password generation (choose option y)
         with patch("builtins.input", side_effect=["testuser", "y"]):
             with patch("builtins.print") as mock_print:
-                with patch("generate_password.generate_strong_password") as mock_gen:
+                with patch(
+                    "mediarelay.generate_password.generate_strong_password"
+                ) as mock_gen:
                     mock_gen.return_value = "TestPass123!"
-                    with patch("generate_password.generate_password_hash") as mock_hash:
+                    with patch(
+                        "mediarelay.generate_password.generate_password_hash"
+                    ) as mock_hash:
                         mock_hash.return_value = "hashed_password"
                         with patch(
-                            "generate_password.generate_flask_secret_key"
+                            "mediarelay.generate_password.generate_flask_secret_key"
                         ) as mock_secret:
                             mock_secret.return_value = "test_secret_key"
                             generate_password.main()
@@ -510,10 +538,12 @@ class TestGeneratePasswordCompleteEdgeCases:
             ],
         ):
             with patch("builtins.print") as mock_print:
-                with patch("generate_password.generate_password_hash") as mock_hash:
+                with patch(
+                    "mediarelay.generate_password.generate_password_hash"
+                ) as mock_hash:
                     mock_hash.return_value = "hashed_password"
                     with patch(
-                        "generate_password.generate_flask_secret_key"
+                        "mediarelay.generate_password.generate_flask_secret_key"
                     ) as mock_secret:
                         mock_secret.return_value = "test_secret_key"
                         generate_password.main()
@@ -532,10 +562,12 @@ class TestGeneratePasswordCompleteEdgeCases:
             ],
         ):
             with patch("builtins.print") as mock_print:
-                with patch("generate_password.generate_password_hash") as mock_hash:
+                with patch(
+                    "mediarelay.generate_password.generate_password_hash"
+                ) as mock_hash:
                     mock_hash.return_value = "hashed_password"
                     with patch(
-                        "generate_password.generate_flask_secret_key"
+                        "mediarelay.generate_password.generate_flask_secret_key"
                     ) as mock_secret:
                         mock_secret.return_value = "test_secret_key"
                         generate_password.main()
@@ -553,10 +585,12 @@ class TestGeneratePasswordCompleteEdgeCases:
             ],
         ):
             with patch("builtins.print") as mock_print:
-                with patch("generate_password.generate_password_hash") as mock_hash:
+                with patch(
+                    "mediarelay.generate_password.generate_password_hash"
+                ) as mock_hash:
                     mock_hash.return_value = "hashed_password"
                     with patch(
-                        "generate_password.generate_flask_secret_key"
+                        "mediarelay.generate_password.generate_flask_secret_key"
                     ) as mock_secret:
                         mock_secret.return_value = "test_secret_key"
                         generate_password.main()
@@ -569,7 +603,7 @@ class TestParametrizedPasswordGeneration:
     @pytest.mark.parametrize("length", [12, 16, 24, 32, 64])
     def test_password_length(self, length):
         """Generated passwords meet requested length"""
-        from generate_password import generate_strong_password
+        from mediarelay.generate_password import generate_strong_password
 
         password = generate_strong_password(length)
         assert len(password) == length
@@ -577,14 +611,14 @@ class TestParametrizedPasswordGeneration:
     @pytest.mark.parametrize("length", [8, 12, 16])
     def test_secret_key_length(self, length):
         """Generated secret keys meet requested byte length"""
-        from generate_password import generate_flask_secret_key
+        from mediarelay.generate_password import generate_flask_secret_key
 
         key = generate_flask_secret_key(length)
         assert len(key) == length * 2
 
     def test_password_uniqueness(self):
         """Successive passwords are not identical"""
-        from generate_password import generate_strong_password
+        from mediarelay.generate_password import generate_strong_password
 
         passwords = {generate_strong_password(16) for _ in range(20)}
         assert len(passwords) > 1

@@ -16,7 +16,7 @@ from typing import Any, Optional
 import colorlog
 import structlog
 
-from config import ServerConfig
+from .config import ServerConfig
 
 
 class SecurityEventLogger:
@@ -330,7 +330,7 @@ def log_system_info(config: ServerConfig) -> None:
 
 if __name__ == "__main__":
     # Test logging configuration
-    from config import load_config
+    from .config import load_config
 
     config = load_config()
     logging_components = setup_logging(config)  # type: ignore[misc]

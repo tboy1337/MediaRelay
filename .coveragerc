@@ -3,7 +3,7 @@
 
 [run]
 # Source code to analyze
-source = .
+source = mediarelay
 
 # Note: include is ignored when source is set, which is expected behavior
 
@@ -144,5 +144,5 @@ pretty_print = True
 [paths]
 # Path mappings for combining coverage from different environments
 source =
-    .
-    */site-packages/video-streaming-server
+    src/mediarelay
+    */site-packages/mediarelay
