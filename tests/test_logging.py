@@ -715,17 +715,19 @@ class TestLoggingErrorHandling:
         except PermissionError:
             pytest.skip("Permission error expected in restricted environment")
 
-    def test_invalid_log_level(self, test_config, tmp_path):
-        """Test handling of invalid log levels"""
+    def test_performance_logger_safe_emit_on_os_error(
+        self, test_config, tmp_path
+    ) -> None:
+        from mediarelay.logging_config import PerformanceLogger
+
         test_config.log_directory = str(tmp_path)
-        test_config.log_level = "INVALID_LEVEL"
-
-        # Should default to INFO level without raising exception
-        components = setup_logging(test_config)
-        root_logger = components["root_logger"]
-
-        # Should fall back to a valid level (since invalid levels get handled gracefully)
-        assert root_logger.level >= 0  # Any valid logging level
+        perf_logger = PerformanceLogger(test_config)
+        with patch.object(
+            perf_logger.logger,
+            "log",
+            side_effect=OSError("disk full"),
+        ):
+            perf_logger.log_request_duration("/health", 0.1, 200)
 
     def test_logging_with_special_characters(self, test_config, tmp_path):
         """Test logging with special characters and unicode"""

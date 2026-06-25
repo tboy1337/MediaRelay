@@ -199,10 +199,14 @@ class TestAuthentication:
 
     def test_check_authentication_with_session(self, test_server):
         """Test authentication check with valid session"""
-        with test_server.app.test_request_context():
+        with test_server.app.test_request_context(
+            environ_overrides={"REMOTE_ADDR": "127.0.0.1"}
+        ):
             session["authenticated"] = True
             session["last_activity"] = time.time()
             session["login_time"] = time.time()
+            session["login_ip"] = "127.0.0.1"
+            session["username"] = test_server.config.username
             assert test_server.check_authentication() is True
 
     def test_check_authentication_http_auth(self, test_server, test_config):
@@ -605,32 +609,42 @@ class TestMaxFileSizeHandling:
     """Test cases for max file size handling"""
 
     def test_max_file_size_enabled(
-        self, temp_video_dir
-    ):  # pylint: disable=unused-argument
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """Test Flask app with file size limit enabled"""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            os.environ["VIDEO_SERVER_MAX_FILE_SIZE"] = "1073741824"  # 1GB
-            os.environ["VIDEO_SERVER_PASSWORD_HASH"] = "test_hash"
-            os.environ["VIDEO_SERVER_DIRECTORY"] = temp_dir
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        monkeypatch.setenv("VIDEO_SERVER_MAX_FILE_SIZE", "1073741824")
+        monkeypatch.setenv("VIDEO_SERVER_PASSWORD_HASH", "test_hash")
+        monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(video_dir))
+        monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(log_dir))
 
-            config = ServerConfig()
-            server = MediaRelayServer(config)
-
+        config = ServerConfig()
+        server = MediaRelayServer(config)
+        try:
             assert server.app.config["MAX_CONTENT_LENGTH"] == 1073741824
+        finally:
+            server._shutdown_cleanup()
 
     def test_max_file_size_disabled_zero(
-        self, temp_video_dir
-    ):  # pylint: disable=unused-argument
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """Test Flask app with file size limit disabled (zero)"""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            os.environ["VIDEO_SERVER_MAX_FILE_SIZE"] = "0"
-            os.environ["VIDEO_SERVER_PASSWORD_HASH"] = "test_hash"
-            os.environ["VIDEO_SERVER_DIRECTORY"] = temp_dir
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        monkeypatch.setenv("VIDEO_SERVER_MAX_FILE_SIZE", "0")
+        monkeypatch.setenv("VIDEO_SERVER_PASSWORD_HASH", "test_hash")
+        monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(video_dir))
+        monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(log_dir))
 
-            config = ServerConfig()
-            server = MediaRelayServer(config)
-
+        config = ServerConfig()
+        server = MediaRelayServer(config)
+        try:
             assert server.app.config["MAX_CONTENT_LENGTH"] is None
+        finally:
+            server._shutdown_cleanup()
 
 
 class TestSecurityHeaders:
@@ -1111,14 +1125,16 @@ class TestErrorHandlers:
 class TestSessionCookieWiring:
     """Test session cookie configuration wiring"""
 
-    def test_session_cookie_config_from_env(self, tmp_path):
+    def test_session_cookie_config_from_env(self, tmp_path, monkeypatch):
         """Session cookie settings from config are applied to Flask"""
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
+        monkeypatch.setenv("FLASK_ENV", "testing")
 
         config = ServerConfig(
             video_directory=str(video_dir),
             password_hash="test_hash",
+            log_directory=str(tmp_path / "logs"),
             session_cookie_secure=False,
             session_cookie_httponly=False,
             session_cookie_samesite="Lax",
@@ -1356,14 +1372,13 @@ class TestProductionAuditFixes:
         assert response.headers.get("Cache-Control") == "no-store"
         assert response.headers.get("Pragma") == "no-cache"
 
-    def test_stream_response_omits_no_store_cache_control(
+    def test_stream_response_has_private_no_store_cache_control(
         self, authenticated_client, temp_video_dir
     ):
         response = authenticated_client.get("/stream/test_video.mp4")
         assert response.status_code == 200
-        assert "Cache-Control" not in response.headers or (
-            response.headers.get("Cache-Control") != "no-store"
-        )
+        assert response.headers.get("Cache-Control") == "private, no-store"
+        assert response.headers.get("Pragma") == "no-cache"
 
     def test_logout_uses_log_logout(self, test_server, test_config):
         credentials = base64.b64encode(
@@ -1500,3 +1515,17 @@ class TestProductionAuditFixes:
         assert response.status_code == 200
         html = response.get_data(as_text=True)
         assert "only.mp4" not in html
+
+    def test_behind_proxy_wraps_wsgi_app_with_proxyfix(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        monkeypatch.setenv("VIDEO_SERVER_PASSWORD_HASH", "test_hash")
+        monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(video_dir))
+        monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(tmp_path / "logs"))
+        monkeypatch.setenv("VIDEO_SERVER_BEHIND_PROXY", "true")
+        monkeypatch.setenv("FLASK_ENV", "testing")
+
+        server = MediaRelayServer(ServerConfig())
+        assert type(server.app.wsgi_app).__name__ == "ProxyFix"

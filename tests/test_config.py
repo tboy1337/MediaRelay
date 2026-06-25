@@ -1295,3 +1295,106 @@ class TestConfigProductionAuditEdgeCases:
         assert config.channel_timeout == 300
         assert config.connection_limit == 1000
         assert config.cleanup_interval == 30
+
+    def test_invalid_log_level_rejected(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with pytest.raises(ValueError, match="VIDEO_SERVER_LOG_LEVEL"):
+            ServerConfig(
+                video_directory=str(video_dir),
+                password_hash="test_hash",
+                log_directory=str(tmp_path / "logs"),
+                log_level="INVALID_LEVEL",
+            )
+
+    def test_empty_username_rejected(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with pytest.raises(ValueError, match="USERNAME must not be empty"):
+            ServerConfig(
+                video_directory=str(video_dir),
+                password_hash="test_hash",
+                log_directory=str(tmp_path / "logs"),
+                username="   ",
+            )
+
+    def test_session_max_lifetime_must_exceed_timeout(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with pytest.raises(ValueError, match="SESSION_MAX_LIFETIME"):
+            ServerConfig(
+                video_directory=str(video_dir),
+                password_hash="test_hash",
+                log_directory=str(tmp_path / "logs"),
+                session_timeout=7200,
+                session_max_lifetime=3600,
+            )
+
+    def test_production_requires_secure_session_cookie(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "FLASK_ENV": "production",
+                "VIDEO_SERVER_SECRET_KEY": "secure-production-key",
+                "VIDEO_SERVER_SESSION_COOKIE_SECURE": "false",
+            },
+        ):
+            with pytest.raises(ValueError, match="SESSION_COOKIE_SECURE must be true"):
+                ServerConfig(
+                    video_directory=str(video_dir),
+                    password_hash="test_hash",
+                    log_directory=str(tmp_path / "logs"),
+                )
+
+    def test_samesite_case_insensitive(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+                "VIDEO_SERVER_SESSION_COOKIE_SAMESITE": "strict",
+            },
+        ):
+            config = ServerConfig(log_directory=str(tmp_path / "logs"))
+        assert config.session_cookie_samesite == "Strict"
+
+    def test_bool_env_strips_whitespace(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+                "VIDEO_SERVER_DEBUG": " true ",
+                "FLASK_ENV": "development",
+            },
+        ):
+            config = ServerConfig(log_directory=str(tmp_path / "logs"))
+            assert config.debug is True
+
+    def test_unreadable_video_directory_rejected(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch("mediarelay.config.os.access", return_value=False):
+            with pytest.raises(ValueError, match="not readable"):
+                ServerConfig(
+                    video_directory=str(video_dir),
+                    password_hash="test_hash",
+                    log_directory=str(tmp_path / "logs"),
+                )
+
+    def test_check_runtime_health_handles_exceptions(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash="test_hash",
+            log_directory=str(tmp_path / "logs"),
+        )
+        with patch.object(Path, "exists", side_effect=OSError("boom")):
+            assert config.check_runtime_health() is False

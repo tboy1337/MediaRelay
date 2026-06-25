@@ -84,37 +84,63 @@ def check_auth(
     return valid
 
 
+def _session_invalid_reason(
+    server: MediaRelayServer, current_time: float
+) -> str | None:
+    """Return a reason string when the active session is invalid, else None."""
+    last_activity = session.get("last_activity", 0)  # type: ignore[misc]
+    if current_time - last_activity > server.config.session_timeout:  # type: ignore[misc]
+        return "session_idle_timeout"
+
+    login_time = session.get("login_time")  # type: ignore[misc]
+    if login_time is not None and (
+        current_time - login_time > server.config.session_max_lifetime  # type: ignore[misc]
+    ):
+        return "session_max_lifetime_exceeded"
+
+    login_ip = session.get("login_ip")  # type: ignore[misc]
+    if not login_ip:
+        return "session_missing_login_ip"
+
+    client_ip = server.get_client_ip()
+    if login_ip != client_ip:
+        if server.security_logger:
+            server.security_logger.log_security_violation(
+                "session_ip_mismatch",
+                (
+                    f"Session invalidated due to IP change from "
+                    f"{login_ip} to {client_ip}"
+                ),
+                client_ip,
+            )
+        return "session_ip_mismatch"
+
+    username = session.get("username")  # type: ignore[misc]
+    if username and server.lockout_manager.is_locked_out(client_ip, str(username)):
+        remaining = server.lockout_manager.get_remaining_lockout_seconds(
+            client_ip, str(username)
+        )
+        if server.security_logger:
+            server.security_logger.log_security_violation(
+                "account_lockout",
+                f"Active session terminated for locked-out user '{username}' "
+                f"({remaining}s remaining)",
+                client_ip,
+            )
+        return "account_lockout"
+
+    return None
+
+
 def check_authentication(
     server: MediaRelayServer, *, establish_session: bool = True
 ) -> bool:
     """Check if the current request is authenticated with lockout protection."""
     current_time = time.time()
     if session.get("authenticated"):  # type: ignore[misc]
-        last_activity = session.get("last_activity", 0)  # type: ignore[misc]
-        if current_time - last_activity <= server.config.session_timeout:  # type: ignore[misc]
-            login_time = session.get("login_time")  # type: ignore[misc]
-            if login_time is not None and (
-                current_time - login_time > server.config.session_max_lifetime  # type: ignore[misc]
-            ):
-                session.clear()
-                return False
-            login_ip = session.get("login_ip")  # type: ignore[misc]
-            client_ip = server.get_client_ip()
-            if login_ip and login_ip != client_ip:
-                if server.security_logger:
-                    server.security_logger.log_security_violation(
-                        "session_ip_mismatch",
-                        (
-                            f"Session invalidated due to IP change from "
-                            f"{login_ip} to {client_ip}"
-                        ),
-                        client_ip,
-                    )
-                session.clear()
-                return False
+        if _session_invalid_reason(server, current_time) is None:
             session["last_activity"] = current_time
             return True
-
         session.clear()
 
     auth = request.authorization

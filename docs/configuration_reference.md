@@ -20,15 +20,15 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `VIDEO_SERVER_SECRET_KEY` | *(auto-generated if unset)* | Flask session signing key. **Required in production** via environment. |
-| `VIDEO_SERVER_USERNAME` | `tboy1337` | HTTP Basic Auth username. |
+| `VIDEO_SERVER_USERNAME` | `tboy1337` | HTTP Basic Auth username. Must not be empty or whitespace. |
 | `VIDEO_SERVER_PASSWORD_HASH` | *(empty)* | Werkzeug PBKDF2 hash. **Required.** Generate with `mediarelay-genpass`. |
 | `VIDEO_SERVER_SESSION_TIMEOUT` | `3600` | Session idle timeout in seconds. |
-| `VIDEO_SERVER_SESSION_MAX_LIFETIME` | `86400` | Absolute session lifetime in seconds from login (default 24 hours). |
+| `VIDEO_SERVER_SESSION_MAX_LIFETIME` | `86400` | Absolute session lifetime in seconds from login (default 24 hours). Must be greater than or equal to `VIDEO_SERVER_SESSION_TIMEOUT`. |
 | `VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS` | `5` | Failed logins before lockout. |
 | `VIDEO_SERVER_LOCKOUT_DURATION` | `900` | Lockout duration in seconds (minimum 60). |
-| `VIDEO_SERVER_SESSION_COOKIE_SECURE` | `true` | Send session cookies only over HTTPS. |
+| `VIDEO_SERVER_SESSION_COOKIE_SECURE` | `true` | Send session cookies only over HTTPS. **Required `true` when `FLASK_ENV=production`.** |
 | `VIDEO_SERVER_SESSION_COOKIE_HTTPONLY` | `true` | Prevent JavaScript access to session cookies. |
-| `VIDEO_SERVER_SESSION_COOKIE_SAMESITE` | `Strict` | SameSite policy: `Strict`, `Lax`, or `None`. `None` requires `SESSION_COOKIE_SECURE=true`. |
+| `VIDEO_SERVER_SESSION_COOKIE_SAMESITE` | `Strict` | SameSite policy: `Strict`, `Lax`, or `None` (case-insensitive). `None` requires `VIDEO_SERVER_SESSION_COOKIE_SECURE=true`. |
 | `VIDEO_SERVER_BEHIND_PROXY` | `false` | Trust `X-Forwarded-*` headers. Enable only behind a trusted reverse proxy. |
 | `FLASK_ENV` | `development` | Set to `production` for deployment validation and stricter startup checks. |
 
@@ -36,8 +36,8 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VIDEO_SERVER_DIRECTORY` | `~/Videos` (or `./videos`) | Root path for media library. Must exist at startup. |
-| `VIDEO_SERVER_LOG_DIR` | `./logs` | Log file directory (created if missing). |
+| `VIDEO_SERVER_DIRECTORY` | `~/Videos` (or `./videos`) | Root path for media library. Must exist, be a directory, and be readable at startup. |
+| `VIDEO_SERVER_LOG_DIR` | `./logs` | Log file directory (created if missing; must be writable). |
 | `VIDEO_SERVER_ALLOWED_EXTENSIONS` | *(built-in set)* | Comma-separated extensions. Must be a subset of the built-in media allowlist (video, audio, `.srt`). Invalid values are rejected at startup. |
 | `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES` | `10000` | Maximum listable entries per directory request. Exceeding this returns HTTP 413. |
 | `VIDEO_SERVER_MAX_FILE_SIZE` | `21474836480` | Upload limit in bytes (`0` disables). |
@@ -46,7 +46,7 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VIDEO_SERVER_LOG_LEVEL` | `INFO` | Root log level. |
+| `VIDEO_SERVER_LOG_LEVEL` | `INFO` | Root log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`). Invalid values are rejected at startup. |
 | `VIDEO_SERVER_LOG_MAX_BYTES` | `10485760` | Rotating log file size before rollover. |
 | `VIDEO_SERVER_LOG_BACKUP_COUNT` | `5` | Number of rotated log backups to keep. |
 | `VIDEO_SERVER_LOG_CONSOLE` | `true` | Enable colored console logging. |
@@ -63,6 +63,7 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 - Restrict `.env` permissions: `chmod 600 .env` (Linux/macOS).
 - Generate credentials: `mediarelay-genpass --non-interactive --username tboy1337`
 - Validate before deploy: `FLASK_ENV=production mediarelay-validate`
+- Production startup requires `VIDEO_SERVER_SECRET_KEY`, a real password hash, `VIDEO_SERVER_DEBUG=false`, and `VIDEO_SERVER_SESSION_COOKIE_SECURE=true`.
 - Do not expose plain HTTP to the internet; terminate TLS at a reverse proxy. See [Deployment Guide](deployment_guide.md) and [SECURITY.md](../SECURITY.md).
 - Sessions are bound to the client IP at login. VPN or mobile network IP changes invalidate the session and require re-authentication.
 

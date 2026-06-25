@@ -290,6 +290,8 @@ def main(
                 )
             config.debug = True
 
+        config.validate_config()
+
         server = MediaRelayServer(config)
         if debug:
             server.app.config["DEBUG"] = True
@@ -304,7 +306,7 @@ def main(
         sys.exit(1)
     except KeyboardInterrupt:
         print("\nShutdown complete")
-    except (RuntimeError, OSError, ImportError) as error:
+    except (RuntimeError, OSError, ImportError, PermissionError) as error:
         print(f"Server Error: {error}")
         sys.exit(1)
 

@@ -448,6 +448,51 @@ class TestAuthenticationSecurity:
         with test_client.session_transaction() as sess:
             assert sess.get("authenticated") is None
 
+    def test_session_max_lifetime_falls_through_to_basic_auth(
+        self, test_client, test_config
+    ):
+        """Expired session with valid Basic Auth re-authenticates on the same request."""
+        credentials = base64.b64encode(
+            f"{test_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+        auth_header = {"Authorization": f"Basic {credentials}"}
+
+        response = test_client.get("/", headers=auth_header)
+        assert response.status_code == 200
+
+        with test_client.session_transaction() as sess:
+            sess["login_time"] = time.time() - test_config.session_max_lifetime - 1
+            sess["last_activity"] = time.time()
+
+        response = test_client.get("/", headers=auth_header)
+        assert response.status_code == 200
+
+        with test_client.session_transaction() as sess:
+            assert sess.get("authenticated") is True
+
+    def test_lockout_invalidates_active_session(self, test_server, test_config):
+        """Locked-out accounts cannot continue using an existing session."""
+        credentials = base64.b64encode(
+            f"{test_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+        test_server.lockout_manager = AccountLockoutManager(
+            max_attempts=1, lockout_duration=60
+        )
+
+        with test_server.app.test_client() as client:
+            response = client.get(
+                "/", headers={"Authorization": f"Basic {credentials}"}
+            )
+            assert response.status_code == 200
+
+            client_ip = "127.0.0.1"
+            test_server.lockout_manager.record_failed_attempt(
+                client_ip, test_config.username
+            )
+
+            response = client.get("/")
+            assert response.status_code == 401
+
     def test_concurrent_sessions_allowed(self, test_server, test_config):
         """Test that multiple independent clients can hold sessions concurrently"""
         credentials = base64.b64encode(
@@ -557,7 +602,7 @@ class TestLogoutEndpoint:
             client.get("/", headers={"Authorization": f"Basic {credentials}"})
             response = client.get("/logout")
             assert response.status_code == 405
-            assert "POST" in response.get_data(as_text=True)
+            assert "Method Not Allowed" in response.get_data(as_text=True)
 
 
 class TestHealthEndpointSecurity:

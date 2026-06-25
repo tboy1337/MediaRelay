@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from flask import Response, request
+from flask import Response, g, request
 
 from .auth import auth_required_response
 
@@ -50,10 +50,44 @@ def register_error_handlers(server: MediaRelayServer) -> None:
         )
         return "Resource Not Found", 404
 
+    @server.app.errorhandler(405)  # type: ignore[misc]
+    def method_not_allowed(_error: Any) -> tuple[str, int]:  # type: ignore[misc, explicit-any]
+        """Handle method not allowed errors."""
+        server.app.logger.warning(
+            f"Method not allowed: {request.method} {request.path} from "
+            f"{server.get_client_ip()}{server._request_id_suffix()}"
+        )
+        return "Method Not Allowed", 405
+
     @server.app.errorhandler(413)  # type: ignore[misc]
     def request_entity_too_large(_error: Any) -> tuple[str, int]:  # type: ignore[misc, explicit-any]
         """Handle file too large errors."""
+        server.app.logger.warning(
+            f"Request entity too large: {request.path} from "
+            f"{server.get_client_ip()}{server._request_id_suffix()}"
+        )
         return "File Too Large", 413
+
+    @server.app.errorhandler(414)  # type: ignore[misc]
+    def uri_too_long(_error: Any) -> tuple[str, int]:  # type: ignore[misc, explicit-any]
+        """Handle request URI too long errors."""
+        violation_type = str(
+            getattr(g, "length_violation_type", "url_too_long")  # type: ignore[misc]
+        )
+        violation_detail = str(
+            getattr(
+                g,
+                "length_violation_detail",
+                f"Request URI too long: {request.path}",
+            )  # type: ignore[misc]
+        )
+        if server.security_logger:
+            server.security_logger.log_security_violation(
+                violation_type,
+                f"{violation_detail}{server._request_id_suffix()}",
+                server.get_client_ip(),
+            )
+        return "Request URI Too Long", 414
 
     @server.app.errorhandler(429)  # type: ignore[misc]
     def rate_limit_handler(_error: Any) -> tuple[str, int]:  # type: ignore[misc, explicit-any]

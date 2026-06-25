@@ -4,6 +4,7 @@ Unit tests for comprehensive error handling
 Tests for error handling, exception cases, and edge conditions.
 """
 
+import base64
 import json
 import os
 import tempfile
@@ -123,6 +124,16 @@ class TestServerErrorHandling:
         assert "visible.mp4" in html
         assert ".hidden.mp4" not in html
 
+    def test_direct_dotfile_stream_rejected(self, authenticated_client, temp_video_dir):
+        """Direct requests for dotfiles must be rejected even when the file exists."""
+        (temp_video_dir / ".hidden.mp4").write_text("secret", encoding="utf-8")
+
+        response = authenticated_client.get("/stream/.hidden.mp4")
+        assert response.status_code == 404
+
+        index_response = authenticated_client.get("/.hidden.mp4")
+        assert index_response.status_code == 404
+
     def test_directory_listing_skips_unreadable_entries(
         self, test_server, test_config, temp_video_dir, authenticated_client
     ):
@@ -197,8 +208,8 @@ class TestRequestErrorHandling:
         unicode_path = "test_Ñ„Ð°Ð¹Ð».mp4"  # Cyrillic characters
         response = authenticated_client.get(f"/stream/{unicode_path}")
 
-        # Should handle gracefully (404 is fine since file doesn't exist)
-        assert response.status_code in [200, 404, 400]
+        # Should handle gracefully as not found
+        assert response.status_code == 404
 
 
 class TestLoggingErrorHandling:
@@ -282,12 +293,7 @@ class TestMemoryErrorHandling:
         with patch.object(Path, "stat", return_value=mock_stat_result):
             with patch.object(Path, "is_file", return_value=True):
                 response = authenticated_client.get("/")
-                # Should handle large file metadata gracefully
-                assert response.status_code in [
-                    200,
-                    400,
-                    500,
-                ]  # 400 is also acceptable for malformed requests
+                assert response.status_code in (200, 400)
 
 
 class TestNetworkErrorHandling:
@@ -305,8 +311,7 @@ class TestNetworkErrorHandling:
         """Test handling of client disconnect during file streaming"""
         # Create a test file
         response = authenticated_client.get("/stream/test_video.mp4")
-        # Should handle gracefully even if client disconnects
-        assert response.status_code in [200, 404]
+        assert response.status_code == 200
 
 
 class TestFileSystemErrorHandling:
@@ -432,3 +437,45 @@ class TestHandlerErrorPaths:
                     result = handle_api_files_request(test_server)
         assert result[1] == 403
         test_server.security_logger.log_security_violation.assert_called_once()
+
+
+class TestProductionAuditErrorHandlers:
+    """Tests for centralized error handlers added during production audit."""
+
+    def test_get_logout_uses_method_not_allowed_handler(self, test_server, test_config):
+        credentials = base64.b64encode(
+            f"{test_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+
+        with test_server.app.test_client() as client:
+            client.get("/", headers={"Authorization": f"Basic {credentials}"})
+            response = client.get("/logout")
+
+        assert response.status_code == 405
+        assert response.get_data(as_text=True) == "Method Not Allowed"
+
+    def test_performance_logger_failure_does_not_break_response(
+        self, authenticated_client, test_server
+    ):
+        with patch.object(
+            test_server.performance_logger.logger,
+            "log",
+            side_effect=OSError("disk full"),
+        ):
+            response = authenticated_client.get("/health")
+
+        assert response.status_code == 200
+
+    def test_health_unhealthy_when_runtime_health_raises(
+        self, test_client, test_server
+    ):
+        with patch.object(
+            test_server.config,
+            "check_runtime_health",
+            side_effect=RuntimeError("health probe failed"),
+        ):
+            response = test_client.get("/health")
+
+        assert response.status_code == 503
+        data = json.loads(response.data)
+        assert data["status"] == "unhealthy"

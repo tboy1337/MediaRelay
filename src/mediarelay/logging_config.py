@@ -185,6 +185,15 @@ class PerformanceLogger:
         self.logger.setLevel(logging.INFO)
         self.logger.propagate = False
 
+    def _safe_emit(self, level: int, message: str) -> None:
+        """Emit a performance log record without breaking the request on I/O failure."""
+        try:
+            self.logger.log(level, message)
+        except (OSError, PermissionError) as error:
+            logging.getLogger("mediarelay").warning(
+                "Performance log write failed: %s", error
+            )
+
     def log_request_duration(
         self, endpoint: str, duration: float, status_code: int
     ) -> None:
@@ -197,7 +206,7 @@ class PerformanceLogger:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
-        self.logger.info(json.dumps(metric_data))
+        self._safe_emit(logging.INFO, json.dumps(metric_data))
 
     def log_file_serve_time(
         self, file_path: str, file_size: int, duration: float
@@ -214,7 +223,7 @@ class PerformanceLogger:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
-        self.logger.info(json.dumps(metric_data))
+        self._safe_emit(logging.INFO, json.dumps(metric_data))
 
     def cleanup(self) -> None:
         """Clean up logger resources"""
@@ -251,6 +260,10 @@ def setup_logging(config: ServerConfig) -> LoggingComponents:
         log_level = getattr(logging, config.log_level.upper())  # type: ignore[misc]
         root_logger.setLevel(log_level)  # type: ignore[misc]
     except AttributeError:
+        logging.getLogger("mediarelay").warning(
+            "Invalid VIDEO_SERVER_LOG_LEVEL %r; falling back to INFO",
+            config.log_level,
+        )
         root_logger.setLevel(logging.INFO)
 
     for handler in root_logger.handlers[:]:

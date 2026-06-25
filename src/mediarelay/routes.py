@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from flask import Response, g, jsonify, request, session
+from flask import Response, abort, g, jsonify, request, session
 
 from . import __version__
 from .auth import auth_required_response, check_authentication
@@ -35,22 +35,18 @@ def register_routes(server: MediaRelayServer) -> None:
 
         full_url = request.url
         if len(full_url) > MAX_URL_LENGTH:
-            if server.security_logger:
-                server.security_logger.log_security_violation(
-                    "url_too_long",
-                    f"URL length {len(full_url)} exceeds maximum {MAX_URL_LENGTH}",
-                    client_ip,
-                )
-            return "Request URI Too Long", 414
+            g.length_violation_type = "url_too_long"  # type: ignore[misc]
+            g.length_violation_detail = (  # type: ignore[misc]
+                f"URL length {len(full_url)} exceeds maximum {MAX_URL_LENGTH}"
+            )
+            abort(414)
 
         if len(request.path) > MAX_PATH_LENGTH:
-            if server.security_logger:
-                server.security_logger.log_security_violation(
-                    "path_too_long",
-                    f"Path length {len(request.path)} exceeds maximum {MAX_PATH_LENGTH}",
-                    client_ip,
-                )
-            return "Request URI Too Long", 414
+            g.length_violation_type = "path_too_long"  # type: ignore[misc]
+            g.length_violation_detail = (  # type: ignore[misc]
+                f"Path length {len(request.path)} exceeds maximum {MAX_PATH_LENGTH}"
+            )
+            abort(414)
 
         get_request_logger("mediarelay").debug(
             "Request %s: %s %s from %s",
@@ -71,7 +67,10 @@ def register_routes(server: MediaRelayServer) -> None:
         if server.config.session_cookie_secure:
             response.headers["Strict-Transport-Security"] = HSTS_HEADER_VALUE
 
-        if not request.path.startswith("/stream/"):
+        if request.path.startswith("/stream/"):
+            response.headers["Cache-Control"] = "private, no-store"
+            response.headers["Pragma"] = "no-cache"
+        else:
             response.headers["Cache-Control"] = "no-store"
             response.headers["Pragma"] = "no-cache"
 
@@ -144,7 +143,7 @@ def register_routes(server: MediaRelayServer) -> None:
     @server.app.route("/logout", methods=["GET"])
     def logout_get() -> tuple[str, int]:
         """Reject GET logout to prevent CSRF-forced logout."""
-        return "Method Not Allowed - use POST to logout", 405
+        abort(405)
 
     @server.app.route("/")
     @server.app.route("/<path:subpath>")

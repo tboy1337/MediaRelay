@@ -93,7 +93,7 @@ def get_safe_path(
     if not requested_path:
         return Path(config.video_directory)
 
-    for _ in range(3):
+    for _ in range(10):
         decoded_path = unquote(requested_path)
         if decoded_path == requested_path:
             break
@@ -129,7 +129,21 @@ def get_safe_path(
         return None
 
     normalized_path = requested_path.replace("\\", "/")
-    if "//" in normalized_path or ".." in normalized_path.split("/"):
+    path_segments = normalized_path.split("/")
+    if any(
+        segment.startswith(".") and segment not in {".", ".."}
+        for segment in path_segments
+        if segment
+    ):
+        if security_logger:
+            security_logger.log_security_violation(
+                "dotfile_access",
+                f"Dotfile access attempt: {requested_path}",
+                client_ip,
+            )
+        return None
+
+    if "//" in normalized_path or ".." in path_segments:
         if security_logger:
             security_logger.log_security_violation(
                 "path_traversal",

@@ -156,6 +156,43 @@ class TestGetSafePath:
         assert result is None
         security_logger.log_security_violation.assert_called()
 
+    def test_dotfile_path_rejected(self, video_config: ServerConfig) -> None:
+        security_logger = MagicMock()
+        video_dir = Path(video_config.video_directory)
+        (video_dir / ".hidden.mp4").write_text("secret", encoding="utf-8")
+        result = get_safe_path(
+            video_config,
+            ".hidden.mp4",
+            client_ip="127.0.0.1",
+            security_logger=security_logger,
+        )
+        assert result is None
+        security_logger.log_security_violation.assert_called_once()
+        assert (
+            security_logger.log_security_violation.call_args[0][0] == "dotfile_access"
+        )
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            "%25252e%25252e%25252f",
+            "%2525252e%2525252e%2525252f",
+        ],
+    )
+    def test_deep_url_encoding_rejected(
+        self, video_config: ServerConfig, payload: str
+    ) -> None:
+        """Paths requiring four or more decode passes must still be blocked."""
+        security_logger = MagicMock()
+        result = get_safe_path(
+            video_config,
+            payload,
+            client_ip="127.0.0.1",
+            security_logger=security_logger,
+        )
+        assert result is None
+        security_logger.log_security_violation.assert_called()
+
     def test_valid_relative_path(self, video_config: ServerConfig) -> None:
         result = get_safe_path(video_config, "test.mp4", client_ip="127.0.0.1")
         assert result is not None
@@ -199,6 +236,21 @@ class TestGetBreadcrumbs:
             log_directory=str(tmp_path / "logs"),
         )
         crumbs = get_breadcrumbs(config, video_dir)
+        assert crumbs == [{"name": "Home", "path": "/"}]
+
+    def test_breadcrumbs_outside_video_root_return_home_only(
+        self, tmp_path: Path
+    ) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash="test_hash",
+            log_directory=str(tmp_path / "logs"),
+        )
+        crumbs = get_breadcrumbs(config, outside)
         assert crumbs == [{"name": "Home", "path": "/"}]
 
     def test_nested_breadcrumbs(self, tmp_path: Path) -> None:

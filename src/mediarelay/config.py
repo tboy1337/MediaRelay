@@ -5,6 +5,7 @@ Handles environment variables, configuration files, and default settings
 for production deployment.
 """
 
+import logging
 import os
 import secrets
 import sys
@@ -33,6 +34,7 @@ _PLACEHOLDER_SECRET_KEYS = frozenset(
 )
 _PLACEHOLDER_PASSWORD_HASHES = frozenset({"", "your-password-hash-here"})
 _VALID_SAMESITE_VALUES = frozenset({"Strict", "Lax", "None"})
+_VALID_LOG_LEVELS = frozenset(logging.getLevelNamesMapping().keys())
 
 
 def _get_default_video_directory() -> str:
@@ -66,17 +68,26 @@ def _parse_int_env(
 
 def _parse_bool_env(name: str, default: str) -> bool:
     """Parse a boolean environment variable."""
-    return os.getenv(name, default).lower() in ("true", "yes", "1", "on")
+    return os.getenv(name, default).strip().lower() in ("true", "yes", "1", "on")
 
 
 def _parse_samesite(value: str) -> str:
     """Validate SameSite cookie attribute value."""
-    if value not in _VALID_SAMESITE_VALUES:
+    normalized = value.strip()
+    lowered = normalized.lower()
+    if lowered == "strict":
+        normalized = "Strict"
+    elif lowered == "lax":
+        normalized = "Lax"
+    elif lowered == "none":
+        normalized = "None"
+
+    if normalized not in _VALID_SAMESITE_VALUES:
         raise ValueError(
             f"VIDEO_SERVER_SESSION_COOKIE_SAMESITE must be one of "
             f"{sorted(_VALID_SAMESITE_VALUES)}, got {value!r}"
         )
-    return value
+    return normalized
 
 
 def _validate_allowed_extensions(extensions: set[str]) -> None:
@@ -96,6 +107,126 @@ def _validate_allowed_extensions(extensions: set[str]) -> None:
         raise ValueError(
             f"Invalid VIDEO_SERVER_ALLOWED_EXTENSIONS: {sorted(invalid)}. "
             f"Allowed values: {sorted(_DEFAULT_ALLOWED_EXTENSIONS)}"
+        )
+
+
+def _validate_log_level(log_level: str) -> None:
+    """Reject invalid logging level names at configuration time."""
+    if log_level.upper() not in _VALID_LOG_LEVELS:
+        raise ValueError(
+            f"VIDEO_SERVER_LOG_LEVEL must be one of "
+            f"{sorted(_VALID_LOG_LEVELS)}, got {log_level!r}"
+        )
+
+
+def _validate_video_directory(video_directory: str) -> None:
+    """Ensure the configured video directory exists and is readable."""
+    video_path = Path(video_directory)
+    if not video_path.exists():
+        raise ValueError(f"Video directory does not exist: {video_directory}")
+    if not video_path.is_dir():
+        raise ValueError(f"Video directory path is not a directory: {video_directory}")
+    if not os.access(video_path, os.R_OK):
+        raise ValueError(f"Video directory is not readable: {video_directory}")
+
+
+def _validate_log_directory(log_directory: str) -> None:
+    """Ensure the log directory exists and is writable."""
+    log_path = Path(log_directory)
+    try:
+        log_path.mkdir(parents=True, exist_ok=True)
+        probe_file = log_path / ".write_probe"
+        probe_file.write_text("", encoding="utf-8")
+        probe_file.unlink()
+    except OSError as exc:
+        raise ValueError(f"Log directory is not writable: {log_directory}") from exc
+
+
+def _validate_credentials(config: "ServerConfig") -> None:
+    """Validate username and password hash settings."""
+    if not config.username.strip():
+        raise ValueError("VIDEO_SERVER_USERNAME must not be empty or whitespace")
+
+    if not config.password_hash:
+        raise ValueError(
+            "VIDEO_SERVER_PASSWORD_HASH must be set. "
+            "Run mediarelay-genpass to create one."
+        )
+
+    if config.is_production() and config.password_hash in _PLACEHOLDER_PASSWORD_HASHES:
+        raise ValueError(
+            "VIDEO_SERVER_PASSWORD_HASH must be set to a real hash, not a "
+            "placeholder. Run mediarelay-genpass to create one."
+        )
+
+
+def _validate_server_settings(config: "ServerConfig") -> None:
+    """Validate server port, threads, file limits, and extensions."""
+    if not config.allowed_extensions:
+        raise ValueError(
+            "allowed_extensions cannot be empty. "
+            "Unset VIDEO_SERVER_ALLOWED_EXTENSIONS to use defaults."
+        )
+
+    _validate_allowed_extensions(config.allowed_extensions)
+
+    if config.max_file_size < 0:
+        raise ValueError(
+            f"max_file_size cannot be negative, got: {config.max_file_size}"
+        )
+
+    if not (1 <= config.port <= 65535):
+        raise ValueError(f"Port must be between 1 and 65535, got: {config.port}")
+
+    if config.threads < 1:
+        raise ValueError(f"Thread count must be at least 1, got: {config.threads}")
+
+    _validate_log_level(config.log_level)
+
+
+def _validate_session_settings(config: "ServerConfig") -> None:
+    """Validate session cookie and timeout settings."""
+    if config.session_max_lifetime < config.session_timeout:
+        raise ValueError(
+            "VIDEO_SERVER_SESSION_MAX_LIFETIME must be greater than or equal to "
+            f"VIDEO_SERVER_SESSION_TIMEOUT ({config.session_timeout}), "
+            f"got {config.session_max_lifetime}"
+        )
+
+    if config.session_cookie_samesite == "None" and not config.session_cookie_secure:
+        raise ValueError(
+            "VIDEO_SERVER_SESSION_COOKIE_SAMESITE=None requires "
+            "VIDEO_SERVER_SESSION_COOKIE_SECURE=true"
+        )
+
+
+def _validate_production_settings(config: "ServerConfig") -> None:
+    """Enforce production-only security requirements."""
+    if not config.is_production():
+        return
+
+    if config.debug:
+        raise ValueError(
+            "Debug mode cannot be enabled in production. "
+            "Set VIDEO_SERVER_DEBUG=false."
+        )
+
+    if not config.session_cookie_secure:
+        raise ValueError(
+            "VIDEO_SERVER_SESSION_COOKIE_SECURE must be true in production."
+        )
+
+    env_secret = os.getenv("VIDEO_SERVER_SECRET_KEY", "")
+    if env_secret.strip() in _PLACEHOLDER_SECRET_KEYS:
+        raise ValueError(
+            "VIDEO_SERVER_SECRET_KEY must be set to a secure value in "
+            "production. Run mediarelay-genpass to create one."
+        )
+    if os.getenv("VIDEO_SERVER_SECRET_KEY") is None:
+        raise ValueError(
+            "VIDEO_SERVER_SECRET_KEY must be set in production. "
+            "Auto-generated keys do not persist across restarts. "
+            "Run mediarelay-genpass to create one."
         )
 
 
@@ -290,73 +421,12 @@ class ServerConfig:
 
     def validate_config(self) -> None:
         """Validate configuration settings"""
-        video_path = Path(self.video_directory)
-        if not video_path.exists():
-            raise ValueError(f"Video directory does not exist: {self.video_directory}")
-        if not video_path.is_dir():
-            raise ValueError(
-                f"Video directory path is not a directory: {self.video_directory}"
-            )
-
-        if not self.password_hash:
-            raise ValueError(
-                "VIDEO_SERVER_PASSWORD_HASH must be set. "
-                "Run mediarelay-genpass to create one."
-            )
-
-        if not self.allowed_extensions:
-            raise ValueError(
-                "allowed_extensions cannot be empty. "
-                "Unset VIDEO_SERVER_ALLOWED_EXTENSIONS to use defaults."
-            )
-
-        _validate_allowed_extensions(self.allowed_extensions)
-
-        if self.max_file_size < 0:
-            raise ValueError(
-                f"max_file_size cannot be negative, got: {self.max_file_size}"
-            )
-
-        if self.is_production() and self.password_hash in _PLACEHOLDER_PASSWORD_HASHES:
-            raise ValueError(
-                "VIDEO_SERVER_PASSWORD_HASH must be set to a real hash, not a "
-                "placeholder. Run mediarelay-genpass to create one."
-            )
-
-        if not (1 <= self.port <= 65535):
-            raise ValueError(f"Port must be between 1 and 65535, got: {self.port}")
-
-        if self.threads < 1:
-            raise ValueError(f"Thread count must be at least 1, got: {self.threads}")
-
-        if self.session_cookie_samesite == "None" and not self.session_cookie_secure:
-            raise ValueError(
-                "VIDEO_SERVER_SESSION_COOKIE_SAMESITE=None requires "
-                "VIDEO_SERVER_SESSION_COOKIE_SECURE=true"
-            )
-
-        if self.is_production():
-            if self.debug:
-                raise ValueError(
-                    "Debug mode cannot be enabled in production. "
-                    "Set VIDEO_SERVER_DEBUG=false."
-                )
-
-            env_secret = os.getenv("VIDEO_SERVER_SECRET_KEY", "")
-            if env_secret.strip() in _PLACEHOLDER_SECRET_KEYS:
-                raise ValueError(
-                    "VIDEO_SERVER_SECRET_KEY must be set to a secure value in "
-                    "production. Run mediarelay-genpass to create one."
-                )
-            if os.getenv("VIDEO_SERVER_SECRET_KEY") is None:
-                raise ValueError(
-                    "VIDEO_SERVER_SECRET_KEY must be set in production. "
-                    "Auto-generated keys do not persist across restarts. "
-                    "Run mediarelay-genpass to create one."
-                )
-
-        log_path = Path(self.log_directory)
-        log_path.mkdir(parents=True, exist_ok=True)
+        _validate_video_directory(self.video_directory)
+        _validate_credentials(self)
+        _validate_server_settings(self)
+        _validate_session_settings(self)
+        _validate_production_settings(self)
+        _validate_log_directory(self.log_directory)
 
     def is_production(self) -> bool:
         """Check if running in production environment"""

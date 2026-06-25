@@ -32,8 +32,9 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 - Session cookies after successful login (HttpOnly, Secure, SameSite configurable)
 - Constant-time username comparison (`hmac.compare_digest`)
 - Password verification on every login attempt (mitigates username timing enumeration)
-- Account lockout after repeated failed attempts (per IP + username)
-- Session invalidation on client IP change
+- Account lockout after repeated failed attempts (per IP + username); lockout also terminates active sessions
+- Session invalidation on client IP change; sessions without a bound login IP are rejected
+- Expired sessions fall through to valid HTTP Basic credentials on the same request
 - Idle session timeout (`VIDEO_SERVER_SESSION_TIMEOUT`) and absolute max lifetime (`VIDEO_SERVER_SESSION_MAX_LIFETIME`)
 - `SameSite=None` requires `VIDEO_SERVER_SESSION_COOKIE_SECURE=true` at startup
 
@@ -41,7 +42,8 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 
 - All file access is constrained to the configured video directory jail
 - Symlinks are resolved before containment checks
-- Path traversal payloads (including URL encoding, NFKC normalization, and control characters) are rejected and logged
+- Path traversal payloads (including multi-pass URL decoding, NFKC normalization, and control characters) are rejected and logged
+- Dotfiles (path segments starting with `.`) are hidden from listings and blocked on direct access
 - Custom `VIDEO_SERVER_ALLOWED_EXTENSIONS` must be a subset of the built-in media allowlist
 
 ### Network Controls
@@ -49,7 +51,7 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 - Configurable per-IP rate limiting (in-memory, single-process) on browsing and API routes
 - `/stream/` is exempt from rate limiting so video range requests are not throttled during seeking
 - Security headers on all responses (CSP, X-Frame-Options, etc.)
-- `Cache-Control: no-store` on all responses except `/stream/` (prevents caching authenticated listings)
+- `Cache-Control: no-store` on browsing and API responses; `Cache-Control: private, no-store` on `/stream/` responses
 - HSTS when `VIDEO_SERVER_SESSION_COOKIE_SECURE=true`
 - HTML UI output uses Jinja2 autoescape for filenames and paths rendered in templates
 - Directory listings capped at `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES` (default 10000) to prevent memory exhaustion
@@ -81,6 +83,9 @@ Run `python scripts/verify.py` locally before release; it enforces black, isort,
 | Single-user model | One username/password pair; no role-based access control |
 | Session IP binding | Sessions invalidate when the client IP changes (VPN/mobile networks may require re-login) |
 | GET logout disabled | Logout requires `POST /logout` to prevent CSRF-forced logout |
+| Basic Auth credential caching | Browsers may re-send cached credentials after `POST /logout`; close the browser or use private browsing |
+| Distributed brute force | Lockout is per IP + username; use a strong password |
+| Stream rate-limit exemption | `/stream/` is exempt so range requests are not throttled; restrict network access |
 | CSP inline styles | Embedded UI template requires `style-src 'unsafe-inline'` |
 | Extension-only file filter | No magic-byte content validation; only extension allowlist (custom extensions must match built-in set) |
 | Large directories | Listings above `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES` return HTTP 413 |
