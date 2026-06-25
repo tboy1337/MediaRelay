@@ -13,8 +13,19 @@ from pathlib import Path
 from typing import Any
 
 import click
+from dotenv import load_dotenv
 
-from .constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, MIN_PAGE_SIZE
+from .constants import (
+    AUDIO_EXTENSIONS,
+    DEFAULT_PAGE_SIZE,
+    MAX_PAGE_SIZE,
+    MIN_PAGE_SIZE,
+    VIDEO_EXTENSIONS,
+)
+
+_DEFAULT_ALLOWED_EXTENSIONS: frozenset[str] = (
+    VIDEO_EXTENSIONS | AUDIO_EXTENSIONS | frozenset({".srt"})
+)
 
 _PLACEHOLDER_SECRET_KEYS = frozenset(
     {"", "your-secret-key-here", "change-me", "changeme"}
@@ -178,20 +189,7 @@ class ServerConfig:
                 if ext.strip()
             )
             if os.getenv("VIDEO_SERVER_ALLOWED_EXTENSIONS") is not None
-            else {
-                ".mp4",
-                ".mkv",
-                ".avi",
-                ".mov",
-                ".webm",
-                ".m4v",
-                ".flv",
-                ".srt",
-                ".mp3",
-                ".aac",
-                ".ogg",
-                ".wav",
-            }
+            else set(_DEFAULT_ALLOWED_EXTENSIONS)
         )
     )
     max_file_size: int = field(
@@ -368,22 +366,14 @@ class ServerConfig:
 
 def load_config(config_file: Path | None = None) -> ServerConfig:
     """Load configuration from environment variables and return ServerConfig instance."""
-    try:
-        from dotenv import load_dotenv
-
-        if config_file is not None:
-            if not config_file.exists():
-                raise ValueError(f"Configuration file not found: {config_file}")
-            load_dotenv(config_file, override=True)
-        else:
-            env_file = Path(".env")
-            if env_file.exists():
-                load_dotenv(env_file)
-    except ImportError:
-        if config_file is not None:
-            raise ValueError(
-                "python-dotenv is required to load a configuration file"
-            ) from None
+    if config_file is not None:
+        if not config_file.exists():
+            raise ValueError(f"Configuration file not found: {config_file}")
+        load_dotenv(config_file, override=True)
+    else:
+        env_file = Path(".env")
+        if env_file.exists():
+            load_dotenv(env_file)
 
     return ServerConfig()
 

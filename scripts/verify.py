@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 TESTS = ROOT / "tests"
+SCRIPTS = ROOT / "scripts"
 PACKAGE = SRC / "mediarelay"
 PYLINT_REPORT = ROOT / "pylint-report.txt"
 
@@ -115,6 +116,7 @@ def check_trailing_whitespace() -> bool:
         "--select=W291,W293",
         _path(SRC),
         _path(TESTS),
+        _path(SCRIPTS),
     )
     print(f"\n{'=' * 70}")
     print(f"STEP: {name}")
@@ -144,6 +146,7 @@ def check_trailing_whitespace() -> bool:
                     "--select=W291,W293",
                     _path(SRC),
                     _path(TESTS),
+                    _path(SCRIPTS),
                 )
             )
         )
@@ -182,13 +185,19 @@ def _build_verification_steps() -> list[tuple[str, list[str], bool]]:
         ),
         (
             "Bandit security scan",
-            _python_module("bandit", "-r", _path(PACKAGE)),
+            _python_module(
+                "bandit",
+                "-r",
+                _path(PACKAGE),
+                "-c",
+                _path(ROOT / "pyproject.toml"),
+            ),
             False,
         ),
         (
             "pip-audit dependency check",
             _python_module("pip_audit"),
-            True,
+            False,
         ),
         (
             "Pytest with coverage",

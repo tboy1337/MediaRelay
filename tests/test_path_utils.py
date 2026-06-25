@@ -147,6 +147,16 @@ class TestGetSafePath:
         assert result is not None
         assert result.name == "test.mp4"
 
+    def test_filename_with_double_dots_allowed(
+        self, video_config: ServerConfig
+    ) -> None:
+        """Filenames containing '..' as substring must not be treated as traversal."""
+        video_dir = Path(video_config.video_directory)
+        (video_dir / "my..video.mp4").write_text("content", encoding="utf-8")
+        result = get_safe_path(video_config, "my..video.mp4", client_ip="127.0.0.1")
+        assert result is not None
+        assert result.name == "my..video.mp4"
+
     def test_os_error_logged_via_callback(self, video_config: ServerConfig) -> None:
         log_error = MagicMock()
         with patch(
@@ -189,6 +199,30 @@ class TestGetBreadcrumbs:
         crumbs = get_breadcrumbs(config, nested)
         assert crumbs[0] == {"name": "Home", "path": "/"}
         assert crumbs[-1]["name"] == "action"
+
+    @pytest.mark.parametrize(
+        "relative_parts",
+        [
+            ("a",),
+            ("a", "b", "c"),
+            ("deep", "nested", "folder", "file"),
+        ],
+    )
+    def test_breadcrumb_depth(
+        self, tmp_path: Path, relative_parts: tuple[str, ...]
+    ) -> None:
+        video_dir = tmp_path / "videos"
+        target = video_dir.joinpath(*relative_parts)
+        target.mkdir(parents=True)
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash="test_hash",
+            log_directory=str(tmp_path / "logs"),
+        )
+        crumbs = get_breadcrumbs(config, target)
+        assert len(crumbs) == len(relative_parts) + 1
+        assert crumbs[0] == {"name": "Home", "path": "/"}
+        assert crumbs[-1]["name"] == relative_parts[-1]
 
 
 class TestResolvePath:

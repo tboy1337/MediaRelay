@@ -82,7 +82,7 @@ def register_routes(server: MediaRelayServer) -> None:
     @server.app.route("/health")
     def health_check() -> Response | tuple[Response, int]:
         """Health check endpoint for monitoring."""
-        is_authenticated = check_authentication(server)
+        is_authenticated = check_authentication(server, establish_session=False)
 
         try:
             is_healthy = server.config.check_runtime_health()

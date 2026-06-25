@@ -248,6 +248,18 @@ class TestAuthModule:
         assert response.status_code == 401
         assert "Retry-After" not in response.headers
 
+    @patch("mediarelay.auth.check_password_hash", return_value=False)
+    def test_check_auth_always_verifies_password_hash(
+        self, mock_check_hash: Mock, test_server, test_config
+    ) -> None:
+        """Password hash must be checked even when username does not match."""
+        with test_server.app.test_request_context():
+            assert test_server.check_auth("wronguser", "anypassword") is False
+
+        mock_check_hash.assert_called_once_with(
+            test_config.password_hash, "anypassword"
+        )
+
 
 class TestAuthenticationSecurity:
     """Test cases for authentication security"""
@@ -552,6 +564,28 @@ class TestHealthEndpointSecurity:
             assert data["status"] == "healthy"
         else:
             assert data["status"] in ["healthy", "unhealthy"]
+
+    def test_health_basic_auth_does_not_create_session(
+        self, test_client, test_config
+    ) -> None:
+        """Basic Auth on /health must not establish a Flask session."""
+        credentials = base64.b64encode(
+            f"{test_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+
+        with test_client.session_transaction() as sess:
+            assert not sess.get("authenticated")
+
+        response = test_client.get(
+            "/health",
+            headers={"Authorization": f"Basic {credentials}"},
+        )
+        assert response.status_code in [200, 503]
+        data = json.loads(response.data)
+        assert "version" in data
+
+        with test_client.session_transaction() as sess:
+            assert not sess.get("authenticated")
 
 
 class TestURLLengthValidation:

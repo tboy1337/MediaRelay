@@ -1167,26 +1167,6 @@ class TestConfigProductionAuditEdgeCases:
             with pytest.raises(ValueError, match="SESSION_COOKIE_SAMESITE"):
                 ServerConfig()
 
-    def test_load_config_dotenv_import_error(self, tmp_path: Path) -> None:
-        video_dir = tmp_path / "videos"
-        video_dir.mkdir()
-        env_file = tmp_path / "test.env"
-        env_file.write_text(
-            f"VIDEO_SERVER_PASSWORD_HASH=test_hash\n"
-            f"VIDEO_SERVER_DIRECTORY={video_dir}\n",
-            encoding="utf-8",
-        )
-        original_import = builtins.__import__
-
-        def guarded_import(name: str, *args: object, **kwargs: object) -> object:
-            if name == "dotenv":
-                raise ImportError("no dotenv")
-            return original_import(name, *args, **kwargs)
-
-        with patch.object(builtins, "__import__", side_effect=guarded_import):
-            with pytest.raises(ValueError, match="python-dotenv is required"):
-                load_config(env_file)
-
     def test_load_config_default_env_file(self, tmp_path: Path, monkeypatch) -> None:
         video_dir = tmp_path / "videos"
         video_dir.mkdir()

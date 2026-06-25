@@ -215,7 +215,7 @@ Run the full quality gate locally:
 python scripts/verify.py
 ```
 
-This runs black, isort, mypy, bandit, pylint, pytest with 90% branch coverage, and optionally `pip-audit` for dependency vulnerability scanning (no account required).
+This runs black, isort, mypy, bandit, pylint, pip-audit, and pytest with 90% branch coverage.
 
 ## 🔒 Security
 

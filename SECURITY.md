@@ -30,7 +30,8 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 
 - HTTP Basic Authentication with Werkzeug password hashes (PBKDF2)
 - Session cookies after successful login (HttpOnly, Secure, SameSite configurable)
-- Constant-time username comparison
+- Constant-time username comparison (`hmac.compare_digest`)
+- Password verification on every login attempt (mitigates username timing enumeration)
 - Account lockout after repeated failed attempts (per IP + username)
 - Session invalidation on client IP change
 
@@ -49,6 +50,8 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 ### Audit Logging
 
 Security events are written to `logs/security.log` in JSON format, including authentication attempts, lockout events, path violations, and rate-limit breaches.
+
+Run `python scripts/verify.py` locally before release; it enforces black, isort, mypy, bandit, pylint, pip-audit, and pytest with 90%+ branch coverage.
 
 ## Production Deployment Checklist
 

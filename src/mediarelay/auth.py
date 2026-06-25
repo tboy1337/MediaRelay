@@ -57,9 +57,9 @@ def check_auth(
             )
         return False
 
-    valid = hmac.compare_digest(
-        username, server.config.username
-    ) and check_password_hash(server.config.password_hash, password)
+    username_ok = hmac.compare_digest(username, server.config.username)
+    password_ok = check_password_hash(server.config.password_hash, password)
+    valid = username_ok and password_ok
 
     if server.security_logger:
         server.security_logger.log_auth_attempt(
@@ -84,7 +84,9 @@ def check_auth(
     return valid
 
 
-def check_authentication(server: MediaRelayServer) -> bool:
+def check_authentication(
+    server: MediaRelayServer, *, establish_session: bool = True
+) -> bool:
     """Check if the current request is authenticated with lockout protection."""
     current_time = time.time()
     if session.get("authenticated"):  # type: ignore[misc]
@@ -129,13 +131,14 @@ def check_authentication(server: MediaRelayServer) -> bool:
         return False
 
     if check_auth(server, auth.username, auth.password):
-        session.clear()
-        session["authenticated"] = True
-        session["username"] = auth.username
-        session["last_activity"] = current_time
-        session["login_time"] = current_time
-        session["login_ip"] = server.get_client_ip()
-        session.permanent = True
+        if establish_session:
+            session.clear()
+            session["authenticated"] = True
+            session["username"] = auth.username
+            session["last_activity"] = current_time
+            session["login_time"] = current_time
+            session["login_ip"] = server.get_client_ip()
+            session.permanent = True
         return True
 
     return False

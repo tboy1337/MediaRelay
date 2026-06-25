@@ -74,7 +74,7 @@ When authenticated (HTTP Basic Auth or session cookie), returns full details:
 {
     "status": "healthy",
     "timestamp": "2026-06-25T12:00:00.000000+00:00",
-    "version": "1.0.10",
+    "version": "1.0.13",
     "uptime_seconds": 3600,
     "video_directory_accessible": true,
     "config_valid": true,
@@ -457,7 +457,7 @@ curl http://localhost:5000/health
 {
     "status": "healthy",
     "timestamp": "2023-12-01T12:00:00.000Z",
-    "version": "1.0.10",
+    "version": "1.0.13",
     "uptime_seconds": 7200,
     "video_directory_accessible": true,
     "config_valid": true

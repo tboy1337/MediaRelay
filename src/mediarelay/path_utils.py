@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import mimetypes
+import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -87,6 +88,8 @@ def get_safe_path(
             break
         requested_path = decoded_path
 
+    requested_path = unicodedata.normalize("NFC", requested_path)
+
     if "\x00" in requested_path:
         if security_logger:
             security_logger.log_security_violation(
@@ -105,7 +108,17 @@ def get_safe_path(
             )
         return None
 
-    if ".." in requested_path or "//" in requested_path or "\\" in requested_path:
+    if "\\" in requested_path:
+        if security_logger:
+            security_logger.log_security_violation(
+                "path_traversal",
+                f"Path traversal attempt: {requested_path}",
+                client_ip,
+            )
+        return None
+
+    normalized_path = requested_path.replace("\\", "/")
+    if "//" in normalized_path or ".." in normalized_path.split("/"):
         if security_logger:
             security_logger.log_security_violation(
                 "path_traversal",
