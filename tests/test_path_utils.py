@@ -68,6 +68,7 @@ class TestGetSafePath:
             "test/../secret",
             "subdir/../../outside",
             "%2e%2e%2fetc%2fpasswd",
+            "%252e%252e%252f",
         ],
     )
     def test_path_traversal_rejected(

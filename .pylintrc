@@ -1,4 +1,4 @@
-# Pylint configuration for Video Streaming Server
+# Pylint configuration for MediaRelay
 # Comprehensive linting configuration for production code quality
 
 [MAIN]

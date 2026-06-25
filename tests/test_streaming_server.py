@@ -83,14 +83,15 @@ class TestMediaRelayServerComprehensive:
     def test_server_initialization_with_all_features(self):
         """Test server initialization with all features enabled"""
         with tempfile.TemporaryDirectory() as temp_dir:
-            config = ServerConfig(
-                video_directory=temp_dir,
-                password_hash="test_hash",
-                rate_limit_enabled=True,
-                debug=True,
-            )
+            with patch.dict(os.environ, {"FLASK_ENV": "development"}):
+                config = ServerConfig(
+                    video_directory=temp_dir,
+                    password_hash="test_hash",
+                    rate_limit_enabled=True,
+                    debug=True,
+                )
 
-            server = MediaRelayServer(config)
+                server = MediaRelayServer(config)
 
             # Test that all components are initialized
             assert server.config == config
@@ -644,6 +645,8 @@ class TestSecurityHeaders:
             "X-XSS-Protection",
             "Content-Security-Policy",
             "Referrer-Policy",
+            "Permissions-Policy",
+            "X-Permitted-Cross-Domain-Policies",
         ]
 
         for header in expected_headers:
@@ -1098,7 +1101,7 @@ class TestMainCliOptions:
         from click.testing import CliRunner
 
         mock_config = MagicMock()
-        mock_config.is_production.return_value = True
+        mock_config.is_production.return_value = False
         mock_load_config.return_value = mock_config
         mock_server = MagicMock()
         mock_server_class.return_value = mock_server
@@ -1115,23 +1118,21 @@ class TestMainCliOptions:
 
     @patch("mediarelay.server.MediaRelayServer")
     @patch("mediarelay.server.load_config")
-    def test_main_debug_in_production_warns(
-        self, mock_load_config, mock_server_class, caplog
+    def test_main_debug_in_production_rejected(
+        self, mock_load_config, mock_server_class
     ):
-        """--debug with FLASK_ENV=production emits a warning."""
+        """--debug with FLASK_ENV=production is rejected."""
         from click.testing import CliRunner
 
         mock_config = MagicMock()
         mock_config.is_production.return_value = True
         mock_load_config.return_value = mock_config
-        mock_server_class.return_value = MagicMock()
 
         runner = CliRunner()
-        with caplog.at_level(logging.WARNING):
-            runner.invoke(main, ["--debug"])
-        assert any(
-            "Debug mode should not be enabled" in r.message for r in caplog.records
-        )
+        result = runner.invoke(main, ["--debug"])
+        assert result.exit_code == 1
+        assert "Cannot enable --debug" in result.output
+        mock_server_class.assert_not_called()
 
 
 class TestGracefulShutdown:

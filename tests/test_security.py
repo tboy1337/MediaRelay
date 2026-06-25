@@ -275,6 +275,26 @@ class TestAuthenticationSecurity:
         assert "HttpOnly" in set_cookie_header
         assert "SameSite=Strict" in set_cookie_header
 
+    def test_session_ip_mismatch_invalidates_session(
+        self, test_client, test_config, test_server
+    ):
+        """Session is cleared when client IP changes after login."""
+        credentials = base64.b64encode(
+            f"{test_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+
+        response = test_client.get(
+            "/", headers={"Authorization": f"Basic {credentials}"}
+        )
+        assert response.status_code == 200
+
+        with patch.object(test_server, "get_client_ip", return_value="10.0.0.99"):
+            response = test_client.get("/")
+            assert response.status_code == 401
+
+        with test_client.session_transaction() as sess:
+            assert sess.get("authenticated") is None
+
     def test_concurrent_session_limit(self, test_server, test_config):
         """Test that user can have multiple concurrent sessions"""
         credentials = base64.b64encode(

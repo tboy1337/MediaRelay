@@ -748,6 +748,17 @@ class TestConfigLoading:
             assert "VIDEO_SERVER_PASSWORD_HASH" in content
             assert "tboy1337" in content
 
+    def test_create_sample_env_file_skips_existing(self, tmp_path):
+        """Test sample .env file is not overwritten when it already exists"""
+        with patch("mediarelay.config.Path") as mock_path:
+            mock_env_file = tmp_path / ".env.example"
+            mock_env_file.write_text("existing content", encoding="utf-8")
+            mock_path.return_value = mock_env_file
+
+            create_sample_env_file()
+
+            assert mock_env_file.read_text(encoding="utf-8") == "existing content"
+
 
 class TestConfigLoadingComprehensive:
     """Test config loading functions comprehensively"""
@@ -943,6 +954,42 @@ class TestProductionSecretKeyValidation:
             },
         ):
             with pytest.raises(ValueError, match="VIDEO_SERVER_SECRET_KEY"):
+                ServerConfig(
+                    video_directory=str(video_dir),
+                    password_hash="test_hash",
+                )
+
+    def test_production_rejects_unset_secret_key(self, tmp_path):
+        """Production mode rejects auto-generated ephemeral secret keys"""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+
+        env = {
+            "FLASK_ENV": "production",
+            "VIDEO_SERVER_DEBUG": "false",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            os.environ.pop("VIDEO_SERVER_SECRET_KEY", None)
+            with pytest.raises(ValueError, match="VIDEO_SERVER_SECRET_KEY must be set"):
+                ServerConfig(
+                    video_directory=str(video_dir),
+                    password_hash="test_hash",
+                )
+
+    def test_production_rejects_debug_mode(self, tmp_path):
+        """Production mode rejects debug enabled via environment"""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+
+        with patch.dict(
+            os.environ,
+            {
+                "FLASK_ENV": "production",
+                "VIDEO_SERVER_SECRET_KEY": "secure-production-key",
+                "VIDEO_SERVER_DEBUG": "true",
+            },
+        ):
+            with pytest.raises(ValueError, match="Debug mode cannot be enabled"):
                 ServerConfig(
                     video_directory=str(video_dir),
                     password_hash="test_hash",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import secrets
@@ -223,7 +224,7 @@ class MediaRelayServer:
             )
             return None
 
-        @self.app.after_request  # type: ignore[misc]
+        @self.app.after_request
         def after_request(response: Response) -> Response:
             """Process responses and add security headers."""
             for header, value in self.config.security_headers.items():
@@ -398,9 +399,9 @@ class MediaRelayServer:
                 )
             return False
 
-        valid = username == self.config.username and check_password_hash(
-            self.config.password_hash, password
-        )
+        valid = hmac.compare_digest(
+            username, self.config.username
+        ) and check_password_hash(self.config.password_hash, password)
 
         if self.security_logger:
             self.security_logger.log_auth_attempt(
@@ -447,6 +448,20 @@ class MediaRelayServer:
         if session.get("authenticated"):  # type: ignore[misc]
             last_activity = session.get("last_activity", 0)  # type: ignore[misc]
             if current_time - last_activity <= self.config.session_timeout:  # type: ignore[misc]
+                login_ip = session.get("login_ip")  # type: ignore[misc]
+                client_ip = self.get_client_ip()
+                if login_ip and login_ip != client_ip:
+                    if self.security_logger:
+                        self.security_logger.log_security_violation(
+                            "session_ip_mismatch",
+                            (
+                                f"Session invalidated due to IP change from "
+                                f"{login_ip} to {client_ip}"
+                            ),
+                            client_ip,
+                        )
+                    session.clear()
+                    return False
                 session["last_activity"] = current_time
                 return True
 
@@ -555,14 +570,12 @@ def main(
         if port:
             config.port = port
         if debug:
-            config.debug = True
             if config.is_production():
-                warning = (
-                    "WARNING: --debug was passed while FLASK_ENV=production. "
-                    "Debug mode should not be enabled in production."
+                raise ValueError(
+                    "Cannot enable --debug when FLASK_ENV=production. "
+                    "Debug mode must not be used in production."
                 )
-                print(warning, file=sys.stderr)
-                logging.getLogger(__name__).warning(warning)
+            config.debug = True
 
         server = MediaRelayServer(config)
         if debug:

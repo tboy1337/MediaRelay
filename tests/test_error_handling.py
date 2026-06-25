@@ -265,6 +265,29 @@ class TestNetworkErrorHandling:
 class TestFileSystemErrorHandling:
     """Test cases for file system error handling"""
 
+    def test_index_handler_os_error_returns_500(self, test_server, test_config):
+        """Index handler returns 500 when directory listing fails."""
+        import base64
+
+        from mediarelay.handlers import handle_index_request
+
+        auth = base64.b64encode(b"testuser:testpass").decode()
+        with test_server.app.test_request_context(
+            "/",
+            method="GET",
+            headers={"Authorization": f"Basic {auth}"},
+        ):
+            with patch.object(test_server, "check_authentication", return_value=True):
+                with patch(
+                    "mediarelay.handlers.get_safe_path",
+                    return_value=Path(test_config.video_directory),
+                ):
+                    with patch.object(
+                        Path, "iterdir", side_effect=OSError("read error")
+                    ):
+                        result = handle_index_request(test_server, "")
+        assert result == ("Error reading directory", 500)
+
 
 class TestHandlerErrorPaths:
     """Tests for handler 500 error responses."""

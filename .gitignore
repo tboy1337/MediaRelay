@@ -261,7 +261,7 @@ temporary/
 # media/
 # content/
 
-# ===== TESTING =====
+pytest-cache-files-*/
 # Test artifacts
 .pytest_cache/
 .coverage

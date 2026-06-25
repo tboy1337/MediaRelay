@@ -24,3 +24,6 @@ autopep8
 # Type Stubs for External Libraries
 types-psutil
 types-waitress
+types-Flask
+types-click
+types-Werkzeug

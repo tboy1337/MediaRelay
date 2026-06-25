@@ -1,6 +1,6 @@
 """
-Configuration management for Video Streaming Server
--------------------------------------------------
+Configuration management for MediaRelay
+---------------------------------------
 Handles environment variables, configuration files, and default settings
 for production deployment.
 """
@@ -260,11 +260,23 @@ class ServerConfig:
             raise ValueError(f"Thread count must be at least 1, got: {self.threads}")
 
         if self.is_production():
+            if self.debug:
+                raise ValueError(
+                    "Debug mode cannot be enabled in production. "
+                    "Set VIDEO_SERVER_DEBUG=false."
+                )
+
             env_secret = os.getenv("VIDEO_SERVER_SECRET_KEY", "")
             if env_secret.strip() in _PLACEHOLDER_SECRET_KEYS:
                 raise ValueError(
                     "VIDEO_SERVER_SECRET_KEY must be set to a secure value in "
                     "production. Run mediarelay-genpass to create one."
+                )
+            if os.getenv("VIDEO_SERVER_SECRET_KEY") is None:
+                raise ValueError(
+                    "VIDEO_SERVER_SECRET_KEY must be set in production. "
+                    "Auto-generated keys do not persist across restarts. "
+                    "Run mediarelay-genpass to create one."
                 )
 
         log_path = Path(self.log_directory)
@@ -395,6 +407,11 @@ FLASK_ENV=production
 """
 
     env_file = Path(".env.example")
+    if env_file.exists():
+        print(f"Sample environment file already exists: {env_file}")
+        print("Delete or rename it manually to regenerate.")
+        return
+
     with open(env_file, "w", encoding="utf-8") as f:
         f.write(sample_env)
 

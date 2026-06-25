@@ -75,7 +75,11 @@ def get_safe_path(
     if not requested_path:
         return Path(config.video_directory)
 
-    requested_path = unquote(requested_path)
+    for _ in range(2):
+        decoded_path = unquote(requested_path)
+        if decoded_path == requested_path:
+            break
+        requested_path = decoded_path
 
     if "\x00" in requested_path:
         if security_logger:
