@@ -346,13 +346,14 @@ All responses include security headers:
 ```http
 X-Content-Type-Options: nosniff
 X-Frame-Options: SAMEORIGIN
-X-XSS-Protection: 1; mode=block
 Content-Security-Policy: default-src 'self'; media-src 'self'; style-src 'self' 'unsafe-inline'
 Referrer-Policy: strict-origin-when-cross-origin
 Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
 X-Permitted-Cross-Domain-Policies: none
 Strict-Transport-Security: max-age=31536000; includeSubDomains
 ```
+
+`X-XSS-Protection` is intentionally omitted (deprecated in modern browsers).
 
 `Strict-Transport-Security` is sent only when `VIDEO_SERVER_SESSION_COOKIE_SECURE=true`.
 

@@ -100,7 +100,7 @@ The script will:
 1. **Ask for your preferred username** (e.g., `admin`, `user`, etc.)
 2. **Generate or create your password**:
    - Choose 'y' to generate a secure 35-character password automatically
-   - Choose 'n' to enter your own password (minimum 8 characters)
+   - Choose 'n' to enter your own password (minimum 12 characters)
 3. **Generate a Flask secret key** (for session security)
 4. **Create a password hash** (for secure authentication)
 
@@ -215,7 +215,7 @@ Run the full quality gate locally:
 python scripts/verify.py
 ```
 
-This runs black, isort, mypy, bandit, pylint, and pytest with 90% branch coverage.
+This runs black, isort, mypy, bandit, pylint, pytest with 90% branch coverage, and optionally `pip-audit` for dependency vulnerability scanning (no account required).
 
 ## 🔒 Security
 
@@ -230,11 +230,15 @@ HTTP_BASIC_AUTH + SESSION_MANAGEMENT + SAMESITE_COOKIES
 
 ```http
 X-Content-Type-Options: nosniff
-X-Frame-Options: SAMEORIGIN  
-X-XSS-Protection: 1; mode=block
+X-Frame-Options: SAMEORIGIN
 Strict-Transport-Security: max-age=31536000  # Only when SESSION_COOKIE_SECURE=true
 Content-Security-Policy: default-src 'self'; media-src 'self'; style-src 'self' 'unsafe-inline'
+Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
+X-Permitted-Cross-Domain-Policies: none
 ```
+
+`X-XSS-Protection` is intentionally omitted (deprecated in modern browsers).
 
 ### Reverse Proxy Warning
 
@@ -247,7 +251,7 @@ All security events are logged:
 - Path traversal attempts
 - Rate limit violations
 - File access attempts
-- Security header violations
+- Account lockout events
 
 ## 📈 Performance
 

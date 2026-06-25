@@ -186,8 +186,8 @@ def _build_verification_steps() -> list[tuple[str, list[str], bool]]:
             False,
         ),
         (
-            "Safety dependency check",
-            _python_module("safety", "check"),
+            "pip-audit dependency check",
+            _python_module("pip_audit"),
             True,
         ),
         (

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mediarelay"
-version = "1.0.11"
+version = "1.0.12"
 description = "A video streaming server that allows you to securely share your personal video library over the internet"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -71,7 +71,7 @@ dev = [
     "types-click",
     "types-Werkzeug",
     "autopep8",
-    "safety"
+    "pip-audit"
 ]
 
 [project.scripts]
@@ -123,3 +123,8 @@ ensure_newline_before_comments = true
 skip_gitignore = true
 src_paths = ["src", "tests"]
 known_first_party = ["mediarelay"]
+
+# Bandit configuration
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "venv", "build", "dist"]
+skips = ["B104"]

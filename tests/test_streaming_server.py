@@ -1416,6 +1416,13 @@ class TestProductionAuditFixes:
         response = authenticated_client.get("/?page=abc")
         assert response.status_code == 400
 
+    def test_api_invalid_page_parameter_returns_400(self, authenticated_client):
+        response = authenticated_client.get("/api/files?page=abc")
+        assert response.status_code == 400
+
+        response = authenticated_client.get("/api/files?page=0")
+        assert response.status_code == 400
+
     def test_page_beyond_last_returns_empty_slice(
         self, authenticated_client, test_server, temp_video_dir
     ):

@@ -18,7 +18,7 @@ mypy
 black
 isort
 bandit
-safety
+pip-audit
 autopep8
 
 # Type Stubs for External Libraries

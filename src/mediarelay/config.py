@@ -14,6 +14,8 @@ from typing import Any
 
 import click
 
+from .constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, MIN_PAGE_SIZE
+
 _PLACEHOLDER_SECRET_KEYS = frozenset(
     {"", "your-secret-key-here", "change-me", "changeme"}
 )
@@ -123,9 +125,9 @@ class ServerConfig:
     page_size: int = field(
         default_factory=lambda: _parse_int_env(
             "VIDEO_SERVER_PAGE_SIZE",
-            "100",
-            min_val=1,
-            max_val=500,
+            str(DEFAULT_PAGE_SIZE),
+            min_val=MIN_PAGE_SIZE,
+            max_val=MAX_PAGE_SIZE,
         )
     )
 

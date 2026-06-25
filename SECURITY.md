@@ -70,6 +70,8 @@ Security events are written to `logs/security.log` in JSON format, including aut
 | Single-user model | One username/password pair; no role-based access control |
 | Session IP binding | Sessions invalidate when the client IP changes (VPN/mobile networks may require re-login) |
 | GET logout disabled | Logout requires `POST /logout` to prevent CSRF-forced logout |
+| CSP inline styles | Embedded UI template requires `style-src 'unsafe-inline'` |
+| Extension-only file filter | No magic-byte content validation; only extension allowlist |
 
 ## Responsible Disclosure
 

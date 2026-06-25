@@ -8,9 +8,10 @@ input validation, and protection against common web vulnerabilities.
 import base64
 import json
 import os
+import threading
 import time
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from flask import session
@@ -155,6 +156,28 @@ class TestAccountLockoutManager:
         assert manager.record_failed_attempt("10.0.0.1", "user") is False
         assert manager.get_failed_attempts("10.0.0.1", "user") == 1
 
+    def test_concurrent_failed_attempts_thread_safe(self) -> None:
+        """Concurrent failed attempts must not corrupt lockout state."""
+        manager = AccountLockoutManager(max_attempts=5, lockout_duration=300)
+        barrier = threading.Barrier(10)
+        errors: list[Exception] = []
+
+        def worker() -> None:
+            try:
+                barrier.wait(timeout=5)
+                manager.record_failed_attempt("10.0.0.1", "user")
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker) for _ in range(10)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+
+        assert not errors
+        assert manager.is_locked_out("10.0.0.1", "user")
+
 
 class TestLoginAttemptTracker:
     """Test cases for LoginAttemptTracker dataclass"""
@@ -165,6 +188,65 @@ class TestLoginAttemptTracker:
         assert tracker.failed_attempts == 0
         assert tracker.lockout_until == 0.0
         assert tracker.last_attempt > 0  # Should be set to current time
+
+
+class TestAuthModule:
+    """Direct tests for auth module edge cases."""
+
+    def test_account_locked_logs_security_violation(
+        self, test_server, test_config
+    ) -> None:
+        """Lockout threshold must log an account_locked security violation."""
+        test_server.security_logger = Mock()
+        test_server.lockout_manager = AccountLockoutManager(
+            max_attempts=2, lockout_duration=60
+        )
+
+        with test_server.app.test_request_context():
+            test_server.check_auth("attacker", "wrong1")
+            test_server.check_auth("attacker", "wrong2")
+
+        violation_types = [
+            call.args[0]
+            for call in test_server.security_logger.log_security_violation.call_args_list
+        ]
+        assert "account_locked" in violation_types
+
+    def test_empty_credentials_logs_empty_username(self, test_server) -> None:
+        """Empty credentials must log username as 'empty'."""
+        test_server.security_logger = Mock()
+
+        with test_server.app.test_request_context():
+            assert test_server.check_auth(None, None) is False
+
+        test_server.security_logger.log_auth_attempt.assert_called_once()
+        assert test_server.security_logger.log_auth_attempt.call_args.args[0] == "empty"
+
+    def test_auth_required_response_omits_retry_after_when_not_locked(
+        self, test_server, test_config
+    ) -> None:
+        """401 without lockout must not include Retry-After."""
+        credentials = base64.b64encode(
+            f"{test_config.username}:wrongpass".encode("utf-8")
+        ).decode("utf-8")
+
+        with test_server.app.test_request_context(
+            headers={"Authorization": f"Basic {credentials}"}
+        ):
+            response = test_server.auth_required_response()
+
+        assert response.status_code == 401
+        assert "Retry-After" not in response.headers
+
+    def test_auth_required_response_omits_retry_after_without_auth_header(
+        self, test_server
+    ) -> None:
+        """401 without credentials must not include Retry-After."""
+        with test_server.app.test_request_context():
+            response = test_server.auth_required_response()
+
+        assert response.status_code == 401
+        assert "Retry-After" not in response.headers
 
 
 class TestAuthenticationSecurity:
@@ -503,8 +585,6 @@ class TestURLLengthValidation:
 
     def test_url_length_security_logging(self, test_server, test_config):
         """Test that long URL attempts are logged"""
-        from unittest.mock import MagicMock
-
         test_server.security_logger = MagicMock()
 
         credentials = base64.b64encode(
@@ -519,6 +599,31 @@ class TestURLLengthValidation:
 
             # Security violation should be logged
             test_server.security_logger.log_security_violation.assert_called()
+            violation_type = (
+                test_server.security_logger.log_security_violation.call_args.args[0]
+            )
+            assert violation_type == "url_too_long"
+
+    def test_path_length_security_logging(self, test_server, test_config):
+        """Test that long path attempts are logged with path_too_long."""
+        test_server.security_logger = MagicMock()
+
+        credentials = base64.b64encode(
+            f"{test_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+
+        with test_server.app.test_client() as client:
+            long_path = "a" * (MAX_PATH_LENGTH + 100) + ".mp4"
+            client.get(
+                f"/stream/{long_path}",
+                headers={"Authorization": f"Basic {credentials}"},
+            )
+
+            test_server.security_logger.log_security_violation.assert_called()
+            violation_type = (
+                test_server.security_logger.log_security_violation.call_args.args[0]
+            )
+            assert violation_type == "path_too_long"
 
 
 class TestAuthorizationSecurity:
@@ -804,18 +909,16 @@ class TestDenialOfServiceProtection:
         successful_requests = [r for r in results if r == 200]
         assert len(successful_requests) >= 3  # Allow some to fail due to concurrency
 
-    def test_memory_exhaustion_protection(self, authenticated_client):
-        """Test protection against memory exhaustion attacks"""
-        # Try to access many files simultaneously to test memory usage
-        large_responses = []
+    def test_repeated_api_requests_remain_stable(self, authenticated_client):
+        """Repeated API listing requests should succeed without server errors."""
+        successful_responses = []
 
-        for i in range(100):
+        for _ in range(100):
             response = authenticated_client.get("/api/files")
             if response.status_code == 200:
-                large_responses.append(response.data)
+                successful_responses.append(response.data)
 
-        # Should not crash or consume excessive memory
-        assert len(large_responses) > 0  # At least some should succeed
+        assert len(successful_responses) > 0
 
     @pytest.mark.timeout(10)
     def test_request_timeout_handling(self, test_server):
@@ -855,11 +958,16 @@ class TestSecurityLogging:
         """Test logging of path traversal attempts"""
         test_server.config.log_directory = str(tmp_path)
 
-        # Attempt path traversal
+        from mediarelay.logging_config import SecurityEventLogger
+
+        test_server.security_logger = SecurityEventLogger(test_server.config)
+
         response = authenticated_client.get("/stream/../../../etc/passwd")
         assert response.status_code in [403, 404]
 
-        # Security events should be logged (implementation dependent)
+        security_log = tmp_path / "security.log"
+        assert security_log.exists()
+        assert "path_traversal" in security_log.read_text()
 
     def test_security_violation_metadata(self, test_server, tmp_path):
         """Test that security violations log appropriate metadata"""
@@ -1081,6 +1189,20 @@ class TestParametrizedPathTraversal:
 
 class TestReverseProxySupport:
     """Test reverse-proxy client IP handling"""
+
+    def test_client_ip_ignores_forwarded_when_not_behind_proxy(self, test_config):
+        """Without behind_proxy, X-Forwarded-For must not override remote_addr."""
+        test_config.behind_proxy = False
+        server = MediaRelayServer(test_config)
+
+        with server.app.test_request_context(
+            "/",
+            environ_base={
+                "REMOTE_ADDR": "192.168.1.50",
+                "HTTP_X_FORWARDED_FOR": "203.0.113.5",
+            },
+        ):
+            assert server.get_client_ip() == "192.168.1.50"
 
     def test_client_ip_from_forwarded_header(self, monkeypatch, test_config):
         """Behind a proxy, client IP comes from X-Forwarded-For"""

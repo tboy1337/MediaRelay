@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 import click
-from flask import Flask, Response, request
+from flask import Flask, Response, g, request
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from waitress import serve
@@ -175,8 +175,6 @@ class MediaRelayServer:
 
     def _request_id_suffix(self) -> str:
         """Return a log suffix with the current request ID when available."""
-        from flask import g
-
         request_id = getattr(g, "request_id", None)
         return f" [request_id={request_id}]" if request_id else ""
 
