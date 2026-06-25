@@ -5,7 +5,6 @@ Common test fixtures and configuration for the entire test suite.
 """
 
 import base64
-import os
 import shutil
 import tempfile
 from collections.abc import Generator
@@ -16,7 +15,7 @@ import pytest
 from werkzeug.security import generate_password_hash
 
 from mediarelay.config import ServerConfig
-from mediarelay.streaming_server import MediaRelayServer
+from mediarelay.server import MediaRelayServer
 
 
 @pytest.fixture(scope="session")
@@ -53,22 +52,26 @@ def temp_log_dir() -> Generator[Path]:
 
 
 @pytest.fixture
-def test_config(temp_video_dir: Path, temp_log_dir: Path) -> ServerConfig:
-    """Create a test configuration"""
-    # Set environment variables for testing
-    os.environ["VIDEO_SERVER_HOST"] = "127.0.0.1"
-    os.environ["VIDEO_SERVER_PORT"] = "5001"  # Use test port
-    os.environ["VIDEO_SERVER_USERNAME"] = "testuser"
-    os.environ["VIDEO_SERVER_PASSWORD_HASH"] = generate_password_hash("testpass")
-    os.environ["VIDEO_SERVER_SECRET_KEY"] = "test-secret-key-for-unit-tests-32chars"
-    os.environ["VIDEO_SERVER_DIRECTORY"] = str(temp_video_dir)
-    os.environ["VIDEO_SERVER_LOG_DIR"] = str(temp_log_dir)
-    os.environ["VIDEO_SERVER_DEBUG"] = "true"
-    os.environ["VIDEO_SERVER_RATE_LIMIT"] = "false"
-    os.environ["FLASK_ENV"] = "testing"
+def test_config(
+    monkeypatch: pytest.MonkeyPatch,
+    temp_video_dir: Path,
+    temp_log_dir: Path,
+) -> ServerConfig:
+    """Create a test configuration with isolated environment variables."""
+    monkeypatch.setenv("VIDEO_SERVER_HOST", "127.0.0.1")
+    monkeypatch.setenv("VIDEO_SERVER_PORT", "5001")
+    monkeypatch.setenv("VIDEO_SERVER_USERNAME", "testuser")
+    monkeypatch.setenv("VIDEO_SERVER_PASSWORD_HASH", generate_password_hash("testpass"))
+    monkeypatch.setenv(
+        "VIDEO_SERVER_SECRET_KEY", "test-secret-key-for-unit-tests-32chars"
+    )
+    monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(temp_video_dir))
+    monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(temp_log_dir))
+    monkeypatch.setenv("VIDEO_SERVER_DEBUG", "true")
+    monkeypatch.setenv("VIDEO_SERVER_RATE_LIMIT", "false")
+    monkeypatch.setenv("FLASK_ENV", "testing")
 
-    config = ServerConfig()
-    return config
+    return ServerConfig()
 
 
 @pytest.fixture
@@ -121,10 +124,10 @@ def mock_files_data() -> dict[str, Any]:
 
 
 @pytest.fixture(autouse=True)
-def cleanup_session():
-    """Clean up session data after each test"""
+def cleanup_session() -> Generator[None]:
+    """Clean up Flask session data after each test."""
     yield
-    # Clean up any session data or environment variables if needed
+    # Session state is request-scoped; no global cleanup required.
 
 
 @pytest.fixture

@@ -12,7 +12,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mediarelay.config import ServerConfig, _get_default_video_directory
-from mediarelay.streaming_server import MediaRelayServer
+from mediarelay.handlers import handle_index_request
+from mediarelay.server import MediaRelayServer
 
 
 class TestConfigErrorHandling:
@@ -101,13 +102,13 @@ class TestServerErrorHandling:
 
         server = MediaRelayServer(test_config)
         with server.app.test_request_context():
-            with patch.object(server, "_check_authentication", return_value=True):
+            with patch.object(server, "check_authentication", return_value=True):
                 with patch.object(
                     Path,
                     "iterdir",
                     side_effect=PermissionError("Permission denied"),
                 ):
-                    response = server._handle_index_request("")
+                    response = handle_index_request(server, "")
                     assert response == ("Access denied to directory", 403)
 
     def test_server_video_directory_is_file(self, test_config, tmp_path):

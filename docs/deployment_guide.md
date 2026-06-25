@@ -96,10 +96,14 @@ VIDEO_SERVER_LOG_BACKUP_COUNT=5
 VIDEO_SERVER_RATE_LIMIT=true
 VIDEO_SERVER_RATE_LIMIT_PER_MIN=60
 
+# Security
+VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS=5
+VIDEO_SERVER_LOCKOUT_DURATION=900
+
 # Reverse Proxy (set true when behind nginx)
 VIDEO_SERVER_BEHIND_PROXY=false
 
-# Environment
+# Environment (required for production credential validation)
 FLASK_ENV=production
 ```
 
@@ -188,7 +192,13 @@ server {
 }
 ```
 
-When using nginx (or another reverse proxy), set `VIDEO_SERVER_BEHIND_PROXY=true` in your `.env` file so client IPs, rate limiting, and account lockout use the forwarded address. Keep `VIDEO_SERVER_SESSION_COOKIE_SECURE=true` when serving over HTTPS. For plain-HTTP local development only, set `VIDEO_SERVER_SESSION_COOKIE_SECURE=false`.
+When using nginx (or another reverse proxy), set `VIDEO_SERVER_BEHIND_PROXY=true` in your `.env` file so client IPs, rate limiting, and account lockout use the forwarded address (leftmost `X-Forwarded-For` entry). Keep `VIDEO_SERVER_SESSION_COOKIE_SECURE=true` when serving over HTTPS. For plain-HTTP local development only, set `VIDEO_SERVER_SESSION_COOKIE_SECURE=false`.
+
+#### Account Lockout
+
+After `VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS` failed logins (default 5) from the same client IP and username, the account is locked for `VIDEO_SERVER_LOCKOUT_DURATION` seconds (default 900 / 15 minutes). Locked clients receive HTTP 401 responses with a `Retry-After` header. Adjust both values in `.env` if needed.
+
+Set `FLASK_ENV=production` in production so placeholder secret keys and password hashes are rejected at startup.
 
 ### 2. Process Management
 
@@ -217,7 +227,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/path/to/MediaRelay/logs
+ReadWritePaths=/path/to/MediaRelay/logs /path/to/videos
 
 [Install]
 WantedBy=multi-user.target
@@ -359,7 +369,7 @@ For easier access with changing IP addresses:
 
 ```bash
 # Backup configuration files
-tar -czf config-backup-$(date +%Y%m%d).tar.gz .env config.py .pylintrc
+tar -czf config-backup-$(date +%Y%m%d).tar.gz .env
 ```
 
 ### Application Backup
@@ -401,7 +411,7 @@ kill -9 <PID>                 # Linux/macOS
 #### Permission Errors
 ```bash
 # Fix file permissions (Linux/macOS)
-chmod +x streaming_server.py
+# Ensure mediarelay is installed: pip install mediarelay
 chown -R user:group /path/to/MediaRelay
 
 # Ensure video directory is accessible

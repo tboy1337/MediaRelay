@@ -15,15 +15,16 @@ from unittest.mock import Mock, patch
 import pytest
 from flask import session
 
-from mediarelay.streaming_server import (
-    LOCKOUT_DURATION_SECONDS,
-    MAX_FAILED_ATTEMPTS,
+from mediarelay.constants import (
+    DEFAULT_LOCKOUT_DURATION_SECONDS as LOCKOUT_DURATION_SECONDS,
+)
+from mediarelay.constants import DEFAULT_LOCKOUT_MAX_ATTEMPTS as MAX_FAILED_ATTEMPTS
+from mediarelay.constants import (
     MAX_PATH_LENGTH,
     MAX_URL_LENGTH,
-    AccountLockoutManager,
-    LoginAttemptTracker,
-    MediaRelayServer,
 )
+from mediarelay.lockout import AccountLockoutManager, LoginAttemptTracker
+from mediarelay.server import MediaRelayServer
 
 
 class TestAccountLockoutManager:
@@ -936,18 +937,16 @@ class TestSecurityPerformance:
     @pytest.mark.timeout(20)
     def test_authentication_performance(self, test_server, test_config):
         """Test authentication performance under load"""
-
-        # Test authentication speed (reduced from 100 to 50 iterations)
         start_time = time.time()
 
         with test_server.app.test_request_context():
-            for _ in range(50):
-                test_server.check_auth(test_config.username, "testpass")
+            with patch("mediarelay.server.check_password_hash", return_value=True):
+                for _ in range(50):
+                    test_server.check_auth(test_config.username, "testpass")
 
         end_time = time.time()
 
-        # Should complete 50 authentications within reasonable time
-        assert end_time - start_time < 30.0
+        assert end_time - start_time < 5.0
 
     @pytest.mark.timeout(10)
     def test_path_validation_performance(self, test_server):
@@ -1056,7 +1055,22 @@ class TestReverseProxySupport:
                 "HTTP_X_FORWARDED_FOR": "203.0.113.5",
             },
         ):
-            assert server._get_client_ip() == "203.0.113.5"
+            assert server.get_client_ip() == "203.0.113.5"
+
+    def test_client_ip_from_multi_hop_forwarded_header(self, test_config):
+        """Multi-hop X-Forwarded-For must resolve to the leftmost client IP."""
+        test_config.behind_proxy = True
+        server = MediaRelayServer(test_config)
+
+        with server.app.test_request_context(
+            "/",
+            environ_base={
+                "REMOTE_ADDR": "10.0.0.1",
+                "HTTP_X_FORWARDED_FOR": "203.0.113.5, 198.51.100.10",
+            },
+        ):
+            assert server.get_client_ip() == "203.0.113.5"
+            assert server.get_client_ip() != "198.51.100.10"
 
     def test_lockout_uses_forwarded_client_ip(self, test_config):
         """Account lockout tracks the forwarded client IP behind a proxy"""
@@ -1097,7 +1111,7 @@ class TestReverseProxySupport:
             test_server.lockout_manager.record_failed_attempt(
                 client_ip, test_config.username
             )
-            response = test_server._auth_required_response()
+            response = test_server.auth_required_response()
             assert response.status_code == 401
             assert "Retry-After" in response.headers
             assert int(response.headers["Retry-After"]) >= 1

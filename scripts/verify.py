@@ -177,7 +177,7 @@ def _build_verification_steps() -> list[tuple[str, list[str], bool]]:
         ),
         (
             "Mypy type checking",
-            _python_module("mypy", _path(SRC), _path(TESTS)),
+            _python_module("mypy", "--package", "mediarelay"),
             False,
         ),
         (

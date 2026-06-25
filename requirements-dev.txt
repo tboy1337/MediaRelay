@@ -12,9 +12,6 @@ pytest-cov
 pytest-html
 pytest-json-report
 
-# Framework-Specific Testing
-pytest-flask
-
 # Code Quality and Linting
 pylint
 mypy

@@ -17,7 +17,7 @@ hiddenimports = collect_submodules("mediarelay") + [
 ]
 
 a = Analysis(
-    ["src/mediarelay/streaming_server.py"],
+    ["src/mediarelay/server.py"],
     pathex=["src"],
     binaries=[],
     datas=[(".env.example", ".")],

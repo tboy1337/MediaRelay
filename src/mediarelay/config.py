@@ -122,6 +122,16 @@ class ServerConfig:
             "VIDEO_SERVER_SESSION_TIMEOUT", "3600", min_val=1
         )
     )
+    lockout_max_attempts: int = field(
+        default_factory=lambda: _parse_int_env(
+            "VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS", "5", min_val=1
+        )
+    )
+    lockout_duration: int = field(
+        default_factory=lambda: _parse_int_env(
+            "VIDEO_SERVER_LOCKOUT_DURATION", "900", min_val=60
+        )
+    )
 
     # Directory Settings
     video_directory: str = field(
@@ -230,13 +240,14 @@ class ServerConfig:
 
         if not self.password_hash:
             raise ValueError(
-                "PASSWORD_HASH must be set. Run mediarelay-genpass to create one."
+                "VIDEO_SERVER_PASSWORD_HASH must be set. "
+                "Run mediarelay-genpass to create one."
             )
 
         if self.is_production() and self.password_hash in _PLACEHOLDER_PASSWORD_HASHES:
             raise ValueError(
-                "PASSWORD_HASH must be set to a real hash, not a placeholder. "
-                "Run mediarelay-genpass to create one."
+                "VIDEO_SERVER_PASSWORD_HASH must be set to a real hash, not a "
+                "placeholder. Run mediarelay-genpass to create one."
             )
 
         if not (1 <= self.port <= 65535):
@@ -269,6 +280,8 @@ class ServerConfig:
             "threads": self.threads,
             "username": self.username,
             "session_timeout": self.session_timeout,
+            "lockout_max_attempts": self.lockout_max_attempts,
+            "lockout_duration": self.lockout_duration,
             "video_directory": self.video_directory,
             "log_directory": self.log_directory,
             "allowed_extensions": list(self.allowed_extensions),
@@ -316,8 +329,8 @@ def validate_deployment_config(config_file: Path | None = None) -> ServerConfig:
 
     if config.password_hash in _PLACEHOLDER_PASSWORD_HASHES:
         raise ValueError(
-            "PASSWORD_HASH must be set to a real hash, not a placeholder. "
-            "Run mediarelay-genpass to create one."
+            "VIDEO_SERVER_PASSWORD_HASH must be set to a real hash, not a "
+            "placeholder. Run mediarelay-genpass to create one."
         )
 
     return config
@@ -339,6 +352,8 @@ VIDEO_SERVER_SECRET_KEY=your-secret-key-here
 VIDEO_SERVER_USERNAME=tboy1337
 VIDEO_SERVER_PASSWORD_HASH=your-password-hash-here
 VIDEO_SERVER_SESSION_TIMEOUT=3600
+VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS=5
+VIDEO_SERVER_LOCKOUT_DURATION=900
 
 # Session Cookie Settings
 VIDEO_SERVER_SESSION_COOKIE_SECURE=true
@@ -350,6 +365,8 @@ VIDEO_SERVER_DIRECTORY=/path/to/your/videos
 VIDEO_SERVER_LOG_DIR=./logs
 
 # File Settings
+# Comma-separated extensions (leave unset for defaults: .mp4,.mkv,.avi,...)
+# VIDEO_SERVER_ALLOWED_EXTENSIONS=.mp4,.mkv,.avi,.mov,.webm,.m4v,.flv,.srt,.mp3,.aac,.ogg,.wav
 # Maximum file size in bytes (21474836480 = 20GB, set to 0 to disable limit)
 VIDEO_SERVER_MAX_FILE_SIZE=21474836480
 

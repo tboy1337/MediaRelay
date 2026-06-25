@@ -13,7 +13,7 @@ import pytest
 from click.testing import CliRunner
 
 from mediarelay.config import create_sample_env_file, validate_main
-from mediarelay.streaming_server import main
+from mediarelay.server import main
 
 
 class TestConfigMainEntryPoint:
@@ -77,7 +77,7 @@ class TestValidateMainEntryPoint:
     @patch("mediarelay.config.validate_deployment_config")
     def test_validate_main_failure(self, mock_validate):
         """Invalid configuration exits with code 1"""
-        mock_validate.side_effect = ValueError("PASSWORD_HASH placeholder")
+        mock_validate.side_effect = ValueError("VIDEO_SERVER_PASSWORD_HASH placeholder")
 
         runner = CliRunner()
         result = runner.invoke(validate_main, [])
@@ -95,7 +95,7 @@ class TestProductionServerRun:
             mock_logger = MagicMock()
             mock_app.logger = mock_logger
 
-            with patch("mediarelay.streaming_server.serve") as mock_serve:
+            with patch("mediarelay.server.serve") as mock_serve:
                 mock_serve.side_effect = KeyboardInterrupt()
 
                 try:

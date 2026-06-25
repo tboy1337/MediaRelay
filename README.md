@@ -192,6 +192,16 @@ VIDEO_SERVER_SESSION_COOKIE_SAMESITE=Strict
 # Reverse proxy (set true when behind nginx)
 VIDEO_SERVER_BEHIND_PROXY=false
 
+# Account lockout (failed login protection)
+VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS=5
+VIDEO_SERVER_LOCKOUT_DURATION=900
+
+# Optional: override allowed media extensions (comma-separated)
+# VIDEO_SERVER_ALLOWED_EXTENSIONS=.mp4,.mkv,.avi,.mov,.webm
+
+# Production mode (rejects placeholder credentials)
+FLASK_ENV=production
+
 # Logging
 VIDEO_SERVER_LOG_LEVEL=INFO
 VIDEO_SERVER_LOG_DIR=./logs

@@ -47,20 +47,20 @@ The Video Streaming Server allows you to share your personal video library over 
 
 3. **Configure Your Settings**
    ```bash
-   python config.py  # Creates .env.example
+   mediarelay-config  # Creates .env.example
    cp .env.example .env
    # Edit .env file with your settings
    ```
 
 4. **Set Up Security**
    ```bash
-   python generate_password.py
+   mediarelay-genpass
    # Follow prompts to create secure password
    ```
 
 5. **Start the Server**
    ```bash
-   python streaming_server.py
+   mediarelay
    ```
 
 ### Detailed Installation
@@ -97,7 +97,7 @@ For detailed installation instructions including system requirements, security s
    
    Run the password generator:
    ```bash
-   python generate_password.py
+   mediarelay-genpass
    ```
    
    Choose a strong password and copy the hash to your `.env` file:
@@ -108,7 +108,7 @@ For detailed installation instructions including system requirements, security s
 
 4. **Start the Server**
    ```bash
-   python streaming_server.py
+   mediarelay
    ```
 
 ### Accessing Your Videos
@@ -329,7 +329,7 @@ curl -u username:password http://localhost:5000/stream/movie.mp4 -o movie.mp4
 **Solutions**:
 1. Verify credentials: Check username and password
 2. Check password hash: Ensure hash in `.env` is correct
-3. Try password generator again: `python generate_password.py`
+3. Try password generator again: `mediarelay-genpass`
 4. Check browser cookies: Clear browser data
 
 #### Videos Won't Play
@@ -460,7 +460,7 @@ A: Yes, create any folder structure you want. The server supports unlimited nest
 ### Security Questions
 
 **Q: How do I change my password?**
-A: Run `python generate_password.py` again and update your `.env` file.
+A: Run `mediarelay-genpass` again and update your `.env` file.
 
 **Q: Can I see who accessed my videos?**
 A: Yes, check `logs/security.log` for detailed access logs.

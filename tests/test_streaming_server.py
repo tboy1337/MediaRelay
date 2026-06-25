@@ -19,7 +19,9 @@ from click.testing import CliRunner
 from flask import session
 
 from mediarelay.config import ServerConfig
-from mediarelay.streaming_server import MediaRelayServer, main
+from mediarelay.handlers import handle_index_request
+from mediarelay.server import MediaRelayServer, main
+from mediarelay.templates import INDEX_HTML_TEMPLATE
 
 
 class TestMediaRelayServer:
@@ -110,7 +112,7 @@ class TestMediaRelayServerComprehensive:
 
     def test_get_html_template_method(self, test_server):
         """Test _get_html_template method"""
-        template = test_server._get_html_template()
+        template = INDEX_HTML_TEMPLATE
 
         assert "<!DOCTYPE html>" in template
         assert "Video Streaming Server" in template
@@ -130,30 +132,30 @@ class TestMediaRelayServerComprehensive:
         non_video_file.write_text("not a video")
 
         with test_server.app.test_request_context():
-            with patch.object(test_server, "_check_authentication", return_value=True):
+            with patch.object(test_server, "check_authentication", return_value=True):
                 # Test directory listing
-                result = test_server._handle_index_request("")
+                result = handle_index_request(test_server, "")
                 assert isinstance(result, str)
                 assert "test.mp4" in result or "Video Streaming Server" in result
 
                 # Test video file display
-                result = test_server._handle_index_request("test.mp4")
+                result = handle_index_request(test_server, "test.mp4")
                 assert isinstance(result, str)
                 assert "test.mp4" in result
 
                 # Test non-video file (should return 400)
-                result = test_server._handle_index_request("document.txt")
+                result = handle_index_request(test_server, "document.txt")
                 assert result == ("Not a video file", 400)
 
                 # Test non-existent path
-                result = test_server._handle_index_request("nonexistent.mp4")
+                result = handle_index_request(test_server, "nonexistent.mp4")
                 assert result == ("Path not found", 404)
 
     def test_handle_index_request_without_auth(self, test_server):
         """Test _handle_index_request without authentication"""
         with test_server.app.test_request_context():
-            with patch.object(test_server, "_check_authentication", return_value=False):
-                result = test_server._handle_index_request("")
+            with patch.object(test_server, "check_authentication", return_value=False):
+                result = handle_index_request(test_server, "")
                 assert result.status_code == 401
 
 
@@ -195,7 +197,7 @@ class TestAuthentication:
         with test_server.app.test_request_context():
             session["authenticated"] = True
             session["last_activity"] = time.time()
-            assert test_server._check_authentication() is True
+            assert test_server.check_authentication() is True
 
     def test_check_authentication_http_auth(self, test_server, test_config):
         """Test authentication check with HTTP Basic Auth"""
@@ -206,7 +208,7 @@ class TestAuthentication:
         with test_server.app.test_request_context(
             headers={"Authorization": f"Basic {credentials}"}
         ):
-            assert test_server._check_authentication() is True
+            assert test_server.check_authentication() is True
 
     def test_check_auth_method_coverage(self):
         """Test check_auth method with various scenarios"""
@@ -744,8 +746,8 @@ class TestFileTypeHandling:
 class TestMainFunctionComprehensive:
     """Comprehensive tests for the main function"""
 
-    @patch("mediarelay.streaming_server.MediaRelayServer")
-    @patch("mediarelay.streaming_server.load_config")
+    @patch("mediarelay.server.MediaRelayServer")
+    @patch("mediarelay.server.load_config")
     def test_main_function_normal_operation(self, mock_load_config, mock_server_class):
         """Test main function normal operation"""
         # Setup mocks
@@ -762,7 +764,7 @@ class TestMainFunctionComprehensive:
         mock_server_class.assert_called_once_with(mock_config)
         mock_server.run.assert_called_once()
 
-    @patch("mediarelay.streaming_server.load_config")
+    @patch("mediarelay.server.load_config")
     def test_main_function_value_error(self, mock_load_config):
         """Test main function with ValueError"""
         mock_load_config.side_effect = ValueError("Configuration error")
@@ -773,8 +775,8 @@ class TestMainFunctionComprehensive:
         assert result.exit_code == 1
         assert "Configuration Error: Configuration error" in result.output
 
-    @patch("mediarelay.streaming_server.load_config")
-    @patch("mediarelay.streaming_server.MediaRelayServer")
+    @patch("mediarelay.server.load_config")
+    @patch("mediarelay.server.MediaRelayServer")
     def test_main_function_keyboard_interrupt(
         self, mock_server_class, mock_load_config
     ):
@@ -792,8 +794,8 @@ class TestMainFunctionComprehensive:
         assert result.exit_code == 0
         assert "Shutdown complete" in result.output
 
-    @patch("mediarelay.streaming_server.load_config")
-    @patch("mediarelay.streaming_server.MediaRelayServer")
+    @patch("mediarelay.server.load_config")
+    @patch("mediarelay.server.MediaRelayServer")
     def test_main_function_generic_exception(self, mock_server_class, mock_load_config):
         """Test main function with generic exception"""
         mock_config = Mock()
@@ -812,7 +814,7 @@ class TestMainFunctionComprehensive:
 class TestServerRunMethod:
     """Test the server run method comprehensively"""
 
-    @patch("mediarelay.streaming_server.serve")
+    @patch("mediarelay.server.serve")
     @patch("builtins.print")
     def test_run_method_successful_start(self, mock_print, mock_serve):
         """Test successful server start"""
@@ -839,7 +841,7 @@ class TestServerRunMethod:
             mock_print.assert_any_call("Video Streaming Server starting...")
             mock_print.assert_any_call(f"Server running on http://127.0.0.1:5000")
 
-    @patch("mediarelay.streaming_server.serve")
+    @patch("mediarelay.server.serve")
     @patch("builtins.print")
     def test_run_method_keyboard_interrupt(self, mock_print, mock_serve):
         """Test server run with KeyboardInterrupt"""
@@ -849,11 +851,13 @@ class TestServerRunMethod:
             config = ServerConfig(video_directory=temp_dir, password_hash="test_hash")
             server = MediaRelayServer(config)
 
-            server.run()  # Should not raise exception
+            with patch.object(server, "_stop_lockout_cleanup") as mock_stop:
+                server.run()
 
+            mock_stop.assert_called_once()
             mock_print.assert_any_call("\nServer stopped by user")
 
-    @patch("mediarelay.streaming_server.serve")
+    @patch("mediarelay.server.serve")
     def test_run_method_generic_exception(self, mock_serve):
         """Test server run with generic exception"""
         mock_serve.side_effect = RuntimeError("Server error")
@@ -1028,14 +1032,14 @@ class TestCLIConfigFile:
             encoding="utf-8",
         )
 
-        with patch("mediarelay.streaming_server.load_config") as mock_load:
+        with patch("mediarelay.server.load_config") as mock_load:
             mock_load.return_value = MagicMock(
                 host="127.0.0.1",
                 port=5000,
                 debug=False,
                 video_directory=str(video_dir),
             )
-            with patch("mediarelay.streaming_server.MediaRelayServer") as mock_server:
+            with patch("mediarelay.server.MediaRelayServer") as mock_server:
                 mock_server.return_value.run.side_effect = KeyboardInterrupt()
                 runner = CliRunner()
                 runner.invoke(

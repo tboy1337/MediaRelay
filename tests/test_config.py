@@ -91,10 +91,14 @@ class TestConfigValidationEdgeCases:
     def test_empty_password_hash_validation(self):
         """Test empty password hash validation"""
         with tempfile.TemporaryDirectory() as temp_dir:
-            with pytest.raises(ValueError, match="PASSWORD_HASH must be set"):
+            with pytest.raises(
+                ValueError, match="VIDEO_SERVER_PASSWORD_HASH must be set"
+            ):
                 ServerConfig(video_directory=temp_dir, password_hash="")  # Empty string
 
-            with pytest.raises(ValueError, match="PASSWORD_HASH must be set"):
+            with pytest.raises(
+                ValueError, match="VIDEO_SERVER_PASSWORD_HASH must be set"
+            ):
                 ServerConfig(video_directory=temp_dir, password_hash=None)  # None value
 
 
@@ -118,6 +122,8 @@ class TestServerConfig:
         assert config.threads == 6
         assert config.username == "tboy1337"
         assert config.session_timeout == 3600
+        assert config.lockout_max_attempts == 5
+        assert config.lockout_duration == 900
         assert ".mp4" in config.allowed_extensions
         assert config.rate_limit_enabled is True
         assert config.rate_limit_per_minute == 60
@@ -145,6 +151,39 @@ class TestServerConfig:
             assert config.threads == 12
             assert config.username == "customuser"
             assert config.session_timeout == 7200
+
+    def test_lockout_environment_variable_override(self):
+        """Test lockout settings from environment variables."""
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_DIRECTORY": str(Path.home()),
+                "VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS": "3",
+                "VIDEO_SERVER_LOCKOUT_DURATION": "120",
+            },
+        ):
+            config = ServerConfig()
+
+        assert config.lockout_max_attempts == 3
+        assert config.lockout_duration == 120
+
+    def test_lockout_duration_minimum_validation(self):
+        """Lockout duration must be at least 60 seconds."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                os.environ,
+                {
+                    "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                    "VIDEO_SERVER_DIRECTORY": temp_dir,
+                    "VIDEO_SERVER_LOCKOUT_DURATION": "30",
+                },
+            ):
+                with pytest.raises(
+                    ValueError,
+                    match="VIDEO_SERVER_LOCKOUT_DURATION must be at least 60",
+                ):
+                    ServerConfig()
 
 
 class TestServerConfigValidationComprehensive:
@@ -531,7 +570,9 @@ class TestMaxFileSizeConfiguration:
             with patch.dict(
                 os.environ, {"VIDEO_SERVER_DIRECTORY": temp_dir}, clear=True
             ):
-                with pytest.raises(ValueError, match="PASSWORD_HASH must be set"):
+                with pytest.raises(
+                    ValueError, match="VIDEO_SERVER_PASSWORD_HASH must be set"
+                ):
                     ServerConfig()
 
     def test_invalid_video_directory(self):

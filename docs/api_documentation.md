@@ -61,7 +61,7 @@ Host: localhost:5000
 {
     "status": "healthy",
     "timestamp": "2023-12-01T12:00:00.000Z",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "uptime_seconds": 3600,
     "video_directory_accessible": true,
     "config_valid": true
@@ -319,7 +319,7 @@ Authorization: Basic dGJveTEzMzc6bXlwYXNzd29yZA==
 ```http
 HTTP/1.1 200 OK
 Content-Type: text/html
-Set-Cookie: session=...; HttpOnly; SameSite=Lax
+Set-Cookie: session=...; HttpOnly; SameSite=Strict
 
 <!DOCTYPE html>
 <html>...
@@ -389,7 +389,7 @@ curl http://localhost:5000/health
 {
     "status": "healthy",
     "timestamp": "2023-12-01T12:00:00.000Z",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "uptime_seconds": 7200,
     "video_directory_accessible": true,
     "config_valid": true
