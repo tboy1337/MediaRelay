@@ -640,7 +640,6 @@ class TestSecurityHeaders:
         expected_headers = [
             "X-Content-Type-Options",
             "X-Frame-Options",
-            "X-XSS-Protection",
             "Content-Security-Policy",
             "Referrer-Policy",
             "Permissions-Policy",
@@ -995,6 +994,88 @@ class TestErrorHandlers:
             assert response.status_code == 429
             assert b"Rate Limit Exceeded" in response.data
 
+    def test_bad_request_error_handler(self, test_server):
+        """Test 400 error handler"""
+        from werkzeug.exceptions import BadRequest
+
+        with test_server.app.test_request_context():
+            result = test_server.app.handle_http_exception(BadRequest())
+            if isinstance(result, tuple):
+                message, status = result
+                assert status == 400
+                assert "Bad Request" in message
+
+    def test_unauthorized_error_handler(self, test_server):
+        """Test 401 error handler"""
+        from werkzeug.exceptions import Unauthorized
+
+        with test_server.app.test_request_context():
+            result = test_server.app.handle_http_exception(Unauthorized())
+            if isinstance(result, tuple):
+                response, status = result
+                assert status == 401
+                assert response.status_code == 401
+
+    def test_forbidden_error_handler(self, test_server):
+        """Test 403 error handler"""
+        from werkzeug.exceptions import Forbidden
+
+        test_server.security_logger = MagicMock()
+        with test_server.app.test_request_context("/secret"):
+            result = test_server.app.handle_http_exception(Forbidden())
+            if isinstance(result, tuple):
+                message, status = result
+                assert status == 403
+                assert "Forbidden" in message
+        test_server.security_logger.log_security_violation.assert_called()
+
+    def test_rate_limit_key_uses_proxy_ip(self, tmp_path):
+        """Rate limiter key honors X-Forwarded-For when behind_proxy is enabled."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash="test_hash",
+            behind_proxy=True,
+            rate_limit_enabled=True,
+            rate_limit_per_minute=60,
+        )
+        server = MediaRelayServer(config)
+        with server.app.test_request_context(
+            "/health", headers={"X-Forwarded-For": "203.0.113.50"}
+        ):
+            assert server._rate_limit_key() == "203.0.113.50"
+
+    def test_lockout_cleanup_timer_invokes_cleanup(self, tmp_path):
+        """Lockout cleanup callback removes expired entries."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        config = ServerConfig(video_directory=str(video_dir), password_hash="test_hash")
+        server = MediaRelayServer(config)
+        server.lockout_manager.record_failed_attempt("127.0.0.1", "user")
+        server.lockout_manager._trackers["127.0.0.1:user"].last_attempt = (
+            0  # noqa: SLF001
+        )
+
+        start_calls = 0
+
+        def make_timer(_interval: float, callback: object) -> MagicMock:
+            mock = MagicMock()
+
+            def start() -> None:
+                nonlocal start_calls
+                start_calls += 1
+                if start_calls == 1 and callable(callback):
+                    callback()
+
+            mock.start = start
+            return mock
+
+        with patch("mediarelay.server.threading.Timer", side_effect=make_timer):
+            server._start_lockout_cleanup()
+
+        assert server.lockout_manager.get_failed_attempts("127.0.0.1", "user") == 0
+
 
 class TestSessionCookieWiring:
     """Test session cookie configuration wiring"""
@@ -1188,9 +1269,15 @@ class TestProductionAuditFixes:
 
         with test_server.app.test_client() as client:
             client.get("/", headers={"Authorization": f"Basic {credentials}"})
-            client.get("/logout")
+            client.post("/logout")
 
         test_server.security_logger.log_logout.assert_called_once()
+
+    def test_health_config_valid_reflects_runtime(self, authenticated_client):
+        response = authenticated_client.get("/health")
+        data = json.loads(response.data)
+        assert data["config_valid"] is True
+        assert data["video_directory_accessible"] is True
 
     def test_check_authentication_lockout_logs_violation(
         self, test_server, test_config

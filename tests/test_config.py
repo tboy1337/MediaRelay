@@ -1126,8 +1126,8 @@ class TestDeploymentConfigValidation:
             validate_deployment_config(env_file)
 
 
-class TestConfigValidationEdgeCases:
-    """Edge-case validation for production audit fixes."""
+class TestConfigProductionAuditEdgeCases:
+    """Edge-case validation added during production audit."""
 
     def test_empty_allowed_extensions_rejected(self, tmp_path: Path) -> None:
         video_dir = tmp_path / "videos"
@@ -1194,14 +1194,56 @@ class TestConfigValidationEdgeCases:
         env_file.write_text(
             f"VIDEO_SERVER_PASSWORD_HASH=test_hash\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
-            f"VIDEO_SERVER_USERNAME=envuser\n",
+            f"VIDEO_SERVER_USERNAME=envuser\n"
+            f"FLASK_ENV=development\n",
             encoding="utf-8",
         )
-        saved_env = dict(os.environ)
-        try:
-            monkeypatch.chdir(tmp_path)
-            config = load_config()
-            assert config.username == "envuser"
-        finally:
-            os.environ.clear()
-            os.environ.update(saved_env)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("FLASK_ENV", raising=False)
+        config = load_config()
+        assert config.username == "envuser"
+
+    def test_check_runtime_health_true(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash="test_hash",
+            log_directory=str(tmp_path / "logs"),
+        )
+        assert config.check_runtime_health() is True
+
+    def test_check_runtime_health_false_when_missing(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash="test_hash",
+            log_directory=str(tmp_path / "logs"),
+        )
+        video_dir.rmdir()
+        assert config.check_runtime_health() is False
+
+    @pytest.mark.parametrize("port", [1, 65535])
+    def test_port_boundary_values(self, tmp_path: Path, port: int) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash="test_hash",
+            log_directory=str(tmp_path / "logs"),
+            port=port,
+        )
+        assert config.port == port
+
+    def test_waitress_tuning_defaults(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash="test_hash",
+            log_directory=str(tmp_path / "logs"),
+        )
+        assert config.channel_timeout == 300
+        assert config.connection_limit == 1000
+        assert config.cleanup_interval == 30

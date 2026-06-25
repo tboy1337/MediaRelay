@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 from flask import (
     Response,
@@ -21,6 +22,59 @@ from .templates import INDEX_HTML_TEMPLATE
 
 if TYPE_CHECKING:
     from .server import MediaRelayServer
+
+
+class _DirectoryEntry(TypedDict):
+    name: str
+    relative_path: str
+    is_dir: bool
+    size: int
+    modified: str
+
+
+def _collect_directory_items(
+    directory: Path,
+    video_root: Path,
+    allowed_extensions: set[str],
+    *,
+    log_warning: Callable[[str], None] | None = None,
+) -> list[_DirectoryEntry]:
+    """Collect listable directory entries, skipping dotfiles and unreadable items."""
+    items: list[_DirectoryEntry] = []
+    try:
+        entries = list(directory.iterdir())
+    except PermissionError:
+        raise
+    except OSError as error:
+        if log_warning is not None:
+            log_warning(f"Error reading directory {directory}: {error}")
+        raise
+
+    for item in entries:
+        if item.name.startswith("."):
+            continue
+        if not item.is_dir() and item.suffix.lower() not in allowed_extensions:
+            continue
+
+        try:
+            relative_path = item.relative_to(video_root)
+            item_stat = item.stat()
+        except (OSError, PermissionError, ValueError) as error:
+            if log_warning is not None:
+                log_warning(f"Skipping unreadable entry {item}: {error}")
+            continue
+
+        items.append(
+            {
+                "name": item.name,
+                "relative_path": str(relative_path).replace("\\", "/"),
+                "is_dir": item.is_dir(),
+                "size": item_stat.st_size if item.is_file() else 0,
+                "modified": datetime.fromtimestamp(item_stat.st_mtime).isoformat(),
+            }
+        )
+
+    return items
 
 
 def _session_username() -> str:
@@ -86,23 +140,23 @@ def handle_index_request(
             )
         return "Not a video file", 400
 
-    items = []
     try:
-        for item in safe_path.iterdir():
-            if item.is_dir() or item.suffix.lower() in server.config.allowed_extensions:
-                relative_path = item.relative_to(video_root)
-                item_stat = item.stat()
-                items.append(
-                    {
-                        "name": item.name,
-                        "path": "/" + str(relative_path).replace("\\", "/"),
-                        "is_dir": item.is_dir(),
-                        "size": item_stat.st_size if item.is_file() else 0,
-                        "modified": datetime.fromtimestamp(
-                            item_stat.st_mtime
-                        ).isoformat(),
-                    }
-                )
+        raw_items = _collect_directory_items(
+            safe_path,
+            video_root,
+            server.config.allowed_extensions,
+            log_warning=server.app.logger.warning,
+        )
+        items = [
+            {
+                "name": entry["name"],
+                "path": "/" + entry["relative_path"],
+                "is_dir": entry["is_dir"],
+                "size": entry["size"],
+                "modified": entry["modified"],
+            }
+            for entry in raw_items
+        ]
     except PermissionError:
         if server.security_logger:
             server.security_logger.log_security_violation(
@@ -222,22 +276,22 @@ def handle_api_files_request(
             return jsonify({"error": "Path is not a directory"}), 400  # type: ignore[misc]
 
         video_root = Path(server.config.video_directory)
-        files = []
-        for item in safe_path.iterdir():
-            if item.is_dir() or item.suffix.lower() in server.config.allowed_extensions:
-                relative_path = item.relative_to(video_root)
-                item_stat = item.stat()
-                files.append(
-                    {
-                        "name": item.name,
-                        "path": str(relative_path).replace("\\", "/"),
-                        "is_directory": item.is_dir(),
-                        "size": item_stat.st_size if item.is_file() else 0,
-                        "modified": datetime.fromtimestamp(
-                            item_stat.st_mtime
-                        ).isoformat(),
-                    }
-                )
+        raw_items = _collect_directory_items(
+            safe_path,
+            video_root,
+            server.config.allowed_extensions,
+            log_warning=server.app.logger.warning,
+        )
+        files = [
+            {
+                "name": entry["name"],
+                "path": entry["relative_path"],
+                "is_directory": entry["is_dir"],
+                "size": entry["size"],
+                "modified": entry["modified"],
+            }
+            for entry in raw_items
+        ]
 
         return jsonify(
             {  # type: ignore[misc]

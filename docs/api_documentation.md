@@ -48,7 +48,7 @@ Check server health and status.
 
 **Endpoint**: `GET /health`
 **Authentication**: Optional — unauthenticated callers receive minimal information
-**Rate Limit**: Not limited
+**Rate Limit**: Subject to global per-IP rate limit when enabled (default: 60/minute)
 
 #### Request
 ```http
@@ -74,7 +74,7 @@ When authenticated (HTTP Basic Auth or session cookie), returns full details:
 {
     "status": "healthy",
     "timestamp": "2026-06-25T12:00:00.000000+00:00",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "uptime_seconds": 3600,
     "video_directory_accessible": true,
     "config_valid": true,
@@ -94,10 +94,41 @@ When authenticated (HTTP Basic Auth or session cookie), returns full details:
 | version | string | Installed package version |
 | uptime_seconds | number | Server uptime in seconds |
 | video_directory_accessible | boolean | Whether video directory is accessible |
-| config_valid | boolean | Whether configuration passed validation |
+| config_valid | boolean | Whether runtime-critical configuration paths are accessible |
 | rate_limiting_enabled | boolean | Whether rate limiting is active |
 
-### 2. Directory Listing
+### 2. Logout
+
+Invalidate the current session.
+
+**Endpoint**: `POST /logout`
+**Authentication**: Required
+**Rate Limit**: 60 requests/minute
+
+`GET /logout` returns `405 Method Not Allowed` to prevent CSRF-forced logout.
+
+#### Request
+```http
+POST /logout HTTP/1.1
+Host: localhost:5000
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+```
+
+#### Response
+```http
+HTTP/1.1 200 OK
+Clear-Site-Data: "cookies", "storage"
+WWW-Authenticate: Basic realm="Video Streaming Server"
+
+Logged out successfully. Close browser to complete logout.
+```
+
+#### Status Codes
+- `200 OK`: Session cleared
+- `401 Unauthorized`: Not authenticated
+- `405 Method Not Allowed`: GET request rejected
+
+### 3. Directory Listing
 
 Browse directories and files in the video library.
 
@@ -138,7 +169,7 @@ GET /video.mp4          # Individual video file (shows player)
 - `401 Unauthorized`: Authentication required
 - `404 Not Found`: Path does not exist
 
-### 3. Video Streaming
+### 4. Video Streaming
 
 Stream video files with range request support.
 
@@ -178,7 +209,7 @@ Accept-Ranges: bytes
 - Subtitles: .srt
 - Audio: .mp3, .aac, .ogg, .wav
 
-### 4. Files API
+### 5. Files API
 
 RESTful API for file and directory information.
 
@@ -416,7 +447,7 @@ curl http://localhost:5000/health
 {
     "status": "healthy",
     "timestamp": "2023-12-01T12:00:00.000Z",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "uptime_seconds": 7200,
     "video_directory_accessible": true,
     "config_valid": true

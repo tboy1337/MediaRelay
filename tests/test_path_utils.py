@@ -69,6 +69,8 @@ class TestGetSafePath:
             "../..",
             "/../",
             "//etc",
+            "/etc/passwd",
+            "\\windows\\system32",
             "test/../secret",
             "subdir/../../outside",
             "%2e%2e%2fetc%2fpasswd",
@@ -101,6 +103,19 @@ class TestGetSafePath:
         assert result is None
         security_logger.log_security_violation.assert_called_once()
         assert "Null byte" in security_logger.log_security_violation.call_args[0][1]
+
+    def test_triple_url_encoding_rejected(self, video_config: ServerConfig) -> None:
+        """Paths requiring multiple decode passes must still be blocked."""
+        security_logger = MagicMock()
+        payload = "%25252e%25252e%25252f"
+        result = get_safe_path(
+            video_config,
+            payload,
+            client_ip="127.0.0.1",
+            security_logger=security_logger,
+        )
+        assert result is None
+        security_logger.log_security_violation.assert_called()
 
     def test_valid_relative_path(self, video_config: ServerConfig) -> None:
         result = get_safe_path(video_config, "test.mp4", client_ip="127.0.0.1")

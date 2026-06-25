@@ -104,12 +104,47 @@ class TestServerErrorHandling:
         with server.app.test_request_context():
             with patch.object(server, "check_authentication", return_value=True):
                 with patch.object(
-                    Path,
-                    "iterdir",
-                    side_effect=PermissionError("Permission denied"),
+                    Path, "iterdir", side_effect=PermissionError("Permission denied")
                 ):
                     response = handle_index_request(server, "")
                     assert response == ("Access denied to directory", 403)
+
+    def test_directory_listing_skips_dotfiles(
+        self, test_server, test_config, temp_video_dir, authenticated_client
+    ):
+        """Hidden dotfiles must not appear in directory listings."""
+        (temp_video_dir / ".hidden.mp4").write_text("secret", encoding="utf-8")
+        (temp_video_dir / "visible.mp4").write_text("video", encoding="utf-8")
+
+        response = authenticated_client.get("/")
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert "visible.mp4" in html
+        assert ".hidden.mp4" not in html
+
+    def test_directory_listing_skips_unreadable_entries(
+        self, test_server, test_config, temp_video_dir, authenticated_client
+    ):
+        """Unreadable directory entries must not crash the listing."""
+        readable = temp_video_dir / "readable.mp4"
+        readable.write_text("video", encoding="utf-8")
+        unreadable = temp_video_dir / "broken.mp4"
+        unreadable.write_text("video", encoding="utf-8")
+
+        original_stat = Path.stat
+
+        def selective_stat(self: Path, *args: object, **kwargs: object) -> object:
+            if self.name == "broken.mp4":
+                raise PermissionError("denied")
+            return original_stat(self, *args, **kwargs)
+
+        with patch.object(Path, "stat", selective_stat):
+            response = authenticated_client.get("/")
+
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert "readable.mp4" in html
+        assert "broken.mp4" not in html
 
     def test_server_video_directory_is_file(self, test_config, tmp_path):
         """Test server behavior when video directory is actually a file"""

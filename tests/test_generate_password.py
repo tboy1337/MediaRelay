@@ -620,3 +620,21 @@ class TestParametrizedPasswordGeneration:
 
         passwords = {generate_strong_password(16) for _ in range(20)}
         assert len(passwords) > 1
+
+
+class TestNonInteractiveGeneration:
+    """Tests for scripted credential generation."""
+
+    def test_non_interactive_cli_outputs_env_values(self):
+        from click.testing import CliRunner
+
+        from mediarelay.generate_password import cli as genpass_cli
+
+        runner = CliRunner()
+        result = runner.invoke(
+            genpass_cli, ["--non-interactive", "--username", "tboy1337"]
+        )
+        assert result.exit_code == 0
+        assert "VIDEO_SERVER_SECRET_KEY=" in result.output
+        assert "VIDEO_SERVER_USERNAME=tboy1337" in result.output
+        assert "VIDEO_SERVER_PASSWORD_HASH=" in result.output

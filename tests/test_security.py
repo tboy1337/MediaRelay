@@ -130,6 +130,21 @@ class TestAccountLockoutManager:
         time.sleep(0.01)
         assert manager.is_locked_out("192.168.1.1", "testuser") is False
 
+    def test_get_remaining_lockout_seconds_zero_when_not_locked(self) -> None:
+        manager = AccountLockoutManager()
+        assert manager.get_remaining_lockout_seconds("192.168.1.1", "testuser") == 0
+
+    def test_expired_lockout_resets_before_new_failed_attempt(self) -> None:
+        manager = AccountLockoutManager(max_attempts=3, lockout_duration=1)
+        for _ in range(3):
+            manager.record_failed_attempt("192.168.1.1", "testuser")
+        assert manager.is_locked_out("192.168.1.1", "testuser") is True
+
+        time.sleep(1.1)
+        assert manager.is_locked_out("192.168.1.1", "testuser") is False
+        assert manager.record_failed_attempt("192.168.1.1", "testuser") is False
+        assert manager.get_failed_attempts("192.168.1.1", "testuser") == 1
+
 
 class TestLoginAttemptTracker:
     """Test cases for LoginAttemptTracker dataclass"""
@@ -366,8 +381,8 @@ class TestLogoutEndpoint:
             with client.session_transaction() as sess:
                 assert sess.get("authenticated") is True
 
-            # Logout
-            response = client.get("/logout")
+            # Logout via POST
+            response = client.post("/logout")
             assert response.status_code == 200
 
             # Verify session is cleared
@@ -381,34 +396,27 @@ class TestLogoutEndpoint:
         ).decode("utf-8")
 
         with test_server.app.test_client() as client:
-            # Authenticate first
             client.get("/", headers={"Authorization": f"Basic {credentials}"})
-
-            # Logout
-            response = client.get("/logout")
-
-            # Check response headers
+            response = client.post("/logout")
             assert "Clear-Site-Data" in response.headers
             assert "WWW-Authenticate" in response.headers
 
     def test_logout_requires_authentication(self, test_client):
         """Test that logout requires prior authentication"""
-        response = test_client.get("/logout")
+        response = test_client.post("/logout")
         assert response.status_code == 401
 
-    def test_logout_via_post(self, test_server, test_config):
-        """Test logout via POST request"""
+    def test_logout_get_returns_method_not_allowed(self, test_server, test_config):
+        """GET logout is rejected to prevent CSRF-forced logout."""
         credentials = base64.b64encode(
             f"{test_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         with test_server.app.test_client() as client:
-            # Authenticate
             client.get("/", headers={"Authorization": f"Basic {credentials}"})
-
-            # Logout via POST
-            response = client.post("/logout")
-            assert response.status_code == 200
+            response = client.get("/logout")
+            assert response.status_code == 405
+            assert "POST" in response.get_data(as_text=True)
 
 
 class TestHealthEndpointSecurity:

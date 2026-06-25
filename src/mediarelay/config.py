@@ -70,7 +70,6 @@ def _default_security_headers() -> dict[str, str]:
     return {
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "SAMEORIGIN",
-        "X-XSS-Protection": "1; mode=block",
         "Content-Security-Policy": (
             "default-src 'self'; media-src 'self'; style-src 'self' 'unsafe-inline'"
         ),
@@ -103,6 +102,23 @@ class ServerConfig:
     )
     threads: int = field(
         default_factory=lambda: _parse_int_env("VIDEO_SERVER_THREADS", "6", min_val=1)
+    )
+
+    # Waitress server tuning
+    channel_timeout: int = field(
+        default_factory=lambda: _parse_int_env(
+            "VIDEO_SERVER_CHANNEL_TIMEOUT", "300", min_val=1
+        )
+    )
+    connection_limit: int = field(
+        default_factory=lambda: _parse_int_env(
+            "VIDEO_SERVER_CONNECTION_LIMIT", "1000", min_val=1
+        )
+    )
+    cleanup_interval: int = field(
+        default_factory=lambda: _parse_int_env(
+            "VIDEO_SERVER_CLEANUP_INTERVAL", "30", min_val=1
+        )
     )
 
     # Security Settings
@@ -297,6 +313,18 @@ class ServerConfig:
         """Check if running in production environment"""
         return os.getenv("FLASK_ENV", "development") == "production"
 
+    def check_runtime_health(self) -> bool:
+        """Verify runtime-critical paths are accessible (lightweight health check)."""
+        try:
+            video_path = Path(self.video_directory)
+            return (
+                video_path.exists()
+                and video_path.is_dir()
+                and os.access(video_path, os.R_OK)
+            )
+        except (OSError, PermissionError, RuntimeError):
+            return False
+
     def to_dict(self) -> dict[str, Any]:  # type: ignore[explicit-any]
         """Convert config to dictionary (excluding sensitive data)"""
         return {
@@ -304,6 +332,9 @@ class ServerConfig:
             "port": self.port,
             "debug": self.debug,
             "threads": self.threads,
+            "channel_timeout": self.channel_timeout,
+            "connection_limit": self.connection_limit,
+            "cleanup_interval": self.cleanup_interval,
             "username": self.username,
             "session_timeout": self.session_timeout,
             "lockout_max_attempts": self.lockout_max_attempts,
@@ -369,10 +400,14 @@ def create_sample_env_file() -> None:
 # Copy this file to .env and modify the values as needed
 
 # Server Settings
+# Use 127.0.0.1 when behind a reverse proxy; 0.0.0.0 exposes all interfaces
 VIDEO_SERVER_HOST=0.0.0.0
 VIDEO_SERVER_PORT=5000
 VIDEO_SERVER_DEBUG=false
 VIDEO_SERVER_THREADS=6
+VIDEO_SERVER_CHANNEL_TIMEOUT=300
+VIDEO_SERVER_CONNECTION_LIMIT=1000
+VIDEO_SERVER_CLEANUP_INTERVAL=30
 
 # Security Settings (REQUIRED — run mediarelay-genpass to generate real values)
 VIDEO_SERVER_SECRET_KEY=your-secret-key-here

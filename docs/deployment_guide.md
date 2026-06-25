@@ -35,6 +35,16 @@ pip install mediarelay
 
 Windows users can also download pre-built executables from [GitHub Releases](https://github.com/tboy1337/MediaRelay/releases).
 
+#### Windows executable (GitHub Releases)
+
+1. Download `MediaRelay.zip` from [GitHub Releases](https://github.com/tboy1337/MediaRelay/releases).
+2. Extract `MediaRelay.exe` to a folder of your choice.
+3. Create a `.env` file in the same directory (copy from `.env.example` or run `mediarelay-config` if you have Python installed).
+4. Generate credentials with `mediarelay-genpass` and update `.env`.
+5. Run `MediaRelay.exe` from that directory.
+
+The executable bundles the server only. Use `pip install mediarelay` if you need `mediarelay-genpass`, `mediarelay-config`, or `mediarelay-validate` without Python tooling.
+
 ### 2. Install from source (development)
 
 ```bash
@@ -75,6 +85,7 @@ VIDEO_SERVER_PASSWORD_HASH=your-password-hash
 VIDEO_SERVER_SESSION_TIMEOUT=3600
 
 # Session Cookie Settings
+# Requires HTTPS when true; set false only for local HTTP development
 VIDEO_SERVER_SESSION_COOKIE_SECURE=true
 VIDEO_SERVER_SESSION_COOKIE_HTTPONLY=true
 VIDEO_SERVER_SESSION_COOKIE_SAMESITE=Strict
@@ -242,6 +253,44 @@ sudo systemctl enable mediarelay
 sudo systemctl start mediarelay
 ```
 
+#### macOS launchd
+
+Create `~/Library/LaunchAgents/com.mediarelay.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mediarelay</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/path/to/MediaRelay/venv/bin/mediarelay</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/path/to/MediaRelay</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/path/to/MediaRelay/venv/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+</dict>
+</plist>
+```
+
+Load the agent:
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.mediarelay.plist
+```
+
+Place your `.env` file in the WorkingDirectory. Set `VIDEO_SERVER_SESSION_COOKIE_SECURE=true` only when serving over HTTPS.
+
 #### Windows Service
 
 Use `nssm` (Non-Sucking Service Manager):
@@ -290,6 +339,11 @@ For high-traffic deployments:
 ```bash
 # Increase thread count
 VIDEO_SERVER_THREADS=12
+
+# Waitress tuning (optional)
+VIDEO_SERVER_CHANNEL_TIMEOUT=300
+VIDEO_SERVER_CONNECTION_LIMIT=1000
+VIDEO_SERVER_CLEANUP_INTERVAL=30
 
 # Adjust memory limits
 VIDEO_SERVER_MAX_FILE_SIZE=53687091200  # 50GB for high-capacity deployments

@@ -90,6 +90,15 @@ def get_safe_path(
             )
         return None
 
+    if requested_path.startswith(("/", "\\")):
+        if security_logger:
+            security_logger.log_security_violation(
+                "path_traversal",
+                f"Absolute path attempt: {requested_path}",
+                client_ip,
+            )
+        return None
+
     if ".." in requested_path or "//" in requested_path or "\\" in requested_path:
         if security_logger:
             security_logger.log_security_violation(

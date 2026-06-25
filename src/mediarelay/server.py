@@ -257,8 +257,7 @@ class MediaRelayServer:
             is_authenticated = self.check_authentication()
 
             try:
-                test_path = Path(self.config.video_directory)
-                is_healthy = test_path.exists() and os.access(test_path, os.R_OK)
+                is_healthy = self.config.check_runtime_health()
             except (OSError, PermissionError, RuntimeError):
                 is_healthy = False
 
@@ -268,6 +267,8 @@ class MediaRelayServer:
             if not is_authenticated:
                 return jsonify({"status": status}), status_code  # type: ignore[misc]
 
+            config_valid = self.config.check_runtime_health()
+
             health_data = {  # type: ignore[misc]
                 "status": status,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -276,15 +277,13 @@ class MediaRelayServer:
                     time.time() - getattr(self, "_start_time", time.time()), 2  # type: ignore[misc]
                 ),
                 "video_directory_accessible": is_healthy,
-                "config_valid": True,
+                "config_valid": config_valid,
                 "rate_limiting_enabled": self.config.rate_limit_enabled,
             }
 
             return jsonify(health_data), status_code  # type: ignore[misc]
 
-        logout_methods: list[str] = ["GET", "POST"]
-
-        @self.app.route("/logout", methods=logout_methods)
+        @self.app.route("/logout", methods=["POST"])
         def logout() -> Response | tuple[Response, int]:
             """Logout endpoint that properly invalidates the session."""
             if not self.check_authentication():
@@ -311,6 +310,11 @@ class MediaRelayServer:
                     "Clear-Site-Data": '"cookies", "storage"',
                 },
             )
+
+        @self.app.route("/logout", methods=["GET"])
+        def logout_get() -> tuple[str, int]:
+            """Reject GET logout to prevent CSRF-forced logout."""
+            return "Method Not Allowed - use POST to logout", 405
 
         @self.app.route("/")
         @self.app.route("/<path:subpath>")
@@ -556,9 +560,9 @@ class MediaRelayServer:
                 host=self.config.host,
                 port=self.config.port,
                 threads=self.config.threads,
-                cleanup_interval=30,
-                channel_timeout=300,
-                connection_limit=1000,
+                cleanup_interval=self.config.cleanup_interval,
+                channel_timeout=self.config.channel_timeout,
+                connection_limit=self.config.connection_limit,
             )
         except KeyboardInterrupt:
             self.app.logger.info("Server shutdown requested")

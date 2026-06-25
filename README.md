@@ -58,6 +58,8 @@ pip install mediarelay
 
 That installs the `mediarelay`, `mediarelay-config`, `mediarelay-genpass`, and `mediarelay-validate` commands. No need to clone the repository.
 
+**Windows users** can alternatively download a pre-built executable from [GitHub Releases](https://github.com/tboy1337/MediaRelay/releases). Place a `.env` file in the same directory as `MediaRelay.exe` and run the executable.
+
 **From source (development or contributing):**
 
 ```bash

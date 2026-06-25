@@ -30,6 +30,14 @@ class TestConfigMainEntryPoint:
 
         mock_create_env.assert_called_once()
 
+    def test_config_main_cli(self):
+        """Test mediarelay-config CLI invokes create_sample_env_file."""
+        from mediarelay.config import main as config_main
+
+        with patch("mediarelay.config.create_sample_env_file") as mock_create:
+            config_main()
+            mock_create.assert_called_once()
+
 
 class TestGenerateConfigWorkflow:
     """Test sample environment file generation"""
