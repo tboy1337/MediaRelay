@@ -2131,6 +2131,22 @@ class TestConfigProductionAuditEdgeCases:
             _warn_video_directory_symlink(str(normal_dir))
         mock_warning.assert_not_called()
 
+    def test_warn_video_directory_symlink_mocked_on_all_platforms(
+        self, tmp_path: Path
+    ) -> None:
+        """Symlink warning logs resolved target when is_symlink is true (mocked)."""
+        resolved = tmp_path / "resolved_target"
+        link_path = tmp_path / "media_link"
+        with (
+            patch.object(Path, "is_symlink", return_value=True),
+            patch.object(Path, "resolve", return_value=resolved),
+            patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning,
+        ):
+            _warn_video_directory_symlink(str(link_path))
+
+        mock_warning.assert_called_once()
+        assert str(resolved) in str(mock_warning.call_args[0][1])
+
 
 class TestPasswordHashFormatValidation:
     """Password hash must use a supported Werkzeug format at startup."""

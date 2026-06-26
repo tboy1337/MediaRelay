@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import stat
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -398,6 +400,19 @@ class TestGetBreadcrumbs:
         assert crumbs[0] == {"name": "Home", "path": "/"}
         assert crumbs[-1]["name"] == relative_parts[-1]
 
+    def test_breadcrumbs_path_outside_video_directory(self, tmp_path: Path) -> None:
+        """Paths outside the video directory return only the home crumb."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        outside = tmp_path / "outside"
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash=TEST_PASSWORD_HASH,
+            log_directory=str(tmp_path / "logs"),
+        )
+        crumbs = get_breadcrumbs(config, outside)
+        assert crumbs == [{"name": "Home", "path": "/"}]
+
 
 class TestDecodeUrlPath:
     """Tests for multi-pass URL path decoding."""
@@ -405,6 +420,10 @@ class TestDecodeUrlPath:
     def test_decode_url_path_applies_multiple_passes(self) -> None:
         """Double-encoded segments are decoded through repeated unquote passes."""
         assert _decode_url_path("%252e") == "."
+
+    def test_decode_url_path_triple_encoded_segment(self) -> None:
+        """Triple-encoded segments require more than one decode iteration."""
+        assert _decode_url_path("%25252e") == "."
 
 
 class TestResolvePath:
@@ -511,6 +530,87 @@ class TestInodeLinkIndex:
         good_key = original_key(video_dir / "good.mp4")
         assert good_key is not None
         assert counts[good_key] >= 1
+
+    def test_build_inode_counts_skips_unstatable_jail_root(
+        self, tmp_path: Path
+    ) -> None:
+        """Inode counting continues when the jail root itself cannot be stated."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        (video_dir / "clip.mp4").write_text("content", encoding="utf-8")
+
+        with patch("mediarelay.path_utils._inode_key_for_path") as mock_key:
+            mock_key.side_effect = lambda path: (
+                None if path == video_dir else _inode_key_for_path(path)
+            )
+            counts = _build_inode_counts(video_dir)
+
+        clip_key = _inode_key_for_path(video_dir / "clip.mp4")
+        assert clip_key is not None
+        assert counts[clip_key] >= 1
+
+    def test_refresh_serializes_concurrent_rebuilds(self, tmp_path: Path) -> None:
+        """Only one inode index rebuild runs when refresh is called concurrently."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        (video_dir / "clip.mp4").write_text("content", encoding="utf-8")
+
+        index = InodeLinkIndex(video_dir)
+        build_calls = 0
+        original_build = _build_inode_counts
+        started = threading.Event()
+        release = threading.Event()
+
+        def slow_build(root: Path) -> dict[tuple[int, int], int]:
+            nonlocal build_calls
+            build_calls += 1
+            started.set()
+            release.wait(timeout=5)
+            return original_build(root)
+
+        def worker() -> None:
+            index.refresh(force=False)
+
+        with patch("mediarelay.path_utils._build_inode_counts", side_effect=slow_build):
+            holder = threading.Thread(target=worker)
+            holder.start()
+            assert started.wait(timeout=5)
+            for _ in range(2):
+                index.refresh(force=False)
+            release.set()
+            holder.join(timeout=10)
+
+        assert build_calls == 1
+
+    def test_refresh_skips_when_rebuild_already_in_progress(
+        self, tmp_path: Path
+    ) -> None:
+        """Non-forced refresh skips when another thread holds the refresh lock."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        (video_dir / "clip.mp4").write_text("content", encoding="utf-8")
+
+        index = InodeLinkIndex(video_dir)
+        index.refresh(force=True)
+        build_calls = 0
+        original_build = _build_inode_counts
+        started = threading.Event()
+
+        def slow_build(root: Path) -> dict[tuple[int, int], int]:
+            nonlocal build_calls
+            build_calls += 1
+            started.set()
+            threading.Event().wait(timeout=1)
+            return original_build(root)
+
+        with patch("mediarelay.path_utils._build_inode_counts", side_effect=slow_build):
+            holder = threading.Thread(target=lambda: index.refresh(force=True))
+            holder.start()
+            assert started.wait(timeout=5)
+            index.refresh(force=False)
+            holder.join(timeout=10)
+
+        assert build_calls == 1
 
     def test_compute_jail_fingerprint_oserror_returns_zero(
         self, tmp_path: Path
@@ -656,6 +756,50 @@ class TestOpenValidatedFile:
         missing = video_dir / "missing.vtt"
 
         assert open_validated_file(missing, str(video_dir)) is None
+
+    def test_open_validated_file_rejects_inode_mismatch(self, tmp_path: Path) -> None:
+        """TOCTOU guard rejects files whose inode changes between stat and open."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        subtitle = video_dir / "clip.vtt"
+        subtitle.write_text("WEBVTT\n", encoding="utf-8")
+        resolved = subtitle.resolve()
+        pre_stat = resolved.stat()
+
+        with (
+            patch("mediarelay.path_utils.revalidate_before_serve", return_value=True),
+            patch("mediarelay.path_utils.os.open", return_value=42),
+            patch("mediarelay.path_utils.os.close"),
+            patch("mediarelay.path_utils.os.fstat") as mock_fstat,
+        ):
+            mock_fstat.return_value = MagicMock(
+                st_ino=pre_stat.st_ino + 1,
+                st_dev=pre_stat.st_dev,
+                st_mode=pre_stat.st_mode,
+            )
+            assert open_validated_file(resolved, str(video_dir)) is None
+
+    def test_open_validated_file_rejects_non_regular_file(self, tmp_path: Path) -> None:
+        """Non-regular files are rejected after open."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        subtitle = video_dir / "clip.vtt"
+        subtitle.write_text("WEBVTT\n", encoding="utf-8")
+        resolved = subtitle.resolve()
+        pre_stat = resolved.stat()
+
+        with (
+            patch("mediarelay.path_utils.revalidate_before_serve", return_value=True),
+            patch("mediarelay.path_utils.os.open", return_value=42),
+            patch("mediarelay.path_utils.os.close"),
+            patch("mediarelay.path_utils.os.fstat") as mock_fstat,
+        ):
+            mock_fstat.return_value = MagicMock(
+                st_ino=pre_stat.st_ino,
+                st_dev=pre_stat.st_dev,
+                st_mode=stat.S_IFDIR | 0o755,
+            )
+            assert open_validated_file(resolved, str(video_dir)) is None
 
 
 class TestLogDetailTruncation:

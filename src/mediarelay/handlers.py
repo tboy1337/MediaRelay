@@ -22,7 +22,7 @@ from .path_utils import (
     is_audio_file,
     open_validated_file,
 )
-from .session_store import get_session_username
+from .session_store import get_csrf_token, get_session_username
 from .subtitle_sanitize import sanitize_subtitle_content
 from .templates import render_index_template
 
@@ -290,6 +290,7 @@ def _render_media_player(
         media_kind=media_kind,
         parent_path=parent_path,
         subtitle_path=subtitle_path,
+        csrf_token=get_csrf_token(),
     )
 
 
@@ -429,6 +430,7 @@ def handle_index_request(
         next_page_url=_listing_page_url(
             listing_context.directory_path, pagination.page + 1
         ),
+        csrf_token=get_csrf_token(),
     )
 
 

@@ -169,40 +169,53 @@ class InodeLinkIndex:
         self._jail_root = jail_root.resolve()
         self._counts: dict[tuple[int, int], int] = {}
         self._lock = threading.Lock()
+        self._refresh_lock = threading.Lock()
         self._fingerprint: tuple[int, int] | None = None
         self._cached_mtime_ns: int | None = None
 
     def refresh(self, *, force: bool = False) -> None:
         """Rebuild the inode link count index from the jail root."""
+        acquired = self._refresh_lock.acquire(blocking=force)
+        if not acquired:
+            _PATH_LOGGER.debug(
+                "Inode index refresh skipped; rebuild already in progress"
+            )
+            return
+
         try:
-            mtime_ns = self._jail_root.stat().st_mtime_ns
-        except OSError:
-            mtime_ns = 0
+            try:
+                mtime_ns = self._jail_root.stat().st_mtime_ns
+            except OSError:
+                mtime_ns = 0
 
-        with self._lock:
-            if (
-                not force
-                and self._cached_mtime_ns is not None
-                and mtime_ns == self._cached_mtime_ns
-            ):
-                _PATH_LOGGER.debug("Inode index refresh skipped; jail mtime unchanged")
-                return
+            with self._lock:
+                if (
+                    not force
+                    and self._cached_mtime_ns is not None
+                    and mtime_ns == self._cached_mtime_ns
+                ):
+                    _PATH_LOGGER.debug(
+                        "Inode index refresh skipped; jail mtime unchanged"
+                    )
+                    return
 
-        fingerprint = _compute_jail_fingerprint(self._jail_root)
-        with self._lock:
-            if not force and fingerprint == self._fingerprint:
+            fingerprint = _compute_jail_fingerprint(self._jail_root)
+            with self._lock:
+                if not force and fingerprint == self._fingerprint:
+                    self._cached_mtime_ns = mtime_ns
+                    _PATH_LOGGER.debug(
+                        "Inode index refresh skipped; jail fingerprint unchanged"
+                    )
+                    return
+
+            counts = _build_inode_counts(self._jail_root)
+
+            with self._lock:
+                self._counts = counts
+                self._fingerprint = fingerprint
                 self._cached_mtime_ns = mtime_ns
-                _PATH_LOGGER.debug(
-                    "Inode index refresh skipped; jail fingerprint unchanged"
-                )
-                return
-
-        counts = _build_inode_counts(self._jail_root)
-
-        with self._lock:
-            self._counts = counts
-            self._fingerprint = fingerprint
-            self._cached_mtime_ns = mtime_ns
+        finally:
+            self._refresh_lock.release()
 
     def count_links(self, ino: int, dev: int) -> int | None:
         """Return cached link count for an inode, or None when not indexed."""
@@ -469,7 +482,11 @@ def get_breadcrumbs(config: ServerConfig, path: Path) -> list[dict[str, str]]:
             current_path = f"{current_path}/{part}"
             crumbs.append({"name": part, "path": current_path})
     except ValueError:
-        pass
+        _PATH_LOGGER.debug(
+            "Breadcrumb path %s is outside video directory %s",
+            path,
+            video_dir,
+        )
 
     return crumbs
 

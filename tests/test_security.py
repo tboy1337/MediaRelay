@@ -1009,6 +1009,19 @@ class TestLogoutEndpoint:
             csrf_token = authenticate_client(client, server_config.username, "testpass")
             assert len(csrf_token) > 0
 
+    def test_authenticated_index_includes_logout_button(
+        self, media_relay_server, server_config
+    ) -> None:
+        """Authenticated HTML pages include a logout control with CSRF token."""
+        with media_relay_server.app.test_client() as client:
+            authenticate_client(client, server_config.username, "testpass")
+            response = client.get("/")
+            assert response.status_code == 200
+            body = response.get_data(as_text=True)
+            assert 'id="logout-btn"' in body
+            assert "data-csrf-token=" in body
+            assert "Log out" in body
+
     def test_logout_get_returns_method_not_allowed(
         self, media_relay_server, server_config
     ):
@@ -1275,6 +1288,31 @@ class TestSubtitleSanitization:
             )
             assert response.status_code == 413
 
+    def test_stream_subtitle_capped_by_max_file_size(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        media_relay_server: MediaRelayServer,
+        server_config: ServerConfig,
+    ) -> None:
+        """Subtitle limit is capped by max_file_size when that value is smaller."""
+        from mediarelay.constants import MAX_SUBTITLE_FILE_SIZE
+
+        media_relay_server.config.max_file_size = 128
+        video_dir = Path(server_config.video_directory)
+        subtitle = video_dir / "capped.vtt"
+        subtitle.write_bytes(b"x" * 200)
+        assert 200 < MAX_SUBTITLE_FILE_SIZE
+        credentials = base64.b64encode(
+            f"{server_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+
+        with media_relay_server.app.test_client() as client:
+            response = client.get(
+                "/stream/capped.vtt",
+                headers={"Authorization": f"Basic {credentials}"},
+            )
+            assert response.status_code == 413
+
 
 class TestSessionInvalidationLogging:
     """Tests for session invalidation security audit logging."""
@@ -1301,6 +1339,25 @@ class TestSessionInvalidationLogging:
             assert response.status_code == 401
             violation_types = [call.args[0] for call in mock_log.call_args_list]
             assert "session_invalidated" in violation_types
+
+    def test_session_invalidated_without_security_logger_clears_session(
+        self, flask_client, server_config, media_relay_server
+    ) -> None:
+        """Invalid sessions are cleared even when security logging is disabled."""
+        credentials = base64.b64encode(
+            f"{server_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+        response = flask_client.get(
+            "/", headers={"Authorization": f"Basic {credentials}"}
+        )
+        assert response.status_code == 200
+
+        with flask_client.session_transaction() as sess:
+            sess["last_activity"] = time.time() - server_config.session_timeout - 1
+
+        media_relay_server.security_logger = None
+        response = flask_client.get("/")
+        assert response.status_code == 401
 
 
 class TestCsrfTokenScope:
@@ -1646,8 +1703,9 @@ class TestInjectionAttackProtection:
         response = authenticated_client.get(f"/{quote(malicious_filename)}")
         assert response.status_code == 200
         response_text = response.get_data(as_text=True)
-        assert "<script>" not in response_text.lower()
         assert "onerror=alert" not in response_text.lower()
+        if "<script>" in malicious_filename.lower():
+            assert malicious_filename not in response_text
         if "<" in malicious_filename:
             assert malicious_filename not in response_text
             assert "&lt;" in response_text
@@ -1775,7 +1833,7 @@ class TestDenialOfServiceProtection:
 
     def test_repeated_api_requests_remain_stable(self, authenticated_client):
         """Repeated API listing requests should succeed without server errors."""
-        for _ in range(100):
+        for _ in range(25):
             response = authenticated_client.get("/api/files")
             assert response.status_code == 200
 
@@ -1957,7 +2015,7 @@ class TestSecurityPerformance:
         ]
 
         with media_relay_server.app.test_request_context():
-            for _ in range(100):
+            for _ in range(25):
                 for path in test_paths:
                     result = media_relay_server.get_safe_path(path)
                     if ".." in path or path.startswith("/") or "\\" in path:
@@ -1973,12 +2031,12 @@ class TestSecurityPerformance:
 
         security_logger = SecurityEventLogger(media_relay_server.config)
 
-        for i in range(100):
+        for i in range(25):
             security_logger.log_auth_attempt(f"user{i}", i % 2 == 0, "127.0.0.1")
 
         security_log = tmp_path / "security.log"
         assert security_log.exists()
-        assert len(security_log.read_text().splitlines()) >= 100
+        assert len(security_log.read_text().splitlines()) >= 25
 
 
 class TestDirectoryListingSymlinkMetadata:

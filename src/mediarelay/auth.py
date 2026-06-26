@@ -96,7 +96,7 @@ def check_auth(
                 if server.security_logger:
                     server.security_logger.log_security_violation(
                         "lockout_tracker_capacity_exceeded",
-                        ("Lockout tracker at capacity; failed attempt not " "recorded"),
+                        "Lockout tracker at capacity; failed attempt not recorded",
                         ip_address,
                     )
             if now_locked and server.security_logger:

@@ -1260,8 +1260,7 @@ class TestServerRunMethod:
     """Test the server run method comprehensively"""
 
     @patch("mediarelay.server.serve")
-    @patch("builtins.print")
-    def test_run_method_successful_start(self, mock_print, mock_serve):
+    def test_run_method_successful_start(self, mock_serve):
         """Test successful server start"""
         with tempfile.TemporaryDirectory() as temp_dir:
             config = ServerConfig(
@@ -1273,22 +1272,34 @@ class TestServerRunMethod:
             )
             server = MediaRelayServer(config)
 
-            server.run()
+            with patch.object(server.app.logger, "info") as mock_log:
+                server.run()
 
-            # Verify serve was called with correct parameters
             args, kwargs = mock_serve.call_args
             assert args[0] == server.app
             assert kwargs["host"] == "127.0.0.1"
             assert kwargs["port"] == 5000
             assert kwargs["threads"] == 4
 
-            # Verify startup messages
-            mock_print.assert_any_call("MediaRelay starting...")
-            mock_print.assert_any_call(f"Server running on http://127.0.0.1:5000")
+            def _format_log_call(call: object) -> str:
+                mock_call = call
+                if not mock_call.args:
+                    return ""
+                if len(mock_call.args) == 1:
+                    return str(mock_call.args[0])
+                return str(mock_call.args[0]) % mock_call.args[1:]
+
+            logged_messages = [
+                _format_log_call(call) for call in mock_log.call_args_list
+            ]
+            assert any("Starting MediaRelay server" in msg for msg in logged_messages)
+            assert any(
+                "Server running on http://127.0.0.1:5000" in msg
+                for msg in logged_messages
+            )
 
     @patch("mediarelay.server.serve")
-    @patch("builtins.print")
-    def test_run_method_keyboard_interrupt(self, mock_print, mock_serve):
+    def test_run_method_keyboard_interrupt(self, mock_serve):
         """Test server run with KeyboardInterrupt"""
         mock_serve.side_effect = KeyboardInterrupt()
 
@@ -1298,11 +1309,15 @@ class TestServerRunMethod:
             )
             server = MediaRelayServer(config)
 
-            with patch.object(server, "_shutdown_cleanup") as mock_shutdown:
+            with (
+                patch.object(server, "_shutdown_cleanup") as mock_shutdown,
+                patch.object(server.app.logger, "info") as mock_log,
+            ):
                 server.run()
 
             mock_shutdown.assert_called_once()
-            mock_print.assert_any_call("\nServer stopped")
+            logged_messages = [str(call.args[0]) for call in mock_log.call_args_list]
+            assert any("Server stopped" in msg for msg in logged_messages)
 
     @patch("mediarelay.server.serve")
     def test_run_method_generic_exception(self, mock_serve):
@@ -1344,12 +1359,14 @@ class TestServerRunMethod:
 class TestPerformance:
     """Functional tests for streaming server scalability."""
 
-    def test_large_directory_listing(self, authenticated_client, temp_video_dir):
+    def test_large_directory_listing(self, authenticated_client, large_listing_dir):
         """Large directory listings render successfully."""
         for i in range(100):
-            (temp_video_dir / f"test_video_{i:03d}.mp4").write_text(f"fake content {i}")
+            (large_listing_dir / f"test_video_{i:03d}.mp4").write_text(
+                f"fake content {i}"
+            )
 
-        response = authenticated_client.get("/")
+        response = authenticated_client.get("/bulk_listing")
 
         assert response.status_code == 200
         assert "test_video_000.mp4" in response.get_data(as_text=True)

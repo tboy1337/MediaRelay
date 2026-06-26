@@ -54,6 +54,14 @@ def temp_video_dir() -> Generator[Path, None, None]:
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+@pytest.fixture
+def large_listing_dir(temp_video_dir: Path) -> Path:
+    """Function-scoped subdirectory for bulk listing tests without polluting session fixture."""
+    bulk_dir = temp_video_dir / "bulk_listing"
+    bulk_dir.mkdir(exist_ok=True)
+    return bulk_dir
+
+
 @pytest.fixture(scope="session")
 def temp_log_dir() -> Generator[Path, None, None]:
     """Create a temporary log directory"""

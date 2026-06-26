@@ -203,6 +203,27 @@ INDEX_HTML_TEMPLATE = """
             color: #6c757d;
         }
 
+        .header-actions {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 10px;
+        }
+
+        .logout-btn {
+            padding: 8px 16px;
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 0.9em;
+        }
+
+        .logout-btn:hover {
+            background: #c82333;
+        }
+
         @media (max-width: 768px) {
             .container {
                 padding: 10px;
@@ -220,6 +241,12 @@ INDEX_HTML_TEMPLATE = """
 </head>
 <body>
     <div class="container">
+        {% if csrf_token %}
+        <div class="header-actions">
+            <button type="button" class="logout-btn" id="logout-btn"
+                    data-csrf-token="{{ csrf_token }}">Log out</button>
+        </div>
+        {% endif %}
         {% if video_file %}
             <div class="header">
                 <a href="{{ parent_path }}" class="back-link">&larr; Back to directory</a>
@@ -316,6 +343,31 @@ INDEX_HTML_TEMPLATE = """
             </div>
         {% endif %}
     </div>
+    {% if csrf_token %}
+    <script>
+        (function () {
+            var btn = document.getElementById("logout-btn");
+            if (!btn) {
+                return;
+            }
+            btn.addEventListener("click", function () {
+                var token = btn.getAttribute("data-csrf-token");
+                if (!token) {
+                    return;
+                }
+                fetch("/logout", {
+                    method: "POST",
+                    headers: { "X-CSRF-Token": token },
+                    credentials: "same-origin"
+                }).then(function (response) {
+                    if (response.ok || response.status === 401) {
+                        window.location.href = "/";
+                    }
+                });
+            });
+        })();
+    </script>
+    {% endif %}
 </body>
 </html>
 """

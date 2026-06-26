@@ -284,10 +284,11 @@ class MediaRelayServer:
         self.app.logger.info(f"  Production mode: {self.config.is_production()}")
         self.app.logger.info(f"  Rate limiting: {self.config.rate_limit_enabled}")
 
-        print("MediaRelay starting...")
-        print(f"Server running on http://{self.config.host}:{self.config.port}")
-        print(f"Video directory: {self.config.video_directory}")
-        print("Press Ctrl+C to stop the server")
+        self.app.logger.info("Starting MediaRelay server")
+        self.app.logger.info(
+            "Server running on http://%s:%s", self.config.host, self.config.port
+        )
+        self.app.logger.info("Press Ctrl+C to stop the server")
 
         def _request_shutdown(signum: int, _frame: object) -> None:
             self.app.logger.info("Shutdown signal received: %s", signum)
@@ -309,7 +310,7 @@ class MediaRelayServer:
             )
         except KeyboardInterrupt:
             self.app.logger.info("Server shutdown requested")
-            print("\nServer stopped")
+            self.app.logger.info("Server stopped")
         except Exception as error:  # pylint: disable=broad-exception-caught
             self.app.logger.error(f"Server error: {str(error)}", exc_info=True)
             raise

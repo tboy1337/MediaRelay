@@ -398,23 +398,3 @@ def log_system_info(config: ServerConfig) -> None:
         "System Information: %s",
         json.dumps(system_info, indent=2),  # type: ignore[misc]
     )
-
-
-if __name__ == "__main__":
-    from .config import load_config
-
-    config = load_config()
-    logging_components = setup_logging(config)
-
-    logging.debug("This is a debug message")
-    logging.info("This is an info message")
-    logging.warning("This is a warning message")
-    logging.error("This is an error message")
-
-    security_logger = logging_components["security_logger"]
-    security_logger.log_auth_attempt("testuser", True, "127.0.0.1", "Test Browser")
-
-    perf_logger = logging_components["performance_logger"]
-    perf_logger.log_request_duration("/test", 0.250, 200)
-
-    print("Logging test completed. Check the logs directory for output files.")

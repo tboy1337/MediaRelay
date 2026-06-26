@@ -156,13 +156,13 @@ class TestRequestErrorHandling:
 class TestMemoryErrorHandling:
     """Test cases for memory-related error handling"""
 
-    def test_large_file_listing(self, authenticated_client, temp_video_dir):
+    def test_large_file_listing(self, authenticated_client, large_listing_dir):
         """Test server behavior with very large directory listings"""
         # Create many files to test memory usage
         for i in range(1000):
-            (temp_video_dir / f"video_{i:04d}.mp4").write_text("fake content")
+            (large_listing_dir / f"video_{i:04d}.mp4").write_text("fake content")
 
-        response = authenticated_client.get("/")
+        response = authenticated_client.get("/bulk_listing")
 
         # Should handle large directories without running out of memory
         assert response.status_code == 200
