@@ -182,7 +182,7 @@ class TestAccountLockoutManager:
     def test_lockout_tracker_eviction_when_at_capacity(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Oldest tracker entries are evicted when at MAX_LOCKOUT_TRACKERS."""
+        """Inactive tracker entries are evicted when at MAX_LOCKOUT_TRACKERS."""
         monkeypatch.setattr("mediarelay.lockout.MAX_LOCKOUT_TRACKERS", 2)
         manager = AccountLockoutManager(max_attempts=10, lockout_duration=300)
 
@@ -193,6 +193,25 @@ class TestAccountLockoutManager:
         manager.record_failed_attempt("3.3.3.3", "user3")
         assert len(manager._trackers) == 2  # pylint: disable=protected-access
         assert "3.3.3.3:user3" in manager._trackers  # pylint: disable=protected-access
+
+    def test_active_lockout_not_evicted_at_capacity(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Active lockouts must not be evicted when the tracker is at capacity."""
+        monkeypatch.setattr("mediarelay.lockout.MAX_LOCKOUT_TRACKERS", 2)
+        manager = AccountLockoutManager(max_attempts=2, lockout_duration=300)
+
+        manager.record_failed_attempt("1.1.1.1", "locked_user")
+        assert manager.record_failed_attempt("1.1.1.1", "locked_user") is True
+        assert manager.is_locked_out("1.1.1.1", "locked_user")
+
+        manager.record_failed_attempt("2.2.2.2", "other")
+        manager.record_failed_attempt("3.3.3.3", "flooder")
+
+        assert manager.is_locked_out("1.1.1.1", "locked_user")
+        assert (
+            "1.1.1.1:locked_user" in manager._trackers
+        )  # pylint: disable=protected-access
 
 
 class TestLoginAttemptTracker:
@@ -276,6 +295,22 @@ class TestAuthModule:
             test_config.password_hash, "anypassword"
         )
 
+    @patch("mediarelay.auth.hmac.compare_digest", return_value=False)
+    @patch("mediarelay.auth.check_password_hash", return_value=False)
+    def test_check_auth_uses_constant_time_username_compare(
+        self,
+        mock_check_hash: Mock,
+        mock_compare_digest: Mock,
+        test_server,
+        test_config,
+    ) -> None:
+        """Username comparison must use hmac.compare_digest."""
+        with test_server.app.test_request_context():
+            assert test_server.check_auth("wronguser", "anypassword") is False
+
+        mock_compare_digest.assert_called_once_with("wronguser", test_config.username)
+        mock_check_hash.assert_called_once()
+
 
 class TestAuthenticationSecurity:
     """Test cases for authentication security"""
@@ -337,27 +372,6 @@ class TestAuthenticationSecurity:
             attempt for attempt in failed_attempts if not attempt[1]
         ]
         assert len(failed_auth_attempts) == 5
-
-    def test_password_timing_attack_resistance(self, test_server, test_config):
-        """Test resistance to timing attacks on password verification"""
-        # Note: This test is inherently flaky due to system performance variations
-        # In production, timing attack resistance comes from using secure password hashing
-        # which has consistent timing regardless of username validity
-
-        with test_server.app.test_request_context():
-            # Just verify both authentication attempts work (don't assert on timing)
-            # The actual security comes from werkzeug.security.check_password_hash
-            # which uses constant-time comparison
-
-            result1 = test_server.check_auth(test_config.username, "wrongpass")
-            result2 = test_server.check_auth("nonexistentuser", "wrongpass")
-
-            # Both should return False for invalid passwords
-            assert result1 is False
-            assert result2 is False
-
-            # The timing attack resistance is inherent in the password hashing library
-            # rather than something we need to test explicitly
 
     def test_session_fixation_protection(self, test_client, test_config):
         """Test protection against session fixation attacks"""

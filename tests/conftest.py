@@ -11,6 +11,7 @@ from collections.abc import Generator
 from pathlib import Path
 
 import pytest
+from flask.testing import FlaskClient
 from werkzeug.security import generate_password_hash
 
 from mediarelay.config import ServerConfig
@@ -81,7 +82,7 @@ def test_server(test_config: ServerConfig) -> MediaRelayServer:
 
 
 @pytest.fixture
-def test_client(test_server: MediaRelayServer):
+def test_client(test_server: MediaRelayServer) -> Generator[FlaskClient]:
     """Create a test client for the Flask app"""
     test_server.app.config["TESTING"] = True
     with test_server.app.test_client() as client:
@@ -89,7 +90,9 @@ def test_client(test_server: MediaRelayServer):
 
 
 @pytest.fixture
-def authenticated_client(test_client, test_config: ServerConfig):
+def authenticated_client(
+    test_client: FlaskClient, test_config: ServerConfig
+) -> FlaskClient:
     """Create an authenticated test client"""
     credentials = base64.b64encode(
         f"{test_config.username}:testpass".encode("utf-8")
@@ -100,7 +103,7 @@ def authenticated_client(test_client, test_config: ServerConfig):
 
 
 @pytest.fixture
-def security_test_payloads() -> dict[str, list]:
+def security_test_payloads() -> dict[str, list[str]]:
     """Security test payloads for various attack vectors"""
     return {
         "path_traversal": [

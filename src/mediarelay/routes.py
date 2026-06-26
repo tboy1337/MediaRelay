@@ -64,7 +64,7 @@ def register_routes(server: MediaRelayServer) -> None:
             response.headers["X-Request-ID"] = str(g.request_id)  # type: ignore[misc]
         for header, value in server.config.security_headers.items():
             response.headers[header] = value
-        if server.config.session_cookie_secure:
+        if server.config.should_send_hsts():
             response.headers["Strict-Transport-Security"] = HSTS_HEADER_VALUE
 
         if request.path.startswith("/stream/"):
@@ -156,7 +156,8 @@ def register_routes(server: MediaRelayServer) -> None:
         return handle_stream_request(server, video_path)
 
     if server.limiter is not None:
-        _stream_handler = server.limiter.exempt(_stream_handler)
+        stream_limit = f"{server.config.stream_rate_limit_per_minute} per minute"
+        _stream_handler = server.limiter.limit(stream_limit)(_stream_handler)
 
     server.app.route("/stream/<path:video_path>")(_stream_handler)
 

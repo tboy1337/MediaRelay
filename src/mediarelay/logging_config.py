@@ -37,6 +37,9 @@ class _JsonLineFormatter(logging.Formatter):
         return record.getMessage()
 
 
+_MAX_LOGGED_USERNAME_LENGTH = 64
+
+
 class SecurityEventLogger:
     """Specialized logger for security events and audit trails"""
 
@@ -80,10 +83,11 @@ class SecurityEventLogger:
         self, username: str, success: bool, ip_address: str, user_agent: str = ""
     ) -> None:
         """Log authentication attempts"""
+        logged_username = username[:_MAX_LOGGED_USERNAME_LENGTH]
         event_data = self._build_event_data(
             {
                 "event_type": "authentication",
-                "username": username,
+                "username": logged_username,
                 "success": success,
                 "ip_address": ip_address,
                 "user_agent": user_agent,

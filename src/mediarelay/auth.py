@@ -102,6 +102,10 @@ def _session_invalid_reason(
     if not login_ip:
         return "session_missing_login_ip"
 
+    session_epoch = session.get("credential_epoch")  # type: ignore[misc]
+    if session_epoch != server.config.credential_epoch:
+        return "credential_changed"
+
     client_ip = server.get_client_ip()
     if login_ip != client_ip:
         if server.security_logger:
@@ -155,6 +159,7 @@ def check_authentication(
             session["last_activity"] = current_time
             session["login_time"] = current_time
             session["login_ip"] = server.get_client_ip()
+            session["credential_epoch"] = server.config.credential_epoch
             session.permanent = True
         return True
 

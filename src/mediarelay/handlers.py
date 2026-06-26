@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -291,8 +292,9 @@ def _collect_directory_items(
     """Collect listable directory entries, skipping dotfiles and unreadable items."""
     items: list[_DirectoryEntry] = []
     exceeds_cap = False
+    listable_count = 0
     try:
-        entries = list(directory.iterdir())
+        scanner = os.scandir(directory)
     except PermissionError:
         raise
     except OSError as error:
@@ -300,33 +302,40 @@ def _collect_directory_items(
             log_warning(f"Error reading directory {directory}: {error}")
         raise
 
-    for item in entries:
-        if item.name.startswith("."):
-            continue
-        if not item.is_dir() and item.suffix.lower() not in allowed_extensions:
-            continue
+    with scanner:
+        for entry in scanner:
+            if entry.name.startswith("."):
+                continue
+            entry_path = Path(entry.path)
+            if (
+                not entry.is_dir()
+                and entry_path.suffix.lower() not in allowed_extensions
+            ):
+                continue
 
-        if len(items) >= max_entries:
-            exceeds_cap = True
-            break
+            listable_count += 1
+            if listable_count > max_entries:
+                exceeds_cap = True
+                break
 
-        try:
-            relative_path = item.relative_to(video_root)
-            item_stat = item.stat()
-        except (OSError, PermissionError, ValueError) as error:
-            if log_warning is not None:
-                log_warning(f"Skipping unreadable entry {item}: {error}")
-            continue
+            try:
+                relative_path = entry_path.relative_to(video_root)
+                item_stat = entry_path.stat()
+            except (OSError, PermissionError, ValueError) as error:
+                if log_warning is not None:
+                    log_warning(f"Skipping unreadable entry {entry_path}: {error}")
+                listable_count -= 1
+                continue
 
-        items.append(
-            {
-                "name": item.name,
-                "relative_path": str(relative_path).replace("\\", "/"),
-                "is_dir": item.is_dir(),
-                "size": item_stat.st_size if item.is_file() else 0,
-                "modified": datetime.fromtimestamp(item_stat.st_mtime).isoformat(),
-            }
-        )
+            items.append(
+                {
+                    "name": entry.name,
+                    "relative_path": str(relative_path).replace("\\", "/"),
+                    "is_dir": entry.is_dir(),
+                    "size": item_stat.st_size if entry.is_file() else 0,
+                    "modified": datetime.fromtimestamp(item_stat.st_mtime).isoformat(),
+                }
+            )
 
     return _DirectoryListingResult(items=items, exceeds_cap=exceeds_cap)
 
@@ -350,6 +359,7 @@ def handle_index_request(
         client_ip=client_ip,
         security_logger=server.security_logger,
         log_error=server.app.logger.error,
+        inode_index=server.inode_link_index,
     )
     if not safe_path or not safe_path.exists():
         if server.security_logger and subpath:
@@ -414,6 +424,7 @@ def handle_stream_request(
         client_ip=client_ip,
         security_logger=server.security_logger,
         log_error=server.app.logger.error,
+        inode_index=server.inode_link_index,
     )
     if not safe_path or not safe_path.is_file():
         if server.security_logger:
@@ -433,6 +444,20 @@ def handle_stream_request(
                 client_ip,
             )
         return "File type not allowed", 403
+
+    if server.config.max_file_size > 0:
+        file_size = safe_path.stat().st_size
+        if file_size > server.config.max_file_size:
+            if server.security_logger:
+                server.security_logger.log_security_violation(
+                    "file_too_large",
+                    (
+                        f"Stream rejected for oversized file {video_path}: "
+                        f"{file_size} bytes exceeds limit {server.config.max_file_size}"
+                    ),
+                    client_ip,
+                )
+            return "File exceeds maximum allowed size", 413
 
     if server.security_logger:
         server.security_logger.log_file_access(
@@ -484,6 +509,7 @@ def handle_api_files_request(
             client_ip=client_ip,
             security_logger=server.security_logger,
             log_error=server.app.logger.error,
+            inode_index=server.inode_link_index,
         )
 
         if not safe_path or not safe_path.exists():

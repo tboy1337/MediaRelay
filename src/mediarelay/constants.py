@@ -11,6 +11,7 @@ MAX_PAGE_SIZE: int = 500
 MIN_PAGE_SIZE: int = 1
 DEFAULT_MAX_DIRECTORY_ENTRIES: int = 10000
 MAX_LOCKOUT_TRACKERS: int = 10000
+DEFAULT_STREAM_RATE_LIMIT_PER_MINUTE: int = 600
 
 AUDIO_EXTENSIONS: frozenset[str] = frozenset({".mp3", ".aac", ".ogg", ".wav"})
 VIDEO_EXTENSIONS: frozenset[str] = frozenset(

@@ -223,6 +223,7 @@ class TestAuthentication:
             session["login_time"] = time.time()
             session["login_ip"] = "127.0.0.1"
             session["username"] = test_server.config.username
+            session["credential_epoch"] = test_server.config.credential_epoch
             assert test_server.check_authentication() is True
 
     def test_check_authentication_http_auth(self, test_server, test_config):
@@ -576,6 +577,17 @@ class TestHealthCheckComprehensive:
                 response = client.get("/health")
                 assert response.status_code == 503
 
+    def test_health_check_permission_error(self, test_server):
+        """Test health check when runtime health raises PermissionError."""
+        with test_server.app.test_client() as client:
+            with patch.object(
+                test_server.config,
+                "check_runtime_health",
+                side_effect=PermissionError("denied"),
+            ):
+                response = client.get("/health")
+                assert response.status_code == 503
+
 
 class TestErrorHandling:
     """Test cases for error handling"""
@@ -662,6 +674,35 @@ class TestMaxFileSizeHandling:
         finally:
             server._shutdown_cleanup()
 
+    def test_stream_rejects_oversized_file(self, tmp_path: Path) -> None:
+        """Streaming must reject files larger than VIDEO_SERVER_MAX_FILE_SIZE."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        video_file = video_dir / "large.mp4"
+        video_file.write_text("x" * 64, encoding="utf-8")
+
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash=generate_password_hash("testpass"),
+            username="testuser",
+            max_file_size=32,
+        )
+        server = MediaRelayServer(config)
+        server.security_logger = MagicMock()
+        server.app.config["TESTING"] = True
+
+        credentials = base64.b64encode(b"testuser:testpass").decode("utf-8")
+        try:
+            with server.app.test_client() as client:
+                response = client.get(
+                    "/stream/large.mp4",
+                    headers={"Authorization": f"Basic {credentials}"},
+                )
+                assert response.status_code == 413
+                server.security_logger.log_security_violation.assert_called()
+        finally:
+            server._shutdown_cleanup()
+
 
 class TestSecurityHeaders:
     """Test cases for security headers"""
@@ -682,7 +723,10 @@ class TestSecurityHeaders:
         for header in expected_headers:
             assert header in response.headers
 
-        if test_config.session_cookie_secure:
+        assert "Cross-Origin-Opener-Policy" in response.headers
+        assert "Cross-Origin-Resource-Policy" in response.headers
+
+        if test_config.should_send_hsts():
             assert "Strict-Transport-Security" in response.headers
         else:
             assert "Strict-Transport-Security" not in response.headers
@@ -718,6 +762,36 @@ class TestSessionManagement:
                 assert sess.get("authenticated") is True
                 assert sess.get("username") == test_config.username
                 assert "last_activity" in sess
+                assert sess.get("credential_epoch") == test_config.credential_epoch
+
+    def test_session_invalid_without_login_ip(self, test_server, test_config):
+        """Sessions missing login_ip must be rejected."""
+        with test_server.app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess["authenticated"] = True
+                sess["username"] = test_config.username
+                sess["last_activity"] = time.time()
+                sess["login_time"] = time.time()
+                sess["credential_epoch"] = test_config.credential_epoch
+
+            response = client.get("/")
+            assert response.status_code == 401
+
+    def test_session_invalid_after_credential_change(
+        self, test_server, test_config
+    ) -> None:
+        """Sessions must end when username or password hash changes."""
+        credentials = base64.b64encode(
+            f"{test_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+
+        with test_server.app.test_client() as client:
+            client.get("/", headers={"Authorization": f"Basic {credentials}"})
+            assert client.get("/").status_code == 200
+
+            test_config.password_hash = generate_password_hash("newpass")
+
+            assert client.get("/").status_code == 401
 
     def test_session_persistence(self, test_server, test_config):
         """Test session persistence across requests"""
@@ -1027,8 +1101,8 @@ class TestErrorHandlers:
             assert response.status_code == 429
             assert b"Rate Limit Exceeded" in response.data
 
-    def test_stream_route_exempt_from_rate_limit(self, tmp_path: Path) -> None:
-        """Stream endpoint is exempt from rate limiting to support range requests."""
+    def test_stream_route_has_separate_rate_limit(self, tmp_path: Path) -> None:
+        """Stream endpoint uses a higher dedicated rate limit for range requests."""
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
         (video_dir / "test.mp4").write_text("fake video content")
@@ -1039,6 +1113,7 @@ class TestErrorHandlers:
             username="testuser",
             rate_limit_enabled=True,
             rate_limit_per_minute=2,
+            stream_rate_limit_per_minute=3,
         )
         server = MediaRelayServer(config)
         server.app.config["TESTING"] = True
@@ -1047,9 +1122,13 @@ class TestErrorHandlers:
         auth_header = {"Authorization": f"Basic {credentials}"}
 
         with server.app.test_client() as client:
-            for _ in range(5):
+            for _ in range(3):
                 response = client.get("/stream/test.mp4", headers=auth_header)
                 assert response.status_code == 200
+
+            assert (
+                client.get("/stream/test.mp4", headers=auth_header).status_code == 429
+            )
 
             assert client.get("/health").status_code == 200
             assert client.get("/health").status_code == 200

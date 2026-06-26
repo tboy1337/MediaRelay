@@ -30,6 +30,8 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 | `VIDEO_SERVER_SESSION_COOKIE_HTTPONLY` | `true` | Prevent JavaScript access to session cookies. |
 | `VIDEO_SERVER_SESSION_COOKIE_SAMESITE` | `Strict` | SameSite policy: `Strict`, `Lax`, or `None` (case-insensitive). `None` requires `VIDEO_SERVER_SESSION_COOKIE_SECURE=true`. |
 | `VIDEO_SERVER_BEHIND_PROXY` | `false` | Trust `X-Forwarded-*` headers. Enable only behind a trusted reverse proxy. |
+| `VIDEO_SERVER_PROXY_TRUSTED` | `false` | Acknowledge that MediaRelay is only reachable through your trusted reverse proxy. Set `true` with `BEHIND_PROXY` in production. |
+| `VIDEO_SERVER_HSTS` | `false` | Send `Strict-Transport-Security` on plain HTTP setups. Also sent automatically when `VIDEO_SERVER_BEHIND_PROXY=true`. |
 | `FLASK_ENV` | `development` | Set to `production` for deployment validation and stricter startup checks. |
 
 ## Directories and files
@@ -40,7 +42,7 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 | `VIDEO_SERVER_LOG_DIR` | `./logs` | Log file directory (created if missing; must be writable). |
 | `VIDEO_SERVER_ALLOWED_EXTENSIONS` | *(built-in set)* | Comma-separated extensions. Must be a subset of the built-in media allowlist (video, audio, `.srt`). Invalid values are rejected at startup. |
 | `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES` | `10000` | Maximum listable entries per directory request. Exceeding this returns HTTP 413. |
-| `VIDEO_SERVER_MAX_FILE_SIZE` | `21474836480` | Upload limit in bytes (`0` disables). |
+| `VIDEO_SERVER_MAX_FILE_SIZE` | `21474836480` | Maximum file size in bytes for uploads and streaming (`0` disables). Oversized streams return HTTP 413. |
 
 ## Logging
 
@@ -56,13 +58,14 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `VIDEO_SERVER_RATE_LIMIT` | `true` | Enable global per-IP rate limiting. |
-| `VIDEO_SERVER_RATE_LIMIT_PER_MIN` | `60` | Requests per minute per client IP. |
+| `VIDEO_SERVER_RATE_LIMIT_PER_MIN` | `60` | Requests per minute per client IP on browsing and API routes. |
+| `VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE` | `600` | Dedicated per-IP limit for `/stream/` (range requests during playback). |
 
 ## Production notes
 
 - Restrict `.env` permissions: `chmod 600 .env` (Linux/macOS).
 - Generate credentials: `mediarelay-genpass --non-interactive --username tboy1337`
-- Validate before deploy: `FLASK_ENV=production mediarelay-validate`
+- Validate before deploy: `FLASK_ENV=production mediarelay-validate` (checks log directory, rejects writable video directory, warns on `0.0.0.0` without proxy)
 - Production startup requires `VIDEO_SERVER_SECRET_KEY`, a real password hash, `VIDEO_SERVER_DEBUG=false`, and `VIDEO_SERVER_SESSION_COOKIE_SECURE=true`.
 - Do not expose plain HTTP to the internet; terminate TLS at a reverse proxy. See [Deployment Guide](deployment_guide.md) and [SECURITY.md](../SECURITY.md).
 - Sessions are bound to the client IP at login. VPN or mobile network IP changes invalidate the session and require re-authentication.

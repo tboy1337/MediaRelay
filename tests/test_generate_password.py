@@ -182,7 +182,7 @@ class TestMainFunction:
                     generate_password.main()
 
                     # Verify generate_password_hash was called
-                    mock_hash.assert_called_once_with("TestPass123!")
+                    mock_hash.assert_called_once_with("TestPass123!", method="scrypt")
                     # Verify generate_flask_secret_key was called
                     mock_secret.assert_called_once()
 
@@ -222,7 +222,7 @@ class TestMainFunction:
                 generate_password.main()
 
                 # Verify generate_password_hash was called with custom password
-                mock_hash.assert_called_once_with("MyPassword123!")
+                mock_hash.assert_called_once_with("MyPassword123!", method="scrypt")
                 mock_secret.assert_called_once()
 
                 # Verify username is printed in config
@@ -281,7 +281,7 @@ class TestMainFunction:
                 mock_print.assert_any_call(
                     "Password is too short! Use at least 12 characters."
                 )
-                mock_hash.assert_called_once_with("ValidPass123!")
+                mock_hash.assert_called_once_with("ValidPass123!", method="scrypt")
                 mock_secret.assert_called_once()
 
     @patch("builtins.input")
@@ -308,7 +308,7 @@ class TestMainFunction:
 
                 # Verify error message was printed
                 mock_print.assert_any_call("Passwords don't match! Try again.")
-                mock_hash.assert_called_once_with("MyPassword123!")
+                mock_hash.assert_called_once_with("MyPassword123!", method="scrypt")
                 mock_secret.assert_called_once()
 
     @patch("builtins.input")
@@ -365,7 +365,7 @@ class TestMainFunction:
                     generate_password.main()
 
                     mock_gen.assert_called_once()
-                    mock_hash.assert_called_once_with("TestPass123!")
+                    mock_hash.assert_called_once_with("TestPass123!", method="scrypt")
                     mock_secret.assert_called_once()
 
                     # Verify key output messages
@@ -392,7 +392,7 @@ class TestMainFunction:
 
                 generate_password.main()
 
-                mock_hash.assert_called_once_with("MyPassword123!")
+                mock_hash.assert_called_once_with("MyPassword123!", method="scrypt")
                 mock_secret.assert_called_once()
 
                 # Verify key output messages
@@ -426,7 +426,7 @@ class TestMainFunction:
                 mock_print.assert_any_call(
                     "Password is too short! Use at least 12 characters."
                 )
-                mock_hash.assert_called_once_with("ValidPassword123!")
+                mock_hash.assert_called_once_with("ValidPassword123!", method="scrypt")
                 mock_secret.assert_called_once()
 
     @patch("builtins.input")
@@ -452,7 +452,7 @@ class TestMainFunction:
                 generate_password.main()
 
                 mock_print.assert_any_call("Passwords don't match! Try again.")
-                mock_hash.assert_called_once_with("MyPassword123!")
+                mock_hash.assert_called_once_with("MyPassword123!", method="scrypt")
                 mock_secret.assert_called_once()
 
     @patch("builtins.input")
@@ -660,6 +660,14 @@ class TestInteractiveInterrupt:
         from mediarelay.generate_password import _run_interactive
 
         with patch("builtins.input", side_effect=KeyboardInterrupt()):
+            with pytest.raises(SystemExit) as exc_info:
+                _run_interactive()
+            assert exc_info.value.code == 130
+
+    def test_interactive_eof_exits_130(self):
+        from mediarelay.generate_password import _run_interactive
+
+        with patch("builtins.input", side_effect=EOFError()):
             with pytest.raises(SystemExit) as exc_info:
                 _run_interactive()
             assert exc_info.value.code == 130

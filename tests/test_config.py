@@ -24,6 +24,24 @@ from mediarelay.config import (
 )
 
 
+def _patch_video_dir_readonly(monkeypatch: pytest.MonkeyPatch, video_dir: Path) -> None:
+    """Treat the video directory as read-only for deployment validation tests."""
+    real_access = os.access
+    resolved = video_dir.resolve()
+
+    def access(
+        path: os.PathLike[str] | str | int,
+        mode: int,
+        *,
+        follow_symlinks: bool = True,
+    ) -> bool:
+        if mode == os.W_OK and Path(path).resolve() == resolved:
+            return False
+        return real_access(path, mode, follow_symlinks=follow_symlinks)
+
+    monkeypatch.setattr(os, "access", access)
+
+
 class TestDefaultVideoDirectoryFunction:
     """Test _get_default_video_directory function comprehensively"""
 
@@ -1148,6 +1166,7 @@ class TestDeploymentConfigValidation:
         video_dir.mkdir()
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
+        _patch_video_dir_readonly(monkeypatch, video_dir)
 
         env_file = tmp_path / "test.env"
         env_file.write_text(
@@ -1285,6 +1304,109 @@ class TestConfigProductionAuditEdgeCases:
         monkeypatch.delenv("FLASK_ENV", raising=False)
         config = load_config()
         assert config.username == "envuser"
+
+    def test_samesite_lax_normalized(self, tmp_path: Path) -> None:
+        """Lax SameSite values are normalized at load time."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+                "VIDEO_SERVER_SESSION_COOKIE_SAMESITE": "lax",
+            },
+        ):
+            config = ServerConfig()
+            assert config.session_cookie_samesite == "Lax"
+
+    def test_allowed_extensions_missing_dot_rejected(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+                "VIDEO_SERVER_ALLOWED_EXTENSIONS": "mp4",
+            },
+        ):
+            with pytest.raises(
+                ValueError, match="Invalid VIDEO_SERVER_ALLOWED_EXTENSIONS"
+            ):
+                ServerConfig()
+
+    def test_allowed_extensions_non_alphanumeric_rejected(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+                "VIDEO_SERVER_ALLOWED_EXTENSIONS": ".m$p4",
+            },
+        ):
+            with pytest.raises(
+                ValueError, match="Invalid VIDEO_SERVER_ALLOWED_EXTENSIONS"
+            ):
+                ServerConfig()
+
+    def test_deployment_config_rejects_writable_video_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Deployment validation rejects a writable video directory."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        env_file = tmp_path / "test.env"
+        env_file.write_text(
+            f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_SECRET_KEY=secure-production-key\n"
+            f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
+            f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
+            f"FLASK_ENV=production\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(ValueError, match="must not be writable"):
+            validate_deployment_config(env_file)
+
+    def test_deployment_config_warns_on_public_bind_without_proxy(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Deployment validation warns when binding to 0.0.0.0 without a proxy."""
+        import logging
+
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        _patch_video_dir_readonly(monkeypatch, video_dir)
+
+        env_file = tmp_path / "test.env"
+        env_file.write_text(
+            f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_SECRET_KEY=secure-production-key\n"
+            f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
+            f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
+            f"VIDEO_SERVER_HOST=0.0.0.0\n"
+            f"VIDEO_SERVER_BEHIND_PROXY=false\n"
+            f"FLASK_ENV=production\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.chdir(tmp_path)
+        with caplog.at_level(logging.WARNING):
+            validate_deployment_config(env_file)
+
+        assert any("0.0.0.0" in record.message for record in caplog.records)
 
     def test_check_runtime_health_true(self, tmp_path: Path) -> None:
         video_dir = tmp_path / "videos"

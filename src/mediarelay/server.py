@@ -32,7 +32,7 @@ from .logging_config import (
     log_system_info,
     setup_logging,
 )
-from .path_utils import get_breadcrumbs, get_safe_path
+from .path_utils import InodeLinkIndex, get_breadcrumbs, get_safe_path
 from .routes import register_routes
 
 
@@ -58,6 +58,8 @@ class MediaRelayServer:
         )
         self._lockout_cleanup_timer: threading.Timer | None = None
         self._logging_components: LoggingComponents | None = None
+        self.inode_link_index = InodeLinkIndex(Path(config.video_directory))
+        self.inode_link_index.refresh()
         self._setup_logging()
         self._warn_ephemeral_secret_key()
         self._warn_behind_proxy()
@@ -76,11 +78,16 @@ class MediaRelayServer:
 
     def _warn_behind_proxy(self) -> None:
         """Warn when reverse-proxy mode is enabled without a trusted proxy in front."""
-        if self.config.behind_proxy:
+        if self.config.behind_proxy and not self.config.proxy_trusted:
             self.app.logger.warning(
-                "VIDEO_SERVER_BEHIND_PROXY is enabled: client IP and rate limits use "
-                "X-Forwarded-For. Only enable this when MediaRelay is behind a "
+                "VIDEO_SERVER_BEHIND_PROXY is enabled but VIDEO_SERVER_PROXY_TRUSTED "
+                "is false: client IP and rate limits use X-Forwarded-For. Set "
+                "VIDEO_SERVER_PROXY_TRUSTED=true only when MediaRelay is behind a "
                 "trusted reverse proxy. Direct exposure allows IP spoofing."
+            )
+        elif self.config.behind_proxy:
+            self.app.logger.info(
+                "VIDEO_SERVER_BEHIND_PROXY and VIDEO_SERVER_PROXY_TRUSTED are enabled."
             )
 
     def _warn_non_production(self) -> None:
@@ -103,6 +110,7 @@ class MediaRelayServer:
         """Run lockout cleanup and reschedule; survives individual cleanup failures."""
         try:
             self.lockout_manager.cleanup_expired()
+            self.inode_link_index.refresh()
         except Exception as error:  # pylint: disable=broad-exception-caught
             # Timer must keep firing even if a single cleanup pass fails.
             self.app.logger.error("Lockout cleanup failed: %s", error, exc_info=True)
@@ -205,15 +213,16 @@ class MediaRelayServer:
             client_ip=self.get_client_ip(),
             security_logger=self.security_logger,
             log_error=self.app.logger.error,
+            inode_index=self.inode_link_index,
         )
 
     def get_breadcrumbs(self, path: Path) -> list[dict[str, str]]:
         """Generate breadcrumb navigation."""
         return get_breadcrumbs(self.config, path)
 
-    def check_authentication(self) -> bool:
+    def check_authentication(self, *, establish_session: bool = True) -> bool:
         """Check if the current request is authenticated with lockout protection."""
-        return _check_authentication(self)
+        return _check_authentication(self, establish_session=establish_session)
 
     def run(self) -> None:
         """Start the production server."""

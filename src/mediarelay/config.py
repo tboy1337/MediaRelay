@@ -5,6 +5,7 @@ Handles environment variables, configuration files, and default settings
 for production deployment.
 """
 
+import hashlib
 import logging
 import os
 import secrets
@@ -21,6 +22,7 @@ from .constants import (
     AUDIO_EXTENSIONS,
     DEFAULT_MAX_DIRECTORY_ENTRIES,
     DEFAULT_PAGE_SIZE,
+    DEFAULT_STREAM_RATE_LIMIT_PER_MINUTE,
     MAX_PAGE_SIZE,
     MIN_PAGE_SIZE,
     VIDEO_EXTENSIONS,
@@ -247,6 +249,8 @@ def _default_security_headers() -> dict[str, str]:
             "magnetometer=(), microphone=(), payment=(), usb=()"
         ),
         "X-Permitted-Cross-Domain-Policies": "none",
+        "Cross-Origin-Opener-Policy": "same-origin",
+        "Cross-Origin-Resource-Policy": "same-origin",
     }
 
 
@@ -392,8 +396,15 @@ class ServerConfig:
             "VIDEO_SERVER_RATE_LIMIT_PER_MIN", "60", min_val=1
         )
     )
+    stream_rate_limit_per_minute: int = field(
+        default_factory=lambda: _parse_int_env(
+            "VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE",
+            str(DEFAULT_STREAM_RATE_LIMIT_PER_MINUTE),
+            min_val=1,
+        )
+    )
 
-    # Security Headers (HSTS applied separately when session_cookie_secure is True)
+    # Security Headers (HSTS applied separately when enabled)
     security_headers: dict[str, str] = field(default_factory=_default_security_headers)
 
     # Session Cookie Settings
@@ -417,6 +428,12 @@ class ServerConfig:
     behind_proxy: bool = field(
         default_factory=lambda: _parse_bool_env("VIDEO_SERVER_BEHIND_PROXY", "false")
     )
+    proxy_trusted: bool = field(
+        default_factory=lambda: _parse_bool_env("VIDEO_SERVER_PROXY_TRUSTED", "false")
+    )
+    hsts_enabled: bool = field(
+        default_factory=lambda: _parse_bool_env("VIDEO_SERVER_HSTS", "false")
+    )
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization"""
@@ -434,6 +451,16 @@ class ServerConfig:
     def is_production(self) -> bool:
         """Check if running in production environment"""
         return os.getenv("FLASK_ENV", "development") == "production"
+
+    @property
+    def credential_epoch(self) -> str:
+        """Fingerprint of username and password hash for session invalidation."""
+        payload = f"{self.username}:{self.password_hash}".encode()
+        return hashlib.sha256(payload).hexdigest()
+
+    def should_send_hsts(self) -> bool:
+        """Return True when Strict-Transport-Security should be sent."""
+        return self.hsts_enabled or self.behind_proxy
 
     def check_runtime_health(self) -> bool:
         """Verify runtime-critical paths are accessible (lightweight health check)."""
@@ -472,10 +499,13 @@ class ServerConfig:
             "log_console": self.log_console,
             "rate_limit_enabled": self.rate_limit_enabled,
             "rate_limit_per_minute": self.rate_limit_per_minute,
+            "stream_rate_limit_per_minute": self.stream_rate_limit_per_minute,
             "session_cookie_secure": self.session_cookie_secure,
             "session_cookie_httponly": self.session_cookie_httponly,
             "session_cookie_samesite": self.session_cookie_samesite,
             "behind_proxy": self.behind_proxy,
+            "proxy_trusted": self.proxy_trusted,
+            "hsts_enabled": self.hsts_enabled,
             "is_production": self.is_production(),
         }
 
@@ -515,6 +545,36 @@ def load_config(config_file: Path | None = None) -> ServerConfig:
     return ServerConfig()
 
 
+def _validate_deployment_settings(config: ServerConfig) -> None:
+    """Additional production deployment checks beyond startup validation."""
+    video_path = Path(config.video_directory)
+    if os.access(video_path, os.W_OK):
+        raise ValueError(
+            f"Video directory must not be writable by the server process: "
+            f"{config.video_directory}"
+        )
+
+    log_path = Path(config.log_directory)
+    if not log_path.exists():
+        raise ValueError(f"Log directory does not exist: {config.log_directory}")
+    if not os.access(log_path, os.W_OK):
+        raise ValueError(f"Log directory is not writable: {config.log_directory}")
+
+    if config.host == "0.0.0.0" and not config.behind_proxy:
+        _CONFIG_LOGGER.warning(
+            "VIDEO_SERVER_HOST is 0.0.0.0 without VIDEO_SERVER_BEHIND_PROXY. "
+            "Bind to 127.0.0.1 behind a reverse proxy or restrict access with "
+            "firewall rules."
+        )
+
+    if config.behind_proxy and not config.proxy_trusted:
+        _CONFIG_LOGGER.warning(
+            "VIDEO_SERVER_BEHIND_PROXY is enabled but VIDEO_SERVER_PROXY_TRUSTED "
+            "is false. Set VIDEO_SERVER_PROXY_TRUSTED=true only when MediaRelay is "
+            "reachable exclusively through your trusted reverse proxy."
+        )
+
+
 def validate_deployment_config(config_file: Path | None = None) -> ServerConfig:
     """Load and validate configuration for production deployment.
 
@@ -528,6 +588,8 @@ def validate_deployment_config(config_file: Path | None = None) -> ServerConfig:
             "FLASK_ENV must be 'production' for deployment validation. "
             "Set FLASK_ENV=production in your environment or .env file."
         )
+
+    _validate_deployment_settings(config)
 
     return config
 
@@ -584,10 +646,16 @@ VIDEO_SERVER_LOG_CONSOLE=true
 # Rate Limiting
 VIDEO_SERVER_RATE_LIMIT=true
 VIDEO_SERVER_RATE_LIMIT_PER_MIN=60
+# Higher limit for /stream/ range requests (seeking during playback)
+VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE=600
 
 # Reverse Proxy — ONLY enable when behind a trusted reverse proxy (nginx, etc.)
 # If enabled without a proxy, client IPs can be spoofed via X-Forwarded-For
 VIDEO_SERVER_BEHIND_PROXY=false
+# Set true only when MediaRelay is unreachable except through your trusted proxy
+VIDEO_SERVER_PROXY_TRUSTED=false
+# Send HSTS header when true (also sent automatically when BEHIND_PROXY is true)
+VIDEO_SERVER_HSTS=false
 
 # Environment (production enforces real credentials at startup)
 FLASK_ENV=production

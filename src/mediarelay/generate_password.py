@@ -4,7 +4,7 @@ Password and Secret Key Generation Utility
 Utility script for generating secure passwords, their corresponding
 Werkzeug password hashes, and Flask secret keys for the Video Streaming Server.
 
-Author: Assistant
+Author: tboy1337
 License: See LICENSE.md
 """
 
@@ -108,7 +108,7 @@ def _run_interactive() -> None:
         print("\nAborted.", file=sys.stderr)
         sys.exit(130)
 
-    password_hash = generate_password_hash(password)
+    password_hash = generate_password_hash(password, method="scrypt")
 
     print("\n" + "=" * 60)
     print("CONFIGURATION VALUES FOR .env FILE")
@@ -139,7 +139,7 @@ def cli(non_interactive: bool, username: str) -> None:
     if non_interactive:
         password = generate_strong_password()
         secret_key = generate_flask_secret_key()
-        password_hash = generate_password_hash(password)
+        password_hash = generate_password_hash(password, method="scrypt")
         _print_env_values(username, password_hash, secret_key)
         if sys.stdout.isatty():
             _print_setup_instructions(username, password)

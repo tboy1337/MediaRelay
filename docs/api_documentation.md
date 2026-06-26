@@ -323,7 +323,7 @@ The API implements rate limiting to prevent abuse.
 
 ### Default Limits
 - **Browsing, API, health, and auth routes**: 60 requests per minute per IP (configurable via `VIDEO_SERVER_RATE_LIMIT_PER_MIN`)
-- **Streaming (`/stream/`)**: Exempt from rate limiting to support range requests during playback
+- **Streaming (`/stream/`)**: 600 requests per minute per IP by default (`VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE`), high enough for range seeking during playback
 
 ### Rate Limit Headers
 
@@ -358,12 +358,14 @@ Content-Security-Policy: default-src 'self'; media-src 'self'; style-src 'self' 
 Referrer-Policy: strict-origin-when-cross-origin
 Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
 X-Permitted-Cross-Domain-Policies: none
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
 Strict-Transport-Security: max-age=31536000; includeSubDomains
 ```
 
 `X-XSS-Protection` is intentionally omitted (deprecated in modern browsers).
 
-`Strict-Transport-Security` is sent only when `VIDEO_SERVER_SESSION_COOKIE_SECURE=true`.
+`Strict-Transport-Security` is sent when `VIDEO_SERVER_BEHIND_PROXY=true` or `VIDEO_SERVER_HSTS=true`.
 
 ## Request/Response Examples
 

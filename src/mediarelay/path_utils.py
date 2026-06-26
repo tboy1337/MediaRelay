@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import mimetypes
 import os
+import threading
 import unicodedata
 from collections.abc import Callable
 from pathlib import Path
@@ -15,6 +17,8 @@ from .constants import AUDIO_EXTENSIONS
 
 if TYPE_CHECKING:
     from .logging_config import SecurityEventLogger
+
+_PATH_LOGGER = logging.getLogger(__name__)
 
 _EXTENSION_MIME_FALLBACKS: dict[str, str] = {
     ".mkv": "video/x-matroska",
@@ -147,6 +151,41 @@ def _validate_path_segments(
     return True
 
 
+class InodeLinkIndex:
+    """Thread-safe cache of inode link counts under the video directory jail."""
+
+    def __init__(self, jail_root: Path) -> None:
+        self._jail_root = jail_root.resolve()
+        self._counts: dict[tuple[int, int], int] = {}
+        self._lock = threading.Lock()
+
+    def refresh(self) -> None:
+        """Rebuild the inode link count index from the jail root."""
+        counts: dict[tuple[int, int], int] = {}
+        try:
+            jail_stat = self._jail_root.stat()
+            key = (jail_stat.st_dev, jail_stat.st_ino)
+            counts[key] = counts.get(key, 0) + 1
+        except OSError:
+            pass
+
+        for path in self._jail_root.rglob("*"):
+            try:
+                stat_result = path.lstat() if path.is_symlink() else path.stat()
+            except OSError:
+                continue
+            key = (stat_result.st_dev, stat_result.st_ino)
+            counts[key] = counts.get(key, 0) + 1
+
+        with self._lock:
+            self._counts = counts
+
+    def count_links(self, ino: int, dev: int) -> int | None:
+        """Return cached link count for an inode, or None when not indexed."""
+        with self._lock:
+            return self._counts.get((dev, ino))
+
+
 def _count_inode_links_under_jail(ino: int, dev: int, jail_root: Path) -> int:
     """Count directory entries under jail_root that reference the given inode."""
     count = 0
@@ -167,7 +206,12 @@ def _count_inode_links_under_jail(ino: int, dev: int, jail_root: Path) -> int:
     return count
 
 
-def _is_hardlink_outside_jail(resolved_path: Path, jail_root: Path) -> bool:
+def _is_hardlink_outside_jail(
+    resolved_path: Path,
+    jail_root: Path,
+    *,
+    inode_index: InodeLinkIndex | None = None,
+) -> bool:
     """Return True when a file hard link references content also linked outside jail."""
     if not resolved_path.is_file():
         return False
@@ -181,9 +225,20 @@ def _is_hardlink_outside_jail(resolved_path: Path, jail_root: Path) -> bool:
         return False
 
     jail_resolved = jail_root.resolve()
-    links_in_jail = _count_inode_links_under_jail(
-        stat_result.st_ino, stat_result.st_dev, jail_resolved
-    )
+    links_in_jail: int | None = None
+    if inode_index is not None:
+        links_in_jail = inode_index.count_links(stat_result.st_ino, stat_result.st_dev)
+
+    if links_in_jail is None:
+        _PATH_LOGGER.warning(
+            "Inode index miss for (%s, %s); falling back to live scan",
+            stat_result.st_dev,
+            stat_result.st_ino,
+        )
+        links_in_jail = _count_inode_links_under_jail(
+            stat_result.st_ino, stat_result.st_dev, jail_resolved
+        )
+
     return links_in_jail < stat_result.st_nlink
 
 
@@ -194,6 +249,7 @@ def _resolve_within_jail(
     client_ip: str,
     security_logger: SecurityEventLogger | None,
     log_error: Callable[[str], None] | None,
+    inode_index: InodeLinkIndex | None = None,
 ) -> Path | None:
     """Resolve a relative path and verify jail containment including hard links."""
     full_path = Path(video_directory) / requested_path
@@ -221,7 +277,9 @@ def _resolve_within_jail(
         )
         return None
 
-    if _is_hardlink_outside_jail(resolved_path, resolved_video_dir):
+    if _is_hardlink_outside_jail(
+        resolved_path, resolved_video_dir, inode_index=inode_index
+    ):
         _log_path_violation(
             security_logger,
             "hardlink_escape",
@@ -257,6 +315,7 @@ def get_safe_path(
     client_ip: str,
     security_logger: SecurityEventLogger | None = None,
     log_error: Callable[[str], None] | None = None,
+    inode_index: InodeLinkIndex | None = None,
 ) -> Path | None:
     """Ensure the requested path is within the video directory."""
     if not requested_path:
@@ -277,4 +336,5 @@ def get_safe_path(
         client_ip=client_ip,
         security_logger=security_logger,
         log_error=log_error,
+        inode_index=inode_index,
     )

@@ -10,6 +10,7 @@ import pytest
 
 from mediarelay.config import ServerConfig
 from mediarelay.path_utils import (
+    InodeLinkIndex,
     get_breadcrumbs,
     get_safe_path,
     guess_media_mime_type,
@@ -137,6 +138,19 @@ class TestGetSafePath:
         result = get_safe_path(
             video_config,
             "test\t.mp4",
+            client_ip="127.0.0.1",
+            security_logger=security_logger,
+        )
+        assert result is None
+        security_logger.log_security_violation.assert_called_once()
+
+    def test_unicode_control_characters_rejected(
+        self, video_config: ServerConfig
+    ) -> None:
+        security_logger = MagicMock()
+        result = get_safe_path(
+            video_config,
+            "test\u200b.mp4",
             client_ip="127.0.0.1",
             security_logger=security_logger,
         )
@@ -359,3 +373,19 @@ class TestResolvePath:
         path.write_text("x", encoding="utf-8")
         resolved = resolve_path(path)
         assert resolved.is_absolute()
+
+
+class TestInodeLinkIndex:
+    """Tests for inode link count caching."""
+
+    def test_refresh_indexes_files(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        (video_dir / "clip.mp4").write_text("content", encoding="utf-8")
+
+        index = InodeLinkIndex(video_dir)
+        index.refresh()
+
+        stat_result = (video_dir / "clip.mp4").stat()
+        count = index.count_links(stat_result.st_ino, stat_result.st_dev)
+        assert count == 1

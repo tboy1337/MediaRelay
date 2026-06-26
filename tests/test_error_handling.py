@@ -105,8 +105,9 @@ class TestServerErrorHandling:
         server = MediaRelayServer(test_config)
         with server.app.test_request_context():
             with patch.object(server, "check_authentication", return_value=True):
-                with patch.object(
-                    Path, "iterdir", side_effect=PermissionError("Permission denied")
+                with patch(
+                    "mediarelay.handlers.os.scandir",
+                    side_effect=PermissionError("Permission denied"),
                 ):
                     response = handle_index_request(server, "")
                     assert response == ("Access denied to directory", 403)
@@ -334,8 +335,9 @@ class TestFileSystemErrorHandling:
                     "mediarelay.handlers.get_safe_path",
                     return_value=Path(test_config.video_directory),
                 ):
-                    with patch.object(
-                        Path, "iterdir", side_effect=OSError("read error")
+                    with patch(
+                        "mediarelay.handlers.os.scandir",
+                        side_effect=OSError("read error"),
                     ):
                         result = handle_index_request(test_server, "")
         assert result == ("Error reading directory", 500)
@@ -401,7 +403,6 @@ class TestHandlerErrorPaths:
         mock_dir = MagicMock()
         mock_dir.exists.return_value = True
         mock_dir.is_dir.return_value = True
-        mock_dir.iterdir.side_effect = OSError("read error")
 
         auth = base64.b64encode(b"testuser:testpass").decode()
         with test_server.app.test_request_context(
@@ -411,7 +412,11 @@ class TestHandlerErrorPaths:
         ):
             with patch.object(test_server, "check_authentication", return_value=True):
                 with patch("mediarelay.handlers.get_safe_path", return_value=mock_dir):
-                    result = handle_api_files_request(test_server)
+                    with patch(
+                        "mediarelay.handlers.os.scandir",
+                        side_effect=OSError("read error"),
+                    ):
+                        result = handle_api_files_request(test_server)
         assert result[1] == 500
 
     def test_api_files_handler_permission_error_returns_403(self, test_server):
@@ -423,7 +428,6 @@ class TestHandlerErrorPaths:
         mock_dir = MagicMock()
         mock_dir.exists.return_value = True
         mock_dir.is_dir.return_value = True
-        mock_dir.iterdir.side_effect = PermissionError("denied")
 
         auth = base64.b64encode(b"testuser:testpass").decode()
         test_server.security_logger = MagicMock()
@@ -434,7 +438,11 @@ class TestHandlerErrorPaths:
         ):
             with patch.object(test_server, "check_authentication", return_value=True):
                 with patch("mediarelay.handlers.get_safe_path", return_value=mock_dir):
-                    result = handle_api_files_request(test_server)
+                    with patch(
+                        "mediarelay.handlers.os.scandir",
+                        side_effect=PermissionError("denied"),
+                    ):
+                        result = handle_api_files_request(test_server)
         assert result[1] == 403
         test_server.security_logger.log_security_violation.assert_called_once()
 
