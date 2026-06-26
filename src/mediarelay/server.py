@@ -59,10 +59,12 @@ class MediaRelayServer:
         )
         self._lockout_cleanup_timer: threading.Timer | None = None
         self._logging_components: LoggingComponents | None = None
+        self._start_time: float = time.time()
         self.inode_link_index = InodeLinkIndex(Path(config.video_directory))
         self.inode_link_index.refresh()
         self._setup_logging()
         self._warn_ephemeral_secret_key()
+        self._warn_legacy_flask_env()
         self._warn_behind_proxy()
         self._warn_non_production()
         self._setup_rate_limiting()
@@ -91,12 +93,21 @@ class MediaRelayServer:
                 "VIDEO_SERVER_BEHIND_PROXY and VIDEO_SERVER_PROXY_TRUSTED are enabled."
             )
 
+    def _warn_legacy_flask_env(self) -> None:
+        """Warn when the deprecated FLASK_ENV variable is still set."""
+        if os.getenv("FLASK_ENV") is not None:
+            self.app.logger.warning(
+                "FLASK_ENV is deprecated and ignored. Set VIDEO_SERVER_PRODUCTION=true "
+                "for production credential and cookie checks."
+            )
+
     def _warn_non_production(self) -> None:
         """Warn when production-only validation rules are not active."""
         if not self.config.is_production():
             self.app.logger.warning(
-                "FLASK_ENV is not 'production'; production credential and cookie "
-                "checks are disabled. Set FLASK_ENV=production before going live."
+                "VIDEO_SERVER_PRODUCTION is not enabled; production credential and "
+                "cookie checks are disabled. Set VIDEO_SERVER_PRODUCTION=true before "
+                "going live."
             )
 
     def _schedule_next_lockout_cleanup(self) -> None:
@@ -311,7 +322,7 @@ def main(
         if debug:
             if config.is_production():
                 raise ValueError(
-                    "Cannot enable --debug when FLASK_ENV=production. "
+                    "Cannot enable --debug when VIDEO_SERVER_PRODUCTION=true. "
                     "Debug mode must not be used in production."
                 )
             config.debug = True

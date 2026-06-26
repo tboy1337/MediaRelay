@@ -69,7 +69,7 @@ def server_config(
     monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(temp_log_dir))
     monkeypatch.setenv("VIDEO_SERVER_DEBUG", "true")
     monkeypatch.setenv("VIDEO_SERVER_RATE_LIMIT", "false")
-    monkeypatch.setenv("FLASK_ENV", "testing")
+    monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "false")
 
     return ServerConfig()
 

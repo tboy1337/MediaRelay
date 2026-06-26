@@ -450,7 +450,7 @@ class ServerConfig:
 
     def is_production(self) -> bool:
         """Check if running in production environment"""
-        return os.getenv("FLASK_ENV", "development") == "production"
+        return _parse_bool_env("VIDEO_SERVER_PRODUCTION", "false")
 
     @property
     def credential_epoch(self) -> str:
@@ -585,8 +585,8 @@ def validate_deployment_config(config_file: Path | None = None) -> ServerConfig:
 
     if not config.is_production():
         raise ValueError(
-            "FLASK_ENV must be 'production' for deployment validation. "
-            "Set FLASK_ENV=production in your environment or .env file."
+            "VIDEO_SERVER_PRODUCTION must be true for deployment validation. "
+            "Set VIDEO_SERVER_PRODUCTION=true in your environment or .env file."
         )
 
     _validate_deployment_settings(config)
@@ -658,7 +658,7 @@ VIDEO_SERVER_PROXY_TRUSTED=false
 VIDEO_SERVER_HSTS=false
 
 # Environment (production enforces real credentials at startup)
-FLASK_ENV=production
+VIDEO_SERVER_PRODUCTION=true
 """
 
     env_file = Path(".env.example")

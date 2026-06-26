@@ -665,6 +665,19 @@ class TestHealthEndpointSecurity:
         assert "video_directory_accessible" in data
         assert "rate_limiting_enabled" in data
 
+    def test_health_uptime_is_positive_and_increases(
+        self, authenticated_client, temp_video_dir  # pylint: disable=unused-argument
+    ) -> None:
+        """Authenticated health responses report monotonic server uptime."""
+        import time
+
+        first = json.loads(authenticated_client.get("/health").data)
+        assert first["uptime_seconds"] >= 0
+
+        time.sleep(0.05)
+        second = json.loads(authenticated_client.get("/health").data)
+        assert second["uptime_seconds"] >= first["uptime_seconds"]
+
     def test_health_returns_correct_status_code(self, test_client):
         """Test health endpoint returns appropriate status codes"""
         response = test_client.get("/health")

@@ -85,7 +85,7 @@ class TestMediaRelayServerComprehensive:
     def test_server_initialization_with_all_features(self):
         """Test server initialization with all features enabled"""
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch.dict(os.environ, {"FLASK_ENV": "development"}):
+            with patch.dict(os.environ, {"VIDEO_SERVER_PRODUCTION": "false"}):
                 config = ServerConfig(
                     video_directory=temp_dir,
                     password_hash="test_hash",
@@ -751,7 +751,7 @@ class TestSecurityHeaders:
         monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(tmp_path / "logs"))
         monkeypatch.setenv("VIDEO_SERVER_HSTS", "true")
         monkeypatch.setenv("VIDEO_SERVER_BEHIND_PROXY", "false")
-        monkeypatch.setenv("FLASK_ENV", "testing")
+        monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "false")
 
         server = MediaRelayServer(ServerConfig())
         with server.app.test_client() as client:
@@ -1245,7 +1245,7 @@ class TestSessionCookieWiring:
         """Session cookie settings from config are applied to Flask"""
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
-        monkeypatch.setenv("FLASK_ENV", "testing")
+        monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "false")
 
         config = ServerConfig(
             video_directory=str(video_dir),
@@ -1315,19 +1315,27 @@ class TestServerWarnings:
         assert "VIDEO_SERVER_BEHIND_PROXY is enabled" in mock_warning.call_args[0][0]
 
     def test_warn_non_production_logs_warning(self, test_server, monkeypatch):
-        """Warn when FLASK_ENV is not production."""
-        monkeypatch.setenv("FLASK_ENV", "development")
+        """Warn when VIDEO_SERVER_PRODUCTION is not enabled."""
+        monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "false")
         with patch.object(test_server.app.logger, "warning") as mock_warning:
             test_server._warn_non_production()
         mock_warning.assert_called_once()
-        assert "FLASK_ENV is not 'production'" in mock_warning.call_args[0][0]
+        assert "VIDEO_SERVER_PRODUCTION is not enabled" in mock_warning.call_args[0][0]
 
     def test_warn_non_production_silent_in_production(self, test_server, monkeypatch):
-        """No warning when FLASK_ENV is production."""
-        monkeypatch.setenv("FLASK_ENV", "production")
+        """No warning when VIDEO_SERVER_PRODUCTION is enabled."""
+        monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "true")
         with patch.object(test_server.app.logger, "warning") as mock_warning:
             test_server._warn_non_production()
         mock_warning.assert_not_called()
+
+    def test_warn_legacy_flask_env_logs_warning(self, test_server, monkeypatch):
+        """Warn when deprecated FLASK_ENV is still set."""
+        monkeypatch.setenv("FLASK_ENV", "production")
+        with patch.object(test_server.app.logger, "warning") as mock_warning:
+            test_server._warn_legacy_flask_env()
+        mock_warning.assert_called_once()
+        assert "FLASK_ENV is deprecated" in mock_warning.call_args[0][0]
 
 
 class TestMainCliOptions:
@@ -1378,7 +1386,7 @@ class TestMainCliOptions:
     def test_main_debug_in_production_rejected(
         self, mock_load_config, mock_server_class
     ):
-        """--debug with FLASK_ENV=production is rejected."""
+        """--debug with VIDEO_SERVER_PRODUCTION=true is rejected."""
         from click.testing import CliRunner
 
         mock_config = MagicMock()
@@ -1657,7 +1665,7 @@ class TestProductionAuditFixes:
         monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(tmp_path / "logs"))
         monkeypatch.setenv("VIDEO_SERVER_BEHIND_PROXY", "true")
         monkeypatch.setenv("VIDEO_SERVER_PROXY_TRUSTED", "true")
-        monkeypatch.setenv("FLASK_ENV", "testing")
+        monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "false")
 
         server = MediaRelayServer(ServerConfig())
         assert type(server.app.wsgi_app).__name__ == "ProxyFix"
@@ -1672,7 +1680,7 @@ class TestProductionAuditFixes:
         monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(tmp_path / "logs"))
         monkeypatch.setenv("VIDEO_SERVER_BEHIND_PROXY", "true")
         monkeypatch.setenv("VIDEO_SERVER_PROXY_TRUSTED", "false")
-        monkeypatch.setenv("FLASK_ENV", "testing")
+        monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "false")
 
         server = MediaRelayServer(ServerConfig())
         assert type(server.app.wsgi_app).__name__ != "ProxyFix"

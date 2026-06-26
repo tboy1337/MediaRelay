@@ -686,7 +686,7 @@ class TestMaxFileSizeConfiguration:
         with patch.dict(
             os.environ,
             {
-                "FLASK_ENV": "production",
+                "VIDEO_SERVER_PRODUCTION": "true",
                 "VIDEO_SERVER_SECRET_KEY": "secure-test-production-key",
             },
         ):
@@ -695,7 +695,7 @@ class TestMaxFileSizeConfiguration:
             )
             assert config.is_production() is True
 
-        with patch.dict(os.environ, {"FLASK_ENV": "development"}):
+        with patch.dict(os.environ, {"VIDEO_SERVER_PRODUCTION": "false"}):
             config = ServerConfig(
                 password_hash="test_hash", video_directory=str(Path.home())
             )
@@ -728,21 +728,21 @@ class TestServerConfigMethodsComprehensive:
         config = ServerConfig(video_directory=str(video_dir), password_hash="test_hash")
 
         # Test production environment
-        with patch.dict(os.environ, {"FLASK_ENV": "production"}):
+        with patch.dict(os.environ, {"VIDEO_SERVER_PRODUCTION": "true"}):
             assert config.is_production() is True
 
         # Test development environment
-        with patch.dict(os.environ, {"FLASK_ENV": "development"}):
+        with patch.dict(os.environ, {"VIDEO_SERVER_PRODUCTION": "false"}):
             assert config.is_production() is False
 
         # Test other values (should be False)
-        with patch.dict(os.environ, {"FLASK_ENV": "testing"}):
+        with patch.dict(os.environ, {"VIDEO_SERVER_PRODUCTION": "testing"}):
             assert config.is_production() is False
 
         # Test missing environment variable (should be False)
         with patch.dict(os.environ, {}, clear=True):
-            if "FLASK_ENV" in os.environ:
-                del os.environ["FLASK_ENV"]
+            if "VIDEO_SERVER_PRODUCTION" in os.environ:
+                del os.environ["VIDEO_SERVER_PRODUCTION"]
             assert config.is_production() is False
 
     def test_to_dict_comprehensive_exclusions(self, tmp_path):
@@ -1022,7 +1022,7 @@ class TestProductionSecretKeyValidation:
         with patch.dict(
             os.environ,
             {
-                "FLASK_ENV": "production",
+                "VIDEO_SERVER_PRODUCTION": "true",
                 "VIDEO_SERVER_SECRET_KEY": "your-secret-key-here",
             },
         ):
@@ -1038,7 +1038,7 @@ class TestProductionSecretKeyValidation:
         video_dir.mkdir()
 
         env = {
-            "FLASK_ENV": "production",
+            "VIDEO_SERVER_PRODUCTION": "true",
             "VIDEO_SERVER_DEBUG": "false",
         }
         with patch.dict(os.environ, env, clear=False):
@@ -1057,7 +1057,7 @@ class TestProductionSecretKeyValidation:
         with patch.dict(
             os.environ,
             {
-                "FLASK_ENV": "production",
+                "VIDEO_SERVER_PRODUCTION": "true",
                 "VIDEO_SERVER_SECRET_KEY": "secure-production-key",
                 "VIDEO_SERVER_DEBUG": "true",
             },
@@ -1174,7 +1174,7 @@ class TestDeploymentConfigValidation:
             f"VIDEO_SERVER_SECRET_KEY=secure-production-key\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
-            f"FLASK_ENV=production\n",
+            f"VIDEO_SERVER_PRODUCTION=true\n",
             encoding="utf-8",
         )
 
@@ -1182,7 +1182,7 @@ class TestDeploymentConfigValidation:
         validate_deployment_config(env_file)
 
     def test_deployment_config_rejects_non_production(self, tmp_path):
-        """Deployment validation requires FLASK_ENV=production"""
+        """Deployment validation requires VIDEO_SERVER_PRODUCTION=true"""
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
 
@@ -1191,11 +1191,11 @@ class TestDeploymentConfigValidation:
             f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
             f"VIDEO_SERVER_SECRET_KEY=secure-production-key\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
-            f"FLASK_ENV=development\n",
+            f"VIDEO_SERVER_PRODUCTION=false\n",
             encoding="utf-8",
         )
 
-        with pytest.raises(ValueError, match="FLASK_ENV must be 'production'"):
+        with pytest.raises(ValueError, match="VIDEO_SERVER_PRODUCTION must be true"):
             validate_deployment_config(env_file)
 
     def test_deployment_config_rejects_placeholder_secret(self, tmp_path):
@@ -1208,7 +1208,7 @@ class TestDeploymentConfigValidation:
             f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
             f"VIDEO_SERVER_SECRET_KEY=your-secret-key-here\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
-            f"FLASK_ENV=production\n",
+            f"VIDEO_SERVER_PRODUCTION=true\n",
             encoding="utf-8",
         )
 
@@ -1225,7 +1225,7 @@ class TestDeploymentConfigValidation:
             f"VIDEO_SERVER_PASSWORD_HASH=your-password-hash-here\n"
             f"VIDEO_SERVER_SECRET_KEY=secure-production-key\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
-            f"FLASK_ENV=production\n",
+            f"VIDEO_SERVER_PRODUCTION=true\n",
             encoding="utf-8",
         )
 
@@ -1297,11 +1297,11 @@ class TestConfigProductionAuditEdgeCases:
             f"VIDEO_SERVER_PASSWORD_HASH=test_hash\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_USERNAME=envuser\n"
-            f"FLASK_ENV=development\n",
+            f"VIDEO_SERVER_PRODUCTION=false\n",
             encoding="utf-8",
         )
         monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("FLASK_ENV", raising=False)
+        monkeypatch.delenv("VIDEO_SERVER_PRODUCTION", raising=False)
         config = load_config()
         assert config.username == "envuser"
 
@@ -1367,7 +1367,7 @@ class TestConfigProductionAuditEdgeCases:
             f"VIDEO_SERVER_SECRET_KEY=secure-production-key\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
-            f"FLASK_ENV=production\n",
+            f"VIDEO_SERVER_PRODUCTION=true\n",
             encoding="utf-8",
         )
 
@@ -1398,7 +1398,7 @@ class TestConfigProductionAuditEdgeCases:
             f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
             f"VIDEO_SERVER_HOST=0.0.0.0\n"
             f"VIDEO_SERVER_BEHIND_PROXY=false\n"
-            f"FLASK_ENV=production\n",
+            f"VIDEO_SERVER_PRODUCTION=true\n",
             encoding="utf-8",
         )
 
@@ -1493,7 +1493,7 @@ class TestConfigProductionAuditEdgeCases:
         with patch.dict(
             os.environ,
             {
-                "FLASK_ENV": "production",
+                "VIDEO_SERVER_PRODUCTION": "true",
                 "VIDEO_SERVER_SECRET_KEY": "secure-production-key",
                 "VIDEO_SERVER_SESSION_COOKIE_SECURE": "false",
             },
@@ -1528,7 +1528,7 @@ class TestConfigProductionAuditEdgeCases:
                 "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
                 "VIDEO_SERVER_DEBUG": " true ",
-                "FLASK_ENV": "development",
+                "VIDEO_SERVER_PRODUCTION": "false",
             },
         ):
             config = ServerConfig(log_directory=str(tmp_path / "logs"))

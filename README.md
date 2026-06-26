@@ -204,7 +204,7 @@ VIDEO_SERVER_LOG_DIR=./logs
 VIDEO_SERVER_LOG_CONSOLE=true
 
 # Production mode (rejects placeholder credentials)
-FLASK_ENV=production
+VIDEO_SERVER_PRODUCTION=true
 ```
 
 ## Development

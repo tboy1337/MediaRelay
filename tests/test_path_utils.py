@@ -390,6 +390,31 @@ class TestInodeLinkIndex:
         count = index.count_links(stat_result.st_ino, stat_result.st_dev)
         assert count == 1
 
+    def test_refresh_skips_when_fingerprint_unchanged(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        (video_dir / "clip.mp4").write_text("content", encoding="utf-8")
+
+        index = InodeLinkIndex(video_dir)
+        index.refresh()
+        with patch("mediarelay.path_utils._build_inode_counts") as mock_build:
+            index.refresh()
+            mock_build.assert_not_called()
+
+    def test_refresh_runs_after_directory_change(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        (video_dir / "clip.mp4").write_text("content", encoding="utf-8")
+
+        index = InodeLinkIndex(video_dir)
+        index.refresh()
+
+        (video_dir / "new_clip.mp4").write_text("more", encoding="utf-8")
+        index.refresh()
+
+        new_stat = (video_dir / "new_clip.mp4").stat()
+        assert index.count_links(new_stat.st_ino, new_stat.st_dev) == 1
+
     def test_hardlink_check_falls_back_when_inode_index_misses(
         self, tmp_path: Path
     ) -> None:

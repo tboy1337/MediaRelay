@@ -69,7 +69,7 @@ Run `python scripts/verify.py` locally before release; it enforces black, isort,
 
 ## Production Deployment Checklist
 
-1. Set `FLASK_ENV=production` and run `mediarelay-validate` before going live.
+1. Set `VIDEO_SERVER_PRODUCTION=true` and run `mediarelay-validate` before going live.
 2. Generate credentials with `mediarelay-genpass` (or `mediarelay-genpass --non-interactive` for scripts).
 3. **Terminate TLS** at nginx, Caddy, or another reverse proxy. Do not expose plain HTTP to the internet.
 4. Bind to `127.0.0.1` when using a reverse proxy; use firewall rules if binding to `0.0.0.0`. `mediarelay-validate` warns when `0.0.0.0` is used without `VIDEO_SERVER_BEHIND_PROXY`.

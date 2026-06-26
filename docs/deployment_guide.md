@@ -129,7 +129,7 @@ VIDEO_SERVER_LOCKOUT_DURATION=900
 VIDEO_SERVER_BEHIND_PROXY=false
 
 # Environment (required for production credential validation)
-FLASK_ENV=production
+VIDEO_SERVER_PRODUCTION=true
 ```
 
 #### Generate Password Hash
@@ -232,7 +232,7 @@ Keep `VIDEO_SERVER_SESSION_COOKIE_SECURE=true` when serving over HTTPS. For plai
 
 After `VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS` failed logins (default 5) from the same client IP and username, the account is locked for `VIDEO_SERVER_LOCKOUT_DURATION` seconds (default 900 / 15 minutes). Locked clients receive HTTP 401 responses with a `Retry-After` header. Adjust both values in `.env` if needed.
 
-Set `FLASK_ENV=production` in production so placeholder secret keys and password hashes are rejected at startup.
+Set `VIDEO_SERVER_PRODUCTION=true` in production so placeholder secret keys and password hashes are rejected at startup.
 
 ### 2. Process Management
 

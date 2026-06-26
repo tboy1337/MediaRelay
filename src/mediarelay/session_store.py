@@ -16,12 +16,17 @@ class SessionAuthState:
     login_time: float | None
     login_ip: str | None
     username: str | None
-    credential_epoch: object
+    credential_epoch: str | None
 
 
-def _session_value(key: str, default: object) -> object:
+def _session_value(
+    key: str, default: str | bool | float | None
+) -> str | bool | float | None:
     """Read a value from the Flask session with a typed boundary."""
-    return session.get(key, default)
+    value = session.get(key, default)
+    if isinstance(value, (str, bool, float)) or value is None:
+        return value
+    return default
 
 
 def is_session_authenticated() -> bool:
@@ -57,9 +62,10 @@ def get_session_username() -> str:
     return str(value) if value is not None else "unknown"
 
 
-def get_session_credential_epoch() -> object:
+def get_session_credential_epoch() -> str | None:
     """Return the credential epoch stored in the session."""
-    return _session_value("credential_epoch", None)
+    value = _session_value("credential_epoch", None)
+    return value if isinstance(value, str) else None
 
 
 def read_session_auth_state() -> SessionAuthState | None:
@@ -90,7 +96,7 @@ def establish_session(
     username: str,
     current_time: float,
     login_ip: str,
-    credential_epoch: object,
+    credential_epoch: str,
 ) -> None:
     """Create a fresh authenticated session."""
     session.clear()

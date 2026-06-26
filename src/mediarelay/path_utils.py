@@ -158,27 +158,23 @@ class InodeLinkIndex:
         self._jail_root = jail_root.resolve()
         self._counts: dict[tuple[int, int], int] = {}
         self._lock = threading.Lock()
+        self._fingerprint: tuple[int, int] | None = None
 
-    def refresh(self) -> None:
+    def refresh(self, *, force: bool = False) -> None:
         """Rebuild the inode link count index from the jail root."""
-        counts: dict[tuple[int, int], int] = {}
-        try:
-            jail_stat = self._jail_root.stat()
-            key = (jail_stat.st_dev, jail_stat.st_ino)
-            counts[key] = counts.get(key, 0) + 1
-        except OSError:
-            pass
+        fingerprint = _compute_jail_fingerprint(self._jail_root)
+        with self._lock:
+            if not force and fingerprint == self._fingerprint:
+                _PATH_LOGGER.debug(
+                    "Inode index refresh skipped; jail fingerprint unchanged"
+                )
+                return
 
-        for path in self._jail_root.rglob("*"):
-            try:
-                stat_result = path.lstat() if path.is_symlink() else path.stat()
-            except OSError:
-                continue
-            key = (stat_result.st_dev, stat_result.st_ino)
-            counts[key] = counts.get(key, 0) + 1
+        counts = _build_inode_counts(self._jail_root)
 
         with self._lock:
             self._counts = counts
+            self._fingerprint = fingerprint
 
     def count_links(self, ino: int, dev: int) -> int | None:
         """Return cached link count for an inode, or None when not indexed."""
@@ -186,22 +182,86 @@ class InodeLinkIndex:
             return self._counts.get((dev, ino))
 
 
+def _count_jail_entries(root: Path) -> int:
+    """Count directory entries under root without collecting paths."""
+    count = 0
+    stack: list[Path] = [root]
+    while stack:
+        current = stack.pop()
+        try:
+            with os.scandir(current) as entries:
+                for entry in entries:
+                    count += 1
+                    if entry.is_dir(follow_symlinks=False):
+                        stack.append(Path(entry.path))
+        except OSError:
+            continue
+    return count
+
+
+def _compute_jail_fingerprint(jail_root: Path) -> tuple[int, int]:
+    """Return a cheap fingerprint of the jail tree for refresh skip decisions."""
+    try:
+        jail_stat = jail_root.stat()
+        mtime_ns = jail_stat.st_mtime_ns
+    except OSError:
+        return (0, 0)
+
+    return (mtime_ns, _count_jail_entries(jail_root))
+
+
+def _scandir_walk(root: Path) -> list[Path]:
+    """Walk a directory tree using os.scandir for lower overhead than rglob."""
+    paths: list[Path] = []
+    stack: list[Path] = [root]
+    while stack:
+        current = stack.pop()
+        try:
+            with os.scandir(current) as entries:
+                for entry in entries:
+                    entry_path = Path(entry.path)
+                    paths.append(entry_path)
+                    if entry.is_dir(follow_symlinks=False):
+                        stack.append(entry_path)
+        except OSError:
+            continue
+    return paths
+
+
+def _inode_key_for_path(path: Path) -> tuple[int, int] | None:
+    """Return the (dev, ino) key for a path, or None when stat fails."""
+    try:
+        stat_result = path.lstat() if path.is_symlink() else path.stat()
+    except OSError:
+        return None
+    return (stat_result.st_dev, stat_result.st_ino)
+
+
+def _build_inode_counts(jail_root: Path) -> dict[tuple[int, int], int]:
+    """Count inode references for every path entry under the jail root."""
+    counts: dict[tuple[int, int], int] = {}
+    jail_key = _inode_key_for_path(jail_root)
+    if jail_key is not None:
+        counts[jail_key] = counts.get(jail_key, 0) + 1
+
+    for path in _scandir_walk(jail_root):
+        key = _inode_key_for_path(path)
+        if key is None:
+            continue
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
 def _count_inode_links_under_jail(ino: int, dev: int, jail_root: Path) -> int:
     """Count directory entries under jail_root that reference the given inode."""
     count = 0
-    try:
-        jail_stat = jail_root.stat()
-        if jail_stat.st_ino == ino and jail_stat.st_dev == dev:
-            count += 1
-    except OSError:
-        pass
+    jail_key = _inode_key_for_path(jail_root)
+    if jail_key is not None and jail_key == (dev, ino):
+        count += 1
 
-    for path in jail_root.rglob("*"):
-        try:
-            stat_result = path.lstat() if path.is_symlink() else path.stat()
-        except OSError:
-            continue
-        if stat_result.st_ino == ino and stat_result.st_dev == dev:
+    for path in _scandir_walk(jail_root):
+        key = _inode_key_for_path(path)
+        if key == (dev, ino):
             count += 1
     return count
 
