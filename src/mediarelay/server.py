@@ -284,7 +284,7 @@ class MediaRelayServer:
         except KeyboardInterrupt:
             self.app.logger.info("Server shutdown requested")
             print("\nServer stopped")
-        except Exception as error:
+        except Exception as error:  # pylint: disable=broad-exception-caught
             self.app.logger.error(f"Server error: {str(error)}", exc_info=True)
             raise
         finally:

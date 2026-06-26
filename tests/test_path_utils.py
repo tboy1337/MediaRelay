@@ -11,6 +11,7 @@ import pytest
 from mediarelay.config import ServerConfig
 from mediarelay.path_utils import (
     InodeLinkIndex,
+    _compute_jail_fingerprint,
     _is_hardlink_outside_jail,
     _log_path_violation,
     get_breadcrumbs,
@@ -428,6 +429,34 @@ class TestInodeLinkIndex:
         with patch("mediarelay.path_utils._build_inode_counts") as mock_build:
             index.refresh()
             mock_build.assert_not_called()
+
+    def test_refresh_force_rebuilds_when_fingerprint_unchanged(
+        self, tmp_path: Path
+    ) -> None:
+        """force=True must rebuild the inode index even when the jail is unchanged."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        (video_dir / "clip.mp4").write_text("content", encoding="utf-8")
+
+        index = InodeLinkIndex(video_dir)
+        index.refresh()
+        with patch("mediarelay.path_utils._build_inode_counts") as mock_build:
+            index.refresh(force=True)
+            mock_build.assert_called_once()
+
+    def test_compute_jail_fingerprint_oserror_returns_zero(
+        self, tmp_path: Path
+    ) -> None:
+        """Fingerprint falls back to (0, 0) when jail stat fails."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+
+        with patch.object(
+            Path,
+            "stat",
+            side_effect=OSError("permission denied"),
+        ):
+            assert _compute_jail_fingerprint(video_dir) == (0, 0)
 
     def test_refresh_runs_after_directory_change(self, tmp_path: Path) -> None:
         video_dir = tmp_path / "videos"

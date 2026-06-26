@@ -1313,6 +1313,168 @@ class TestEnvFilePermissions:
 
         mock_warning.assert_not_called()
 
+    def test_icacls_missing_no_warning_windows(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No warning when icacls is not available on Windows."""
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            "VIDEO_SERVER_PASSWORD_HASH=scrypt:32768:8:1$PDnabs9h0vTp3nMK$ccdda3d296c0b59f5c875706be7ebdea90caf06a35aa97697c26ce4748a970b31202791996afe2c53604defce4d71a7ff2a0a2e9a78a52cd8246d3081ca57dab\n",
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(tmp_path)
+
+        with (
+            patch("mediarelay.config.os.name", "nt"),
+            patch("mediarelay.config.shutil.which", return_value=None),
+            patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning,
+        ):
+            load_config()
+
+        mock_warning.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "subprocess_error",
+        [
+            OSError("icacls unavailable"),
+            subprocess.SubprocessError("icacls failed"),
+        ],
+    )
+    def test_icacls_subprocess_error_no_warning_windows(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        subprocess_error: BaseException,
+    ) -> None:
+        """No warning when icacls subprocess invocation fails on Windows."""
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            "VIDEO_SERVER_PASSWORD_HASH=scrypt:32768:8:1$PDnabs9h0vTp3nMK$ccdda3d296c0b59f5c875706be7ebdea90caf06a35aa97697c26ce4748a970b31202791996afe2c53604defce4d71a7ff2a0a2e9a78a52cd8246d3081ca57dab\n",
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(tmp_path)
+
+        with (
+            patch("mediarelay.config.os.name", "nt"),
+            patch(
+                "mediarelay.config.shutil.which",
+                return_value=r"C:\Windows\System32\icacls.exe",
+            ),
+            patch(
+                "mediarelay.config.subprocess.run",
+                side_effect=subprocess_error,
+            ),
+            patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning,
+        ):
+            load_config()
+
+        mock_warning.assert_not_called()
+
+    def test_icacls_nonzero_returncode_no_warning_windows(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No warning when icacls exits with a non-zero status on Windows."""
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            "VIDEO_SERVER_PASSWORD_HASH=scrypt:32768:8:1$PDnabs9h0vTp3nMK$ccdda3d296c0b59f5c875706be7ebdea90caf06a35aa97697c26ce4748a970b31202791996afe2c53604defce4d71a7ff2a0a2e9a78a52cd8246d3081ca57dab\n",
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(tmp_path)
+
+        completed = subprocess.CompletedProcess(
+            args=["icacls", str(env_file)],
+            returncode=1,
+            stdout="",
+            stderr="Access denied",
+        )
+
+        with (
+            patch("mediarelay.config.os.name", "nt"),
+            patch(
+                "mediarelay.config.shutil.which",
+                return_value=r"C:\Windows\System32\icacls.exe",
+            ),
+            patch("mediarelay.config.subprocess.run", return_value=completed),
+            patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning,
+        ):
+            load_config()
+
+        mock_warning.assert_not_called()
+
+    def test_icacls_line_without_read_flag_skipped_windows(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Lines without read permission flags are ignored on Windows."""
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            "VIDEO_SERVER_PASSWORD_HASH=scrypt:32768:8:1$PDnabs9h0vTp3nMK$ccdda3d296c0b59f5c875706be7ebdea90caf06a35aa97697c26ce4748a970b31202791996afe2c53604defce4d71a7ff2a0a2e9a78a52cd8246d3081ca57dab\n",
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(tmp_path)
+
+        completed = subprocess.CompletedProcess(
+            args=["icacls", str(env_file)],
+            returncode=0,
+            stdout=f"{env_file} Everyone:(F)\n",
+            stderr="",
+        )
+
+        with (
+            patch("mediarelay.config.os.name", "nt"),
+            patch(
+                "mediarelay.config.shutil.which",
+                return_value=r"C:\Windows\System32\icacls.exe",
+            ),
+            patch("mediarelay.config.subprocess.run", return_value=completed),
+            patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning,
+        ):
+            load_config()
+
+        mock_warning.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "principal",
+        [
+            "Everyone",
+            r"BUILTIN\Users",
+            r"NT AUTHORITY\Authenticated Users",
+        ],
+    )
+    def test_world_readable_env_file_logs_warning_windows_principals(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        principal: str,
+    ) -> None:
+        """Warn when icacls shows broad read access for each risky principal."""
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            "VIDEO_SERVER_PASSWORD_HASH=scrypt:32768:8:1$PDnabs9h0vTp3nMK$ccdda3d296c0b59f5c875706be7ebdea90caf06a35aa97697c26ce4748a970b31202791996afe2c53604defce4d71a7ff2a0a2e9a78a52cd8246d3081ca57dab\n",
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(tmp_path)
+
+        completed = subprocess.CompletedProcess(
+            args=["icacls", str(env_file)],
+            returncode=0,
+            stdout=f"{env_file} {principal}:(R)\n",
+            stderr="",
+        )
+
+        with (
+            patch("mediarelay.config.os.name", "nt"),
+            patch(
+                "mediarelay.config.shutil.which",
+                return_value=r"C:\Windows\System32\icacls.exe",
+            ),
+            patch("mediarelay.config.subprocess.run", return_value=completed),
+            patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning,
+        ):
+            load_config()
+
+        mock_warning.assert_called_once()
+        assert principal in mock_warning.call_args[0]
+
 
 class TestDeploymentConfigValidation:
     """Test deployment pre-flight configuration checks"""

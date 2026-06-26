@@ -765,6 +765,37 @@ class TestMaxFileSizeHandling:
         finally:
             server._shutdown_cleanup()
 
+    def test_stream_allows_large_file_when_max_file_size_zero(
+        self, tmp_path: Path
+    ) -> None:
+        """Streaming must not enforce size limits when VIDEO_SERVER_MAX_FILE_SIZE is 0."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        video_file = video_dir / "large.mp4"
+        video_file.write_text("x" * 64, encoding="utf-8")
+
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash=generate_password_hash("testpass"),
+            username="testuser",
+            max_file_size=0,
+        )
+        server = MediaRelayServer(config)
+        server.security_logger = MagicMock()
+        server.app.config["TESTING"] = True
+
+        credentials = base64.b64encode(b"testuser:testpass").decode("utf-8")
+        try:
+            with server.app.test_client() as client:
+                response = client.get(
+                    "/stream/large.mp4",
+                    headers={"Authorization": f"Basic {credentials}"},
+                )
+                assert response.status_code == 200
+                server.security_logger.log_security_violation.assert_not_called()
+        finally:
+            server._shutdown_cleanup()
+
 
 class TestSecurityHeaders:
     """Test cases for security headers"""
@@ -1059,8 +1090,12 @@ class TestServerRunMethod:
             )
             server = MediaRelayServer(config)
 
-            with pytest.raises(RuntimeError):
-                server.run()
+            with patch.object(server.app.logger, "error") as mock_error:
+                with pytest.raises(RuntimeError):
+                    server.run()
+
+            mock_error.assert_called_once()
+            assert "Server error" in mock_error.call_args[0][0]
 
     @patch("mediarelay.server.serve")
     def test_run_method_generic_exception_calls_cleanup(self, mock_serve):
@@ -1556,6 +1591,36 @@ class TestGracefulShutdown:
             with patch("mediarelay.server.signal.signal", side_effect=capture_signal):
                 with patch.object(server, "_shutdown_cleanup"):
                     server.run()
+
+    @patch("mediarelay.server.serve")
+    def test_run_registers_sigint_only_when_sigterm_unavailable(self, mock_serve):
+        """Only SIGINT is registered when SIGTERM is unavailable on the platform."""
+        registered: list[int] = []
+        real_hasattr = hasattr
+
+        def capture_signal(signum: int, _handler: object) -> None:
+            registered.append(signum)
+
+        def fake_hasattr(obj: object, name: str) -> bool:
+            if obj is signal and name == "SIGTERM":
+                return False
+            return real_hasattr(obj, name)
+
+        mock_serve.side_effect = KeyboardInterrupt()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = ServerConfig(
+                video_directory=temp_dir, password_hash=TEST_PASSWORD_HASH
+            )
+            server = MediaRelayServer(config)
+            with (
+                patch("builtins.hasattr", side_effect=fake_hasattr),
+                patch("mediarelay.server.signal.signal", side_effect=capture_signal),
+                patch.object(server, "_shutdown_cleanup"),
+            ):
+                server.run()
+
+        assert registered == [signal.SIGINT]
 
     def test_stream_revalidation_failure_returns_404(self, authenticated_client):
         """Stream returns 404 when pre-serve revalidation fails (TOCTOU)."""

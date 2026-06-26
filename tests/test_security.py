@@ -125,6 +125,19 @@ class TestAccountLockoutManager:
         assert removed == 1
         assert "192.168.1.1:testuser" not in manager._trackers
 
+    def test_cleanup_expired_stale_attempts_with_failed_count(self) -> None:
+        """Stale trackers with prior failed attempts are removed after lockout duration."""
+        manager = AccountLockoutManager(max_attempts=3, lockout_duration=1)
+        manager._trackers["192.168.1.1:testuser"] = LoginAttemptTracker(
+            failed_attempts=2,
+            lockout_until=0.0,
+            last_attempt=time.time() - 10,
+        )
+
+        removed = manager.cleanup_expired()
+        assert removed == 1
+        assert "192.168.1.1:testuser" not in manager._trackers
+
     def test_lockout_expiry(self) -> None:
         """Test that lockout expires after duration"""
         manager = AccountLockoutManager(max_attempts=1, lockout_duration=0)
