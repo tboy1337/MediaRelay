@@ -243,8 +243,10 @@ INDEX_HTML_TEMPLATE = """
     <div class="container">
         {% if csrf_token %}
         <div class="header-actions">
-            <button type="button" class="logout-btn" id="logout-btn"
-                    data-csrf-token="{{ csrf_token }}">Log out</button>
+            <form method="POST" action="/logout">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="logout-btn">Log out</button>
+            </form>
         </div>
         {% endif %}
         {% if video_file %}
@@ -343,31 +345,6 @@ INDEX_HTML_TEMPLATE = """
             </div>
         {% endif %}
     </div>
-    {% if csrf_token %}
-    <script>
-        (function () {
-            var btn = document.getElementById("logout-btn");
-            if (!btn) {
-                return;
-            }
-            btn.addEventListener("click", function () {
-                var token = btn.getAttribute("data-csrf-token");
-                if (!token) {
-                    return;
-                }
-                fetch("/logout", {
-                    method: "POST",
-                    headers: { "X-CSRF-Token": token },
-                    credentials: "same-origin"
-                }).then(function (response) {
-                    if (response.ok || response.status === 401) {
-                        window.location.href = "/";
-                    }
-                });
-            });
-        })();
-    </script>
-    {% endif %}
 </body>
 </html>
 """

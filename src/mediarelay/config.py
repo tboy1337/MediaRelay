@@ -6,8 +6,10 @@ for production deployment.
 """
 
 import hashlib
+import ipaddress
 import logging
 import os
+import re
 import secrets
 import shutil
 import stat
@@ -237,8 +239,35 @@ def _validate_credentials(config: "ServerConfig") -> None:
     _validate_password_hash_format(config.password_hash)
 
 
+_HOSTNAME_RE = re.compile(
+    r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)"
+    r"(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*$"
+)
+
+
+def _validate_host(host: str) -> None:
+    """Reject empty or syntactically invalid bind addresses."""
+    if not host or not host.strip():
+        raise ValueError("VIDEO_SERVER_HOST cannot be empty.")
+
+    normalized = host.strip()
+    try:
+        ipaddress.ip_address(normalized)
+        return
+    except ValueError:
+        pass
+
+    if _HOSTNAME_RE.fullmatch(normalized):
+        return
+
+    raise ValueError(
+        f"VIDEO_SERVER_HOST is not a valid IP address or hostname: {host!r}"
+    )
+
+
 def _validate_server_settings(config: "ServerConfig") -> None:
     """Validate server port, threads, file limits, and extensions."""
+    _validate_host(config.host)
     if not config.allowed_extensions:
         raise ValueError(
             "allowed_extensions cannot be empty. "
@@ -331,7 +360,8 @@ def _default_security_headers() -> dict[str, str]:
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "SAMEORIGIN",
         "Content-Security-Policy": (
-            "default-src 'self'; media-src 'self'; style-src 'self' 'unsafe-inline'"
+            "default-src 'self'; media-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; script-src 'none'"
         ),
         "Referrer-Policy": "strict-origin-when-cross-origin",
         "Permissions-Policy": (

@@ -1045,6 +1045,7 @@ class TestSecurityHeaders:
         assert "default-src 'self'" in csp
         assert "media-src 'self'" in csp
         assert "style-src 'self' 'unsafe-inline'" in csp
+        assert "script-src 'none'" in csp
 
     def test_hsts_header_when_hsts_enabled_only(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

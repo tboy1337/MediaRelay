@@ -25,6 +25,7 @@ from mediarelay.constants import (
 from mediarelay.logging_config import (
     PerformanceLogger,
     SecurityEventLogger,
+    _collect_system_info,
     cleanup_logging,
     get_request_logger,
     log_system_info,
@@ -814,6 +815,25 @@ class TestLoggingErrorHandling:
             side_effect=OSError("disk unavailable"),
         ):
             log_system_info(server_config)
+
+
+class TestSystemInfoCollection:
+    """Tests for startup system information collection."""
+
+    def test_collect_system_info_uses_log_directory_for_disk_metric(
+        self, server_config: ServerConfig, tmp_path: Path
+    ) -> None:
+        """disk_free_gb is measured from the configured log directory."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        server_config.log_directory = str(log_dir)
+
+        with patch("mediarelay.logging_config.psutil.disk_usage") as mock_disk:
+            mock_disk.return_value = MagicMock(free=5 * 1024**3)
+            info = _collect_system_info(server_config)
+
+        mock_disk.assert_called_once_with(str(log_dir))
+        assert info["disk_free_gb"] == 5.0
 
 
 class TestLoggingErrorScenarios:

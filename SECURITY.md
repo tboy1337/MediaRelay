@@ -31,7 +31,7 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 - HTTP Basic Authentication with Werkzeug password hashes (scrypt via `mediarelay-genpass`)
 - Session cookies after successful login (HttpOnly, Secure, SameSite configurable)
 - Constant-time username comparison (SHA-256 digest compare via `hmac.compare_digest`; does not leak configured username length)
-- Password verification on every login attempt, including when already locked out (mitigates username timing enumeration); `/health` probes with `record_lockout=false` skip lockout accounting and expensive hash work during lockout
+- Password verification on every login attempt, including when already locked out (mitigates username timing enumeration); `/health` probes with `record_lockout=false` skip lockout accounting but still perform password hash work when credentials are supplied (timing mitigation)
 - Account lockout after repeated failed attempts (per IP + username, and per username across all IPs when `VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED=true`); lockout also terminates active sessions
 - Active lockout entries are never evicted from the lockout tracker when at capacity; trackers with in-progress failed-attempt counters are also preserved (only zero-failure inactive trackers are evicted)
 - When all tracker slots hold active lockouts or in-progress attempt counters, new failed attempts are not recorded and new attackers are not locked out; a `lockout_tracker_capacity_exceeded` security event is logged instead
@@ -92,12 +92,12 @@ Run `python scripts/verify.py` locally before release; it enforces black, isort,
 | Shared-IP lockout | Lockout is keyed by IP + username; users behind the same NAT may affect each other |
 | Single-user model | One username/password pair; no role-based access control |
 | Session IP binding | When `VIDEO_SERVER_SESSION_BIND_IP=true` (default), sessions invalidate when the client IP changes (VPN/mobile networks may require re-login or disabling the setting) |
-| GET logout disabled | Logout requires `POST /logout` with a valid `X-CSRF-Token` header (token issued at login and returned on authenticated HTML directory responses) |
+| GET logout disabled | Logout requires `POST /logout` with a valid CSRF token via `X-CSRF-Token` header or `csrf_token` form field (HTML form submit; no inline JavaScript) |
 | Basic Auth credential caching | Browsers may re-send cached credentials after `POST /logout`; close the browser or use private browsing |
 | Subtitle files (`.srt`, `.vtt`) | Served as `text/plain` with HTML tags and `javascript:`/`data:` URI patterns stripped before delivery; trust only subtitle files you control |
 | Distributed brute force | Username-wide lockout (`VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED`) limits cross-IP attacks; use a strong password |
 | Stream rate limit | `/stream/` has a dedicated high limit; tune `VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE` or restrict network access |
-| CSP inline styles | Embedded UI template requires `style-src 'unsafe-inline'` |
+| CSP inline styles | Embedded UI template requires `style-src 'unsafe-inline'`; scripts are blocked via `script-src 'none'` |
 | Extension-only file filter | No magic-byte content validation; only extension allowlist (custom extensions must match built-in set) |
 | Large directories | Listings above `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES` return HTTP 413 |
 | Hard links in video directory | Cached inode check blocks files also linked outside the jail; keep the video directory non-writable by untrusted users |

@@ -18,7 +18,12 @@ import pytest
 from flask import session
 from werkzeug.security import check_password_hash
 
-from mediarelay.auth import _session_invalid_reason, check_auth, check_authentication
+from mediarelay.auth import (
+    _session_invalid_reason,
+    _username_matches,
+    check_auth,
+    check_authentication,
+)
 from mediarelay.config import ServerConfig
 from mediarelay.constants import (
     DEFAULT_LOCKOUT_DURATION_SECONDS as LOCKOUT_DURATION_SECONDS,
@@ -26,6 +31,7 @@ from mediarelay.constants import (
 from mediarelay.constants import DEFAULT_LOCKOUT_MAX_ATTEMPTS as MAX_FAILED_ATTEMPTS
 from mediarelay.constants import (
     MAX_PATH_LENGTH,
+    MAX_SUBTITLE_FILE_SIZE,
     MAX_URL_LENGTH,
 )
 from mediarelay.handlers import _collect_directory_items
@@ -33,6 +39,7 @@ from mediarelay.lockout import AccountLockoutManager, LoginAttemptTracker
 from mediarelay.logging_config import SecurityEventLogger
 from mediarelay.server import MediaRelayServer
 from mediarelay.session_store import SessionAuthState
+from mediarelay.subtitle_sanitize import sanitize_subtitle_content
 from tests.helpers import authenticate_client
 
 
@@ -591,8 +598,6 @@ class TestAuthModule:
         self, media_relay_server, server_config
     ) -> None:
         """Usernames with different lengths are rejected without raising."""
-        from mediarelay.auth import _username_matches
-
         assert _username_matches(server_config.username, "x") is False
         with media_relay_server.app.test_request_context():
             assert media_relay_server.check_auth("x", "anypassword") is False
@@ -1013,6 +1018,16 @@ class TestLogoutEndpoint:
             response = client.post("/logout", headers={"X-CSRF-Token": "invalid-token"})
             assert response.status_code == 403
 
+    def test_logout_accepts_csrf_form_field(self, media_relay_server, server_config):
+        """POST logout accepts CSRF token in form body."""
+        with media_relay_server.app.test_client() as client:
+            csrf_token = authenticate_client(client, server_config.username, "testpass")
+            response = client.post("/logout", data={"csrf_token": csrf_token})
+            assert response.status_code == 200
+
+            with client.session_transaction() as sess:
+                assert sess.get("authenticated") is None
+
     def test_authenticated_response_includes_csrf_token(
         self, media_relay_server, server_config
     ):
@@ -1030,8 +1045,9 @@ class TestLogoutEndpoint:
             response = client.get("/")
             assert response.status_code == 200
             body = response.get_data(as_text=True)
-            assert 'id="logout-btn"' in body
-            assert "data-csrf-token=" in body
+            assert 'action="/logout"' in body
+            assert 'name="csrf_token"' in body
+            assert "<script>" not in body
             assert "Log out" in body
 
     def test_logout_get_returns_method_not_allowed(
@@ -1047,6 +1063,72 @@ class TestLogoutEndpoint:
             response = client.get("/logout")
             assert response.status_code == 405
             assert "Method Not Allowed" in response.get_data(as_text=True)
+
+
+class TestCsrfTokenHeaderScope:
+    """CSRF token response header is limited to HTML browsing routes."""
+
+    def test_csrf_header_on_authenticated_index(
+        self, media_relay_server, server_config
+    ) -> None:
+        with media_relay_server.app.test_client() as client:
+            authenticate_client(client, server_config.username, "testpass")
+            response = client.get("/")
+            assert response.status_code == 200
+            assert response.headers.get("X-CSRF-Token")
+
+    def test_csrf_header_absent_on_stream(
+        self, media_relay_server, server_config
+    ) -> None:
+        video_dir = Path(server_config.video_directory)
+        (video_dir / "clip.mp4").write_bytes(b"\x00" * 16)
+        credentials = base64.b64encode(
+            f"{server_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+        with media_relay_server.app.test_client() as client:
+            response = client.get(
+                "/stream/clip.mp4",
+                headers={"Authorization": f"Basic {credentials}"},
+            )
+            assert response.status_code == 200
+            assert "X-CSRF-Token" not in response.headers
+
+    def test_csrf_header_absent_on_api_files(
+        self, media_relay_server, server_config
+    ) -> None:
+        credentials = base64.b64encode(
+            f"{server_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+        with media_relay_server.app.test_client() as client:
+            response = client.get(
+                "/api/files",
+                headers={"Authorization": f"Basic {credentials}"},
+            )
+            assert response.status_code == 200
+            assert "X-CSRF-Token" not in response.headers
+
+    def test_csrf_header_absent_on_health(
+        self, media_relay_server, server_config
+    ) -> None:
+        credentials = base64.b64encode(
+            f"{server_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+        with media_relay_server.app.test_client() as client:
+            response = client.get(
+                "/health",
+                headers={"Authorization": f"Basic {credentials}"},
+            )
+            assert response.status_code == 200
+            assert "X-CSRF-Token" not in response.headers
+
+    def test_csp_includes_script_src_none_on_index(
+        self, media_relay_server, server_config
+    ) -> None:
+        with media_relay_server.app.test_client() as client:
+            authenticate_client(client, server_config.username, "testpass")
+            response = client.get("/")
+            csp = response.headers.get("Content-Security-Policy", "")
+            assert "script-src 'none'" in csp
 
 
 class TestHealthEndpointSecurity:
@@ -1169,6 +1251,35 @@ class TestHealthEndpointSecurity:
                 == 0
             )
 
+    def test_health_locked_out_still_verifies_password_hash(
+        self, media_relay_server: MediaRelayServer, server_config: ServerConfig
+    ) -> None:
+        """Locked /health probes still run password hash work without lockout accounting."""
+        wrong_creds = base64.b64encode(
+            f"{server_config.username}:wrongpassword".encode("utf-8")
+        ).decode("utf-8")
+        auth_header = {"Authorization": f"Basic {wrong_creds}"}
+
+        with media_relay_server.app.test_request_context():
+            for _ in range(server_config.lockout_max_attempts):
+                media_relay_server.check_auth(server_config.username, "wrongpassword")
+
+        with patch(
+            "mediarelay.auth.check_password_hash", return_value=False
+        ) as mock_hash:
+            with media_relay_server.app.test_client() as client:
+                failed_before = media_relay_server.lockout_manager.get_failed_attempts(
+                    "127.0.0.1", server_config.username
+                )
+                response = client.get("/health", headers=auth_header)
+                failed_after = media_relay_server.lockout_manager.get_failed_attempts(
+                    "127.0.0.1", server_config.username
+                )
+
+        assert response.status_code in (200, 503)
+        mock_hash.assert_called()
+        assert failed_after == failed_before
+
     def test_health_valid_auth_returns_detailed_info(
         self, flask_client, server_config: ServerConfig
     ) -> None:
@@ -1190,8 +1301,6 @@ class TestSubtitleSanitization:
     """Tests for subtitle content sanitization before streaming."""
 
     def test_sanitize_strips_html_and_dangerous_uris(self) -> None:
-        from mediarelay.subtitle_sanitize import sanitize_subtitle_content
-
         content = (
             "WEBVTT\n\n"
             "00:00:00.000 --> 00:00:01.000\n"
@@ -1204,8 +1313,6 @@ class TestSubtitleSanitization:
         assert "00:00:00.000 --> 00:00:01.000" in sanitized
 
     def test_sanitize_strips_data_and_vbscript_uris(self) -> None:
-        from mediarelay.subtitle_sanitize import sanitize_subtitle_content
-
         content = (
             "WEBVTT\n\ndata:text/html,<script>alert(1)</script>\nvbscript:msgbox(1)"
         )
@@ -1214,8 +1321,6 @@ class TestSubtitleSanitization:
         assert "vbscript:" not in sanitized
 
     def test_sanitize_strips_webvtt_style_and_note_blocks(self) -> None:
-        from mediarelay.subtitle_sanitize import sanitize_subtitle_content
-
         content = (
             "WEBVTT\n\n"
             "STYLE\n"
@@ -1233,8 +1338,6 @@ class TestSubtitleSanitization:
         assert "Safe cue text" in sanitized
 
     def test_sanitize_strips_control_characters(self) -> None:
-        from mediarelay.subtitle_sanitize import sanitize_subtitle_content
-
         content = "WEBVTT\n\n\x00\x01Safe cue text\n"
         sanitized = sanitize_subtitle_content(content)
         assert "\x00" not in sanitized
@@ -1242,8 +1345,6 @@ class TestSubtitleSanitization:
         assert "Safe cue text" in sanitized
 
     def test_sanitize_strips_html_comments_and_blob_uris(self) -> None:
-        from mediarelay.subtitle_sanitize import sanitize_subtitle_content
-
         content = (
             "WEBVTT\n\n<!-- hidden -->\n"
             "00:00:00.000 --> 00:00:01.000\n"
@@ -1309,8 +1410,6 @@ class TestSubtitleSanitization:
         self, media_relay_server: MediaRelayServer, server_config: ServerConfig
     ) -> None:
         """Subtitle files larger than MAX_SUBTITLE_FILE_SIZE are rejected."""
-        from mediarelay.constants import MAX_SUBTITLE_FILE_SIZE
-
         video_dir = Path(server_config.video_directory)
         subtitle = video_dir / "huge.vtt"
         subtitle.write_bytes(b"x" * (MAX_SUBTITLE_FILE_SIZE + 1))
@@ -1332,8 +1431,6 @@ class TestSubtitleSanitization:
         server_config: ServerConfig,
     ) -> None:
         """Subtitle limit is capped by max_file_size when that value is smaller."""
-        from mediarelay.constants import MAX_SUBTITLE_FILE_SIZE
-
         media_relay_server.config.max_file_size = 128
         video_dir = Path(server_config.video_directory)
         subtitle = video_dir / "capped.vtt"
@@ -1944,8 +2041,6 @@ class TestSecurityLogging:
         self, media_relay_server, tmp_path
     ):
         """Test comprehensive path traversal security violation logging"""
-        from mediarelay.logging_config import SecurityEventLogger
-
         media_relay_server.config.log_directory = str(tmp_path)
         media_relay_server.security_logger = SecurityEventLogger(
             media_relay_server.config

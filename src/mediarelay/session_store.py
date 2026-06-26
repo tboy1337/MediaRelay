@@ -108,12 +108,17 @@ def get_csrf_token() -> str | None:
     return value if isinstance(value, str) else None
 
 
+def validate_csrf_token_value(value: str | None) -> bool:
+    """Return True when the value matches the session CSRF token."""
+    session_token = get_csrf_token()
+    if session_token is None or not value:
+        return False
+    return hmac.compare_digest(session_token, value)
+
+
 def validate_csrf_token(header_value: str | None) -> bool:
     """Return True when the header matches the session CSRF token."""
-    session_token = get_csrf_token()
-    if session_token is None or not header_value:
-        return False
-    return hmac.compare_digest(session_token, header_value)
+    return validate_csrf_token_value(header_value)
 
 
 def establish_session(

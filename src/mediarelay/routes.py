@@ -169,8 +169,10 @@ def register_routes(server: MediaRelayServer) -> None:
         if not check_authentication(server):
             return auth_required_response(server)
 
-        csrf_header = request.headers.get("X-CSRF-Token")
-        if not validate_csrf_token(csrf_header):
+        csrf_value = request.headers.get("X-CSRF-Token") or request.form.get(
+            "csrf_token"
+        )
+        if not validate_csrf_token(csrf_value):
             client_ip = server.get_client_ip()
             if server.security_logger:
                 server.security_logger.log_security_violation(

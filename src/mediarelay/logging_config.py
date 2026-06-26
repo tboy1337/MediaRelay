@@ -367,16 +367,27 @@ def get_request_logger(name: str) -> logging.Logger:
     return logging.getLogger(f"request.{name}")
 
 
+def _disk_usage_path(config: ServerConfig) -> str:
+    """Return the filesystem path used for startup disk-free reporting."""
+    log_dir = config.log_directory.strip()
+    if log_dir:
+        return log_dir
+    video_dir = config.video_directory.strip()
+    if video_dir:
+        return video_dir
+    return os.getcwd()
+
+
 def _collect_system_info(config: ServerConfig) -> dict[str, Any]:  # type: ignore[explicit-any]
     """Build system information dictionary for startup logging."""
-    current_dir = os.getcwd()
+    disk_path = _disk_usage_path(config)
     try:
         return {
             "platform": platform.platform(),
             "python_version": platform.python_version(),
             "cpu_count": psutil.cpu_count(),
             "memory_total_gb": round(psutil.virtual_memory().total / (1024**3), 2),
-            "disk_free_gb": round(psutil.disk_usage(current_dir).free / (1024**3), 2),
+            "disk_free_gb": round(psutil.disk_usage(disk_path).free / (1024**3), 2),
             "config": config.to_dict(),  # type: ignore[misc]
         }
     except (ImportError, OSError):

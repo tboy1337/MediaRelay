@@ -26,6 +26,7 @@ from mediarelay.session_store import (
     set_start_time,
     touch_session_activity,
     validate_csrf_token,
+    validate_csrf_token_value,
 )
 
 
@@ -178,8 +179,11 @@ class TestCsrfToken:
         with app.test_request_context():
             token = issue_csrf_token()
             assert validate_csrf_token(token) is True
+            assert validate_csrf_token_value(token) is True
             assert validate_csrf_token("wrong") is False
+            assert validate_csrf_token_value("wrong") is False
             assert validate_csrf_token(None) is False
+            assert validate_csrf_token_value(None) is False
 
     def test_establish_session_issues_csrf_token(self, app: Flask) -> None:
         with app.test_request_context():

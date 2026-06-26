@@ -112,7 +112,7 @@ VIDEO_SERVER_LOG_DIR=./logs
 VIDEO_SERVER_MAX_FILE_SIZE=21474836480  # 20GB default (max 21474836480; set to 0 to disable limit)
 VIDEO_SERVER_MAX_DIRECTORY_ENTRIES=10000
 VIDEO_SERVER_PAGE_SIZE=100
-VIDEO_SERVER_CHANNEL_TIMEOUT=120
+VIDEO_SERVER_CHANNEL_TIMEOUT=300
 VIDEO_SERVER_CONNECTION_LIMIT=1000
 VIDEO_SERVER_CLEANUP_INTERVAL=30
 
@@ -323,7 +323,8 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/path/to/MediaRelay/logs /path/to/videos
+ReadWritePaths=/path/to/MediaRelay/logs
+# Mount VIDEO_SERVER_DIRECTORY read-only; do not add it to ReadWritePaths
 
 [Install]
 WantedBy=multi-user.target

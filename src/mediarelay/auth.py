@@ -67,8 +67,9 @@ def check_auth(
         return False
 
     if server.lockout_manager.is_locked_out(ip_address, username):
-        if record_lockout:
+        if password:
             check_password_hash(server.config.password_hash, password)
+        if record_lockout:
             remaining = server.lockout_manager.get_remaining_lockout_seconds(
                 ip_address, username
             )

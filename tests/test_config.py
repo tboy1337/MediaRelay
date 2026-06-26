@@ -26,8 +26,10 @@ from mediarelay.config import (
     _warn_windows_insecure_env_file_permissions,
     create_sample_env_file,
     load_config,
+    main,
     validate_deployment_config,
 )
+from mediarelay.constants import MAX_FILE_SIZE
 from tests.constants import TEST_PASSWORD_HASH, TEST_PRODUCTION_SECRET_KEY
 
 
@@ -1066,6 +1068,30 @@ class TestSecurityHeaders:
         assert "default-src 'self'" in csp
         assert "media-src 'self'" in csp
         assert "style-src 'self' 'unsafe-inline'" in csp
+        assert "script-src 'none'" in csp
+
+    def test_valid_hosts_accepted(self, tmp_path: Path) -> None:
+        """Common bind addresses and hostnames pass validation."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        for host in ("127.0.0.1", "0.0.0.0", "::1", "localhost", "mediarelay.local"):
+            ServerConfig(
+                password_hash=TEST_PASSWORD_HASH,
+                video_directory=str(video_dir),
+                host=host,
+            )
+
+    def test_invalid_hosts_rejected(self, tmp_path: Path) -> None:
+        """Malformed VIDEO_SERVER_HOST values are rejected at startup."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        for host in ("", "   ", "not a host!!!"):
+            with pytest.raises(ValueError, match="VIDEO_SERVER_HOST"):
+                ServerConfig(
+                    password_hash=TEST_PASSWORD_HASH,
+                    video_directory=str(video_dir),
+                    host=host,
+                )
 
     def test_should_send_hsts_when_behind_proxy(self) -> None:
         """HSTS is sent when behind a reverse proxy even without VIDEO_SERVER_HSTS."""
@@ -1111,8 +1137,6 @@ class TestConfigMainExecution:
     @patch("mediarelay.config.create_sample_env_file")
     def test_main_execution_calls_create_sample_env_file(self, mock_create_env):
         """Test that mediarelay-config main calls create_sample_env_file."""
-        from mediarelay.config import main
-
         main()
         mock_create_env.assert_called_once()
 
@@ -1299,8 +1323,6 @@ class TestEnvFilePermissions:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """POSIX permission warning runs when os.name is posix (mocked on Windows)."""
-        from mediarelay.config import _warn_insecure_env_file_permissions
-
         env_file = tmp_path / ".env"
         env_file.write_text("VIDEO_SERVER_SECRET_KEY=test\n", encoding="utf-8")
         env_file.chmod(0o644)
@@ -1720,7 +1742,6 @@ class TestConfigProductionAuditEdgeCases:
     def test_excessive_max_file_size_rejected(self, tmp_path: Path) -> None:
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
-        from mediarelay.constants import MAX_FILE_SIZE
 
         with pytest.raises(ValueError, match="max_file_size cannot exceed"):
             ServerConfig(

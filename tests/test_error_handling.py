@@ -22,6 +22,7 @@ from mediarelay.handlers import (
     handle_stream_request,
 )
 from mediarelay.logging_config import truncate_logged_path
+from mediarelay.path_utils import ValidatedFileHandle
 from mediarelay.server import MediaRelayServer
 from tests.constants import TEST_PASSWORD_HASH
 
@@ -273,8 +274,6 @@ class TestHandlerErrorPaths:
 
     def test_stream_handler_os_error_returns_500(self, media_relay_server):
         """Stream handler returns 500 when wrap_file fails."""
-        from mediarelay.path_utils import ValidatedFileHandle
-
         auth = base64.b64encode(b"testuser:testpass").decode()
         with media_relay_server.app.test_request_context(
             "/stream/test_video.mp4",
