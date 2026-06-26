@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mediarelay"
-version = "1.0.23"
+version = "1.0.24"
 description = "A video streaming server that allows you to securely share your personal video library over the internet"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -42,6 +42,7 @@ classifiers = [
 
 dependencies = [
     "Flask",
+    "jinja2",
     "Werkzeug",
     "waitress",
     "flask-limiter",
@@ -127,4 +128,6 @@ known_first_party = ["mediarelay"]
 # Bandit configuration
 [tool.bandit]
 exclude_dirs = ["tests", ".venv", "venv", "build", "dist"]
-skips = ["B104"]
+# B104: binding 0.0.0.0 is deployment-configurable with startup warnings
+# B404: subprocess used only for read-only icacls ACL inspection on Windows
+skips = ["B104", "B404"]

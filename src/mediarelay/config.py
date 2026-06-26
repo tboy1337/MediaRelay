@@ -9,7 +9,9 @@ import hashlib
 import logging
 import os
 import secrets
+import shutil
 import stat
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -600,14 +602,61 @@ class ServerConfig:
         }
 
 
+_WINDOWS_WORLD_READABLE_PRINCIPALS: tuple[str, ...] = (
+    "Everyone",
+    r"BUILTIN\Users",
+    r"NT AUTHORITY\Authenticated Users",
+)
+
+
+def _warn_windows_insecure_env_file_permissions(env_path: Path) -> None:
+    """Warn when a .env file ACL may grant read access to broad principals."""
+    icacls_exe = shutil.which("icacls")
+    if icacls_exe is None:
+        return
+
+    try:
+        result = (
+            subprocess.run(  # nosec B603 - fixed icacls path; reads ACL metadata only
+                [icacls_exe, str(env_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+        )
+    except (OSError, subprocess.SubprocessError):
+        return
+
+    if result.returncode != 0:
+        return
+
+    for line in result.stdout.splitlines():
+        upper_line = line.upper()
+        if "(R)" not in upper_line:
+            continue
+        for principal in _WINDOWS_WORLD_READABLE_PRINCIPALS:
+            if principal.upper() in upper_line:
+                _CONFIG_LOGGER.warning(
+                    ".env file %s may be readable by %s. "
+                    "Restrict permissions (e.g. icacls %s /inheritance:r "
+                    "/grant:r %%USERNAME%%:F).",
+                    env_path,
+                    principal,
+                    env_path.name,
+                )
+                return
+
+
 def _warn_insecure_env_file_permissions(env_path: Path) -> None:
     """Warn when a .env file may be readable by users other than the owner."""
+    if os.name == "nt":
+        _warn_windows_insecure_env_file_permissions(env_path)
+        return
+
     try:
         mode = env_path.stat().st_mode
     except OSError:
-        return
-
-    if os.name == "nt":
         return
 
     if mode & (stat.S_IRGRP | stat.S_IROTH):

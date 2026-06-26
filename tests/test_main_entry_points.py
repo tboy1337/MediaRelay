@@ -12,7 +12,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from mediarelay.config import create_sample_env_file, validate_main
+import mediarelay.config as config_module
+from mediarelay.config import create_sample_env_file
+from mediarelay.config import main as config_main
+from mediarelay.config import validate_main
 from mediarelay.server import main
 
 
@@ -22,18 +25,14 @@ class TestConfigMainEntryPoint:
     @patch("mediarelay.config.create_sample_env_file")
     def test_config_main_creates_sample_env(self, mock_create_env):
         """Test config module main entry point"""
-        from mediarelay import config
-
-        if hasattr(config, "__name__"):
+        if hasattr(config_module, "__name__"):
             with patch("mediarelay.config.__name__", "__main__"):
-                config.create_sample_env_file()
+                config_module.create_sample_env_file()
 
         mock_create_env.assert_called_once()
 
     def test_config_main_cli(self):
         """Test mediarelay-config CLI invokes create_sample_env_file."""
-        from mediarelay.config import main as config_main
-
         with patch("mediarelay.config.create_sample_env_file") as mock_create:
             config_main()
             mock_create.assert_called_once()

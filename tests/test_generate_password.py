@@ -9,9 +9,18 @@ import string
 from unittest.mock import MagicMock, patch
 
 import pytest
+from click.testing import CliRunner
 from werkzeug.security import generate_password_hash
 
 from mediarelay import generate_password
+from mediarelay.generate_password import (
+    _run_interactive,
+)
+from mediarelay.generate_password import cli as genpass_cli
+from mediarelay.generate_password import (
+    generate_flask_secret_key,
+    generate_strong_password,
+)
 
 
 class TestSecretKeyGeneration:
@@ -601,23 +610,17 @@ class TestParametrizedPasswordGeneration:
     @pytest.mark.parametrize("length", [12, 16, 24, 32, 64])
     def test_password_length(self, length):
         """Generated passwords meet requested length"""
-        from mediarelay.generate_password import generate_strong_password
-
         password = generate_strong_password(length)
         assert len(password) == length
 
     @pytest.mark.parametrize("length", [8, 12, 16])
     def test_secret_key_length(self, length):
         """Generated secret keys meet requested byte length"""
-        from mediarelay.generate_password import generate_flask_secret_key
-
         key = generate_flask_secret_key(length)
         assert len(key) == length * 2
 
     def test_password_uniqueness(self):
         """Successive passwords are not identical"""
-        from mediarelay.generate_password import generate_strong_password
-
         passwords = {generate_strong_password(16) for _ in range(20)}
         assert len(passwords) > 1
 
@@ -626,10 +629,6 @@ class TestNonInteractiveGeneration:
     """Tests for scripted credential generation."""
 
     def test_non_interactive_cli_outputs_env_values(self):
-        from click.testing import CliRunner
-
-        from mediarelay.generate_password import cli as genpass_cli
-
         runner = CliRunner()
         result = runner.invoke(
             genpass_cli, ["--non-interactive", "--username", "tboy1337"]
@@ -641,10 +640,6 @@ class TestNonInteractiveGeneration:
         assert "WARNING: output contains credentials" in result.stderr
 
     def test_non_interactive_cli_skips_plaintext_password_when_not_tty(self):
-        from click.testing import CliRunner
-
-        from mediarelay.generate_password import cli as genpass_cli
-
         runner = CliRunner()
         result = runner.invoke(
             genpass_cli, ["--non-interactive", "--username", "tboy1337"]
@@ -657,16 +652,12 @@ class TestInteractiveInterrupt:
     """Tests for graceful handling of interactive cancellation."""
 
     def test_interactive_keyboard_interrupt_exits_130(self):
-        from mediarelay.generate_password import _run_interactive
-
         with patch("builtins.input", side_effect=KeyboardInterrupt()):
             with pytest.raises(SystemExit) as exc_info:
                 _run_interactive()
             assert exc_info.value.code == 130
 
     def test_interactive_eof_exits_130(self):
-        from mediarelay.generate_password import _run_interactive
-
         with patch("builtins.input", side_effect=EOFError()):
             with pytest.raises(SystemExit) as exc_info:
                 _run_interactive()

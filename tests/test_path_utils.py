@@ -451,16 +451,25 @@ class TestInodeLinkIndex:
         video_dir.mkdir()
         clip = video_dir / "clip.mp4"
         clip.write_text("content", encoding="utf-8")
+        alias = video_dir / "alias.mp4"
+        try:
+            os.link(clip, alias)
+        except (OSError, NotImplementedError):
+            pytest.skip("Platform does not support creating hard links")
 
         index = InodeLinkIndex(video_dir)
         jail_root = video_dir.resolve()
-        resolved = clip.resolve()
+        resolved = alias.resolve()
 
         with patch.object(index, "count_links", return_value=None):
-            assert (
-                _is_hardlink_outside_jail(resolved, jail_root, inode_index=index)
-                is False
-            )
+            with patch("mediarelay.path_utils._PATH_LOGGER.warning") as mock_warning:
+                assert (
+                    _is_hardlink_outside_jail(resolved, jail_root, inode_index=index)
+                    is False
+                )
+
+        mock_warning.assert_called_once()
+        assert "Inode index miss" in mock_warning.call_args[0][0]
 
 
 class TestRevalidateBeforeServe:

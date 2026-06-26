@@ -18,7 +18,7 @@ import pytest
 from flask import session
 from werkzeug.security import check_password_hash
 
-from mediarelay.auth import check_auth, check_authentication
+from mediarelay.auth import _session_invalid_reason, check_auth, check_authentication
 from mediarelay.config import ServerConfig
 from mediarelay.constants import (
     DEFAULT_LOCKOUT_DURATION_SECONDS as LOCKOUT_DURATION_SECONDS,
@@ -569,6 +569,7 @@ class TestAuthenticationSecurity:
         media_relay_server.lockout_manager = AccountLockoutManager(
             max_attempts=1, lockout_duration=60
         )
+        media_relay_server.security_logger = MagicMock()
 
         with media_relay_server.app.test_client() as client:
             response = client.get(
@@ -583,6 +584,20 @@ class TestAuthenticationSecurity:
 
             response = client.get("/")
             assert response.status_code == 401
+            media_relay_server.security_logger.log_security_violation.assert_called()
+            assert "account_lockout" in str(
+                media_relay_server.security_logger.log_security_violation.call_args
+            )
+
+    def test_session_invalid_reason_none_auth_state(
+        self, media_relay_server, server_config
+    ):
+        """Defensive branch when authenticated flag is set but auth state is absent."""
+        with patch(
+            "mediarelay.auth.read_session_auth_state",
+            return_value=None,
+        ):
+            assert _session_invalid_reason(media_relay_server, time.time()) is None
 
     def test_concurrent_sessions_allowed(self, media_relay_server, server_config):
         """Test that multiple independent clients can hold sessions concurrently"""

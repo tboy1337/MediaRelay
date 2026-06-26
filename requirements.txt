@@ -3,6 +3,7 @@
 
 # Web Framework
 Flask
+jinja2
 Werkzeug
 waitress
 flask-limiter

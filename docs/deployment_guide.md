@@ -125,8 +125,9 @@ VIDEO_SERVER_RATE_LIMIT_PER_MIN=60
 VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS=5
 VIDEO_SERVER_LOCKOUT_DURATION=900
 
-# Reverse Proxy (set true when behind nginx)
+# Reverse Proxy (set true when behind nginx; set PROXY_TRUSTED=true in production)
 VIDEO_SERVER_BEHIND_PROXY=false
+VIDEO_SERVER_PROXY_TRUSTED=false
 
 # Environment (required for production credential validation)
 VIDEO_SERVER_PRODUCTION=true
@@ -228,7 +229,7 @@ server {
 }
 ```
 
-When using nginx (or another reverse proxy), set `VIDEO_SERVER_BEHIND_PROXY=true` in your `.env` file so client IPs, rate limiting, and account lockout use the forwarded address (leftmost `X-Forwarded-For` entry). **Only enable this when MediaRelay is not directly reachable from the internet** — bind to `127.0.0.1` and expose only through the proxy. If `BEHIND_PROXY=true` without a trusted proxy, attackers can spoof client IPs.
+When using nginx (or another reverse proxy), set `VIDEO_SERVER_BEHIND_PROXY=true` and `VIDEO_SERVER_PROXY_TRUSTED=true` in your `.env` file so client IPs, rate limiting, and account lockout use the forwarded address (leftmost `X-Forwarded-For` entry). **Only enable this when MediaRelay is not directly reachable from the internet** — bind to `127.0.0.1` and expose only through the proxy. If `BEHIND_PROXY=true` without `PROXY_TRUSTED=true`, production startup fails; if enabled without a trusted proxy, attackers can spoof client IPs.
 
 Keep `VIDEO_SERVER_SESSION_COOKIE_SECURE=true` when serving over HTTPS. For plain-HTTP local development only, set `VIDEO_SERVER_SESSION_COOKIE_SECURE=false`.
 

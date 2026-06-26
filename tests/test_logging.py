@@ -306,6 +306,24 @@ class TestPerformanceLogger:
         assert metric_data["duration_ms"] == 2000.0
         assert metric_data["throughput_mbps"] == 5.0
 
+    def test_log_file_serve_time_truncates_long_paths(self, server_config, tmp_path):
+        """Long file paths in performance logs are truncated like security logs."""
+        from mediarelay.constants import MAX_LOGGED_PATH_LENGTH
+
+        server_config.log_directory = str(tmp_path)
+        logger = PerformanceLogger(server_config)
+
+        long_path = "/" + ("a" * (MAX_LOGGED_PATH_LENGTH + 50)) + "/video.mp4"
+        logger.log_file_serve_time(long_path, 1024, 1.0)
+
+        perf_log = tmp_path / "performance.log"
+        metric_data = json.loads(perf_log.read_text().strip())
+
+        assert len(metric_data["file_path"]) <= MAX_LOGGED_PATH_LENGTH + len(
+            "...(truncated)"
+        )
+        assert metric_data["file_path"].endswith("...(truncated)")
+
     def test_zero_duration_throughput(self, server_config, tmp_path):
         """Test throughput calculation with zero duration"""
         server_config.log_directory = str(tmp_path)

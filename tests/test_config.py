@@ -8,6 +8,7 @@ Includes comprehensive configuration validation tests.
 import builtins
 import logging
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -16,6 +17,7 @@ from unittest.mock import patch
 
 import pytest
 
+import mediarelay.config as config_module
 from mediarelay.config import (
     ServerConfig,
     _get_default_video_directory,
@@ -30,6 +32,24 @@ def _patch_video_dir_readonly(monkeypatch: pytest.MonkeyPatch, video_dir: Path) 
     """Treat the video directory as read-only for deployment validation tests."""
     real_access = os.access
     resolved = video_dir.resolve()
+
+    def access(
+        path: os.PathLike[str] | str | int,
+        mode: int,
+        *,
+        follow_symlinks: bool = True,
+    ) -> bool:
+        if mode == os.W_OK and Path(path).resolve() == resolved:
+            return False
+        return real_access(path, mode, follow_symlinks=follow_symlinks)
+
+    monkeypatch.setattr(os, "access", access)
+
+
+def _patch_log_dir_readonly(monkeypatch: pytest.MonkeyPatch, log_dir: Path) -> None:
+    """Treat the log directory as non-writable for deployment validation tests."""
+    real_access = os.access
+    resolved = log_dir.resolve()
 
     def access(
         path: os.PathLike[str] | str | int,
@@ -1030,12 +1050,7 @@ class TestConfigMainExecution:
         """Test that running config.py as main calls create_sample_env_file"""
         # Simulate running as main
         with patch("mediarelay.config.__name__", "__main__"):
-            # Import would trigger main execution, but we'll call it directly
-            from mediarelay import config
-
-            # The actual main execution happens at module level
-            # We can test by calling the function directly
-            config.create_sample_env_file()
+            config_module.create_sample_env_file()
             mock_create_env.assert_called()
 
 
@@ -1231,6 +1246,69 @@ class TestEnvFilePermissions:
         monkeypatch.chdir(tmp_path)
 
         with patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning:
+            load_config()
+
+        mock_warning.assert_not_called()
+
+    def test_world_readable_env_file_logs_warning_windows(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Warn when icacls shows broad read access on Windows."""
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            "VIDEO_SERVER_PASSWORD_HASH=scrypt:32768:8:1$PDnabs9h0vTp3nMK$ccdda3d296c0b59f5c875706be7ebdea90caf06a35aa97697c26ce4748a970b31202791996afe2c53604defce4d71a7ff2a0a2e9a78a52cd8246d3081ca57dab\n",
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(tmp_path)
+
+        completed = subprocess.CompletedProcess(
+            args=["icacls", str(env_file)],
+            returncode=0,
+            stdout=f"{env_file} Everyone:(R)\n",
+            stderr="",
+        )
+
+        with (
+            patch("mediarelay.config.os.name", "nt"),
+            patch(
+                "mediarelay.config.shutil.which",
+                return_value=r"C:\Windows\System32\icacls.exe",
+            ),
+            patch("mediarelay.config.subprocess.run", return_value=completed),
+            patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning,
+        ):
+            load_config()
+
+        mock_warning.assert_called_once()
+        assert "Everyone" in mock_warning.call_args[0]
+
+    def test_owner_only_env_file_no_warning_windows(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No warning when icacls shows no broad read principals on Windows."""
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            "VIDEO_SERVER_PASSWORD_HASH=scrypt:32768:8:1$PDnabs9h0vTp3nMK$ccdda3d296c0b59f5c875706be7ebdea90caf06a35aa97697c26ce4748a970b31202791996afe2c53604defce4d71a7ff2a0a2e9a78a52cd8246d3081ca57dab\n",
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(tmp_path)
+
+        completed = subprocess.CompletedProcess(
+            args=["icacls", str(env_file)],
+            returncode=0,
+            stdout=f"{env_file} LAPTOP\\Laptop:(F)\n",
+            stderr="",
+        )
+
+        with (
+            patch("mediarelay.config.os.name", "nt"),
+            patch(
+                "mediarelay.config.shutil.which",
+                return_value=r"C:\Windows\System32\icacls.exe",
+            ),
+            patch("mediarelay.config.subprocess.run", return_value=completed),
+            patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning,
+        ):
             load_config()
 
         mock_warning.assert_not_called()
@@ -1461,6 +1539,85 @@ class TestConfigProductionAuditEdgeCases:
         monkeypatch.chdir(tmp_path)
         with pytest.raises(ValueError, match="must not be writable"):
             validate_deployment_config(env_file)
+
+    def test_deployment_config_rejects_missing_log_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Deployment validation rejects a missing log directory."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        missing_log_dir = tmp_path / "logs"
+
+        monkeypatch.chdir(tmp_path)
+        _patch_video_dir_readonly(monkeypatch, video_dir)
+        _setup_production_env(monkeypatch, video_dir, missing_log_dir)
+        with (
+            patch("mediarelay.config._validate_log_directory"),
+            pytest.raises(ValueError, match="Log directory does not exist"),
+        ):
+            ServerConfig(
+                video_directory=str(video_dir),
+                log_directory=str(missing_log_dir),
+                password_hash=TEST_PASSWORD_HASH,
+                secret_key=TEST_PRODUCTION_SECRET_KEY,
+            )
+
+    def test_deployment_config_rejects_non_writable_log_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Deployment validation rejects a non-writable log directory."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        env_file = tmp_path / "test.env"
+        env_file.write_text(
+            f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
+            f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
+            f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
+            f"VIDEO_SERVER_PRODUCTION=true\n"
+            f"VIDEO_SERVER_RATE_LIMIT=true\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.chdir(tmp_path)
+        _patch_video_dir_readonly(monkeypatch, video_dir)
+        _patch_log_dir_readonly(monkeypatch, log_dir)
+        with pytest.raises(ValueError, match="Log directory is not writable"):
+            validate_deployment_config(env_file)
+
+    def test_deployment_config_warns_on_max_file_size_zero(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Deployment validation warns when streaming size limits are disabled."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        _patch_video_dir_readonly(monkeypatch, video_dir)
+
+        env_file = tmp_path / "test.env"
+        env_file.write_text(
+            f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
+            f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
+            f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
+            f"VIDEO_SERVER_MAX_FILE_SIZE=0\n"
+            f"VIDEO_SERVER_PRODUCTION=true\n"
+            f"VIDEO_SERVER_RATE_LIMIT=true\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.chdir(tmp_path)
+        with caplog.at_level(logging.WARNING):
+            validate_deployment_config(env_file)
+
+        assert any("MAX_FILE_SIZE is 0" in record.message for record in caplog.records)
 
     def test_deployment_config_warns_on_public_bind_without_proxy(
         self,

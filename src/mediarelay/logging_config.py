@@ -224,7 +224,7 @@ class PerformanceLogger:
         """Log file serving performance"""
         metric_data = {
             "type": "file_serve",
-            "file_path": file_path,
+            "file_path": _truncate_logged_path(file_path),
             "file_size_bytes": file_size,
             "duration_ms": round(duration * 1000, 2),
             "throughput_mbps": (
