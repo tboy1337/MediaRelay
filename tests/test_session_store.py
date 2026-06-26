@@ -149,6 +149,10 @@ class TestRequestContextHelpers:
         with app.test_request_context():
             assert has_request_timing() is False
 
+    def test_get_start_time_in_context_without_value(self, app: Flask) -> None:
+        with app.test_request_context():
+            assert get_start_time() is None
+
 
 class TestLengthViolationContext:
     """URL/path length violation metadata on Flask ``g``."""

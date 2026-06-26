@@ -11,7 +11,9 @@ import pytest
 from mediarelay.config import ServerConfig
 from mediarelay.path_utils import (
     InodeLinkIndex,
+    _build_inode_counts,
     _compute_jail_fingerprint,
+    _inode_key_for_path,
     _is_hardlink_outside_jail,
     _log_path_violation,
     get_breadcrumbs,
@@ -443,6 +445,27 @@ class TestInodeLinkIndex:
         with patch("mediarelay.path_utils._build_inode_counts") as mock_build:
             index.refresh(force=True)
             mock_build.assert_called_once()
+
+    def test_build_inode_counts_skips_unstatable_paths(self, tmp_path: Path) -> None:
+        """Inode counting skips paths whose stat fails during the walk."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        (video_dir / "good.mp4").write_text("content", encoding="utf-8")
+        (video_dir / "bad.mp4").write_text("broken", encoding="utf-8")
+
+        original_key = _inode_key_for_path
+
+        def fake_key(path: Path) -> tuple[int, int] | None:
+            if path.name == "bad.mp4":
+                return None
+            return original_key(path)
+
+        with patch("mediarelay.path_utils._inode_key_for_path", side_effect=fake_key):
+            counts = _build_inode_counts(video_dir)
+
+        good_key = original_key(video_dir / "good.mp4")
+        assert good_key is not None
+        assert counts[good_key] >= 1
 
     def test_compute_jail_fingerprint_oserror_returns_zero(
         self, tmp_path: Path

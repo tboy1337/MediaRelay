@@ -127,7 +127,7 @@ def register_routes(server: MediaRelayServer) -> None:
             "status": status,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "version": __version__,
-            "uptime_seconds": round(time.time() - server._start_time, 2),
+            "uptime_seconds": round(server.uptime_seconds(), 2),
             "video_directory_accessible": is_healthy,
             "rate_limiting_enabled": server.config.rate_limit_enabled,
         }

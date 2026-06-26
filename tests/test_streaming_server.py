@@ -784,6 +784,64 @@ class TestMaxFileSizeHandling:
         finally:
             server._shutdown_cleanup()
 
+    def test_stream_rejects_oversized_file_without_security_logger(
+        self, tmp_path: Path
+    ) -> None:
+        """Oversized stream rejection works when security_logger is None."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        video_file = video_dir / "large.mp4"
+        video_file.write_text("x" * 64, encoding="utf-8")
+
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash=generate_password_hash("testpass"),
+            username="testuser",
+            max_file_size=32,
+        )
+        server = MediaRelayServer(config)
+        server.security_logger = None
+        server.app.config["TESTING"] = True
+
+        credentials = base64.b64encode(b"testuser:testpass").decode("utf-8")
+        try:
+            with server.app.test_client() as client:
+                response = client.get(
+                    "/stream/large.mp4",
+                    headers={"Authorization": f"Basic {credentials}"},
+                )
+                assert response.status_code == 413
+        finally:
+            server._shutdown_cleanup()
+
+    def test_stream_success_without_performance_logger(self, tmp_path: Path) -> None:
+        """Streaming succeeds when performance_logger is None."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        video_file = video_dir / "clip.mp4"
+        video_file.write_text("video content", encoding="utf-8")
+
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash=generate_password_hash("testpass"),
+            username="testuser",
+            max_file_size=0,
+        )
+        server = MediaRelayServer(config)
+        server.performance_logger = None
+        server.app.config["TESTING"] = True
+
+        credentials = base64.b64encode(b"testuser:testpass").decode("utf-8")
+        try:
+            with server.app.test_client() as client:
+                response = client.get(
+                    "/stream/clip.mp4",
+                    headers={"Authorization": f"Basic {credentials}"},
+                )
+                assert response.status_code == 200
+        finally:
+            server._shutdown_cleanup()
+
     def test_stream_allows_large_file_when_max_file_size_zero(
         self, tmp_path: Path
     ) -> None:
@@ -1713,6 +1771,12 @@ class TestGracefulShutdown:
         server = MediaRelayServer(server_config)
         server._lockout_cleanup_timer = None
         server._stop_lockout_cleanup()
+
+    def test_shutdown_cleanup_without_logging_components(self, server_config):
+        """Shutdown is safe when logging components were never initialized."""
+        server = MediaRelayServer(server_config)
+        server._logging_components = None
+        server._shutdown_cleanup()
 
 
 class TestVideoMimeTypeInPlayer:

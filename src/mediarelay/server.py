@@ -144,6 +144,10 @@ class MediaRelayServer:
             self.config.behind_proxy, self.config.proxy_trusted
         )
 
+    def uptime_seconds(self) -> float:
+        """Return elapsed seconds since the server process started."""
+        return time.time() - self._start_time
+
     def _rate_limit_key(self) -> str:
         """Rate limiter key function respecting reverse-proxy configuration."""
         if self.config.behind_proxy and self.config.proxy_trusted:

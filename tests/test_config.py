@@ -21,6 +21,7 @@ import mediarelay.config as config_module
 from mediarelay.config import (
     ServerConfig,
     _get_default_video_directory,
+    _warn_insecure_env_file_permissions,
     create_sample_env_file,
     load_config,
     validate_deployment_config,
@@ -1258,6 +1259,24 @@ class TestEnvFilePermissions:
 
         with patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning:
             load_config()
+
+        mock_warning.assert_not_called()
+
+    def test_posix_env_stat_oserror_no_warning(self, tmp_path: Path) -> None:
+        """No warning when .env stat fails on POSIX."""
+        env_file = tmp_path / ".env"
+        env_file.write_text("VIDEO_SERVER_SECRET_KEY=test\n", encoding="utf-8")
+
+        with (
+            patch("mediarelay.config.os.name", "posix"),
+            patch.object(
+                Path,
+                "stat",
+                side_effect=OSError("permission denied"),
+            ),
+            patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning,
+        ):
+            _warn_insecure_env_file_permissions(env_file)
 
         mock_warning.assert_not_called()
 

@@ -307,6 +307,38 @@ class TestAccountLockoutManager:
         assert manager.record_failed_attempt("3.3.3.3", "attacker") == (True, True)
         assert manager.is_locked_out("3.3.3.3", "attacker")
 
+    def test_evict_after_expired_cleanup_frees_slot(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Expired lockout entries are cleaned up to free tracker slots at capacity."""
+        monkeypatch.setattr("mediarelay.lockout.MAX_LOCKOUT_TRACKERS", 2)
+        current_time = [1000.0]
+        monkeypatch.setattr("mediarelay.lockout.time.time", lambda: current_time[0])
+        manager = AccountLockoutManager(max_attempts=2, lockout_duration=300)
+
+        expired_a = LoginAttemptTracker()
+        expired_a.lockout_until = 500.0
+        expired_a.failed_attempts = 2
+        expired_a.last_attempt = 400.0
+        manager._trackers["1.1.1.1:user_a"] = (  # pylint: disable=protected-access
+            expired_a
+        )
+
+        expired_b = LoginAttemptTracker()
+        expired_b.lockout_until = 500.0
+        expired_b.failed_attempts = 2
+        expired_b.last_attempt = 400.0
+        manager._trackers["2.2.2.2:user_b"] = (  # pylint: disable=protected-access
+            expired_b
+        )
+
+        now_locked, tracker_exhausted = manager.record_failed_attempt(
+            "3.3.3.3", "user_c"
+        )
+        assert tracker_exhausted is False
+        assert now_locked is False
+        assert "3.3.3.3:user_c" in manager._trackers  # pylint: disable=protected-access
+
 
 class TestLockoutTrackerExhaustedAuth:
     """Integration tests for lockout tracker exhaustion during authentication."""
@@ -903,7 +935,7 @@ class TestHealthEndpointSecurity:
             return current[0]
 
         monkeypatch.setattr("mediarelay.routes.time.time", fake_time)
-        media_relay_server._start_time = 995.0
+        media_relay_server._start_time = 995.0  # drives uptime_seconds()
 
         first = json.loads(authenticated_client.get("/health").data)
         assert first["uptime_seconds"] >= 0
