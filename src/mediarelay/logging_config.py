@@ -38,11 +38,16 @@ class _JsonLineFormatter(logging.Formatter):
 _MAX_LOGGED_USERNAME_LENGTH = 64
 
 
-def _truncate_logged_path(file_path: str) -> str:
+def truncate_logged_path(file_path: str) -> str:
     """Truncate attacker-controlled path strings before security logging."""
     if len(file_path) <= MAX_LOGGED_PATH_LENGTH:
         return file_path
     return f"{file_path[:MAX_LOGGED_PATH_LENGTH]}...(truncated)"
+
+
+def _truncate_logged_path(file_path: str) -> str:
+    """Backward-compatible alias for truncate_logged_path."""
+    return truncate_logged_path(file_path)
 
 
 def _truncate_logged_user_agent(user_agent: str) -> str:
@@ -150,7 +155,7 @@ class SecurityEventLogger:
             {
                 "event_type": "security_violation",
                 "violation_type": violation_type,
-                "details": details,
+                "details": truncate_logged_path(details),
                 "ip_address": ip_address,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }

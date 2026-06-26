@@ -28,6 +28,7 @@ from mediarelay.constants import (
     MAX_PATH_LENGTH,
     MAX_URL_LENGTH,
 )
+from mediarelay.handlers import _collect_directory_items
 from mediarelay.lockout import AccountLockoutManager, LoginAttemptTracker
 from mediarelay.logging_config import SecurityEventLogger
 from mediarelay.server import MediaRelayServer
@@ -102,8 +103,12 @@ class TestAccountLockoutManager:
         assert manager.get_failed_attempts("192.168.1.1", "testuser") == 0
 
     def test_different_ip_tracked_separately(self) -> None:
-        """Test that different IPs are tracked separately"""
-        manager = AccountLockoutManager(max_attempts=3, lockout_duration=300)
+        """Test that different IPs are tracked separately when username lockout is off."""
+        manager = AccountLockoutManager(
+            max_attempts=3,
+            lockout_duration=300,
+            username_lockout_enabled=False,
+        )
 
         # Lock out first IP
         for _ in range(3):
@@ -111,6 +116,45 @@ class TestAccountLockoutManager:
 
         assert manager.is_locked_out("192.168.1.1", "testuser") is True
         assert manager.is_locked_out("192.168.1.2", "testuser") is False
+
+    def test_username_locked_across_ips(self) -> None:
+        """Username-wide lockout blocks login from any IP after enough failures."""
+        manager = AccountLockoutManager(max_attempts=3, lockout_duration=300)
+
+        manager.record_failed_attempt("192.168.1.1", "testuser")
+        manager.record_failed_attempt("192.168.1.2", "testuser")
+        assert manager.record_failed_attempt("192.168.1.3", "testuser") == (
+            True,
+            False,
+        )
+
+        assert manager.is_locked_out("192.168.1.1", "testuser") is True
+        assert manager.is_locked_out("192.168.1.9", "testuser") is True
+
+    def test_username_lockout_disabled(self) -> None:
+        """Username-wide lockout can be disabled independently of per-IP lockout."""
+        manager = AccountLockoutManager(
+            max_attempts=2,
+            lockout_duration=300,
+            username_lockout_enabled=False,
+        )
+
+        manager.record_failed_attempt("10.0.0.1", "testuser")
+        manager.record_failed_attempt("10.0.0.2", "testuser")
+
+        assert manager.is_locked_out("10.0.0.1", "testuser") is False
+        assert manager.is_locked_out("10.0.0.3", "testuser") is False
+
+    def test_successful_login_clears_username_tracker(self) -> None:
+        """Successful login clears both per-IP and username trackers."""
+        manager = AccountLockoutManager(max_attempts=5, lockout_duration=300)
+
+        manager.record_failed_attempt("192.168.1.1", "testuser")
+        manager.record_failed_attempt("192.168.1.2", "testuser")
+        manager.record_successful_login("192.168.1.1", "testuser")
+
+        assert manager.get_failed_attempts("192.168.1.1", "testuser") == 0
+        assert manager.is_locked_out("192.168.1.3", "testuser") is False
 
     def test_different_username_tracked_separately(self) -> None:
         """Test that different usernames are tracked separately"""
@@ -603,6 +647,26 @@ class TestAuthenticationSecurity:
 
         with flask_client.session_transaction() as sess:
             assert sess.get("authenticated") is None
+
+    def test_session_ip_change_allowed_when_bind_disabled(
+        self, flask_client, server_config, media_relay_server, monkeypatch
+    ) -> None:
+        """Session survives IP change when VIDEO_SERVER_SESSION_BIND_IP is false."""
+        monkeypatch.setattr(server_config, "session_bind_ip", False)
+        credentials = base64.b64encode(
+            f"{server_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+
+        response = flask_client.get(
+            "/", headers={"Authorization": f"Basic {credentials}"}
+        )
+        assert response.status_code == 200
+
+        with patch.object(
+            media_relay_server, "get_client_ip", return_value="10.0.0.99"
+        ):
+            response = flask_client.get("/")
+            assert response.status_code == 200
 
     def test_session_max_lifetime_expires(self, flask_client, server_config):
         """Session is cleared when absolute max lifetime is exceeded."""
@@ -1643,8 +1707,6 @@ class TestDirectoryListingSymlinkMetadata:
 
     def test_symlink_listing_uses_lstat_not_target_stat(self, tmp_path: Path) -> None:
         """Symlink size in listings comes from lstat, not the link target."""
-        from mediarelay.handlers import _collect_directory_items
-
         video_root = tmp_path / "jail"
         video_root.mkdir()
         outside = tmp_path / "outside.mp4"
@@ -1664,8 +1726,6 @@ class TestDirectoryListingSymlinkMetadata:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Listing code calls lstat for symlinks so stat() cannot leak target size."""
-        from mediarelay.handlers import _collect_directory_items
-
         video_root = tmp_path / "jail"
         video_root.mkdir()
         entry_file = video_root / "linked.mp4"

@@ -13,7 +13,8 @@ from typing import TYPE_CHECKING, TypedDict
 
 from flask import Response, jsonify, request, send_from_directory
 
-from .constants import MAX_LOGGED_PATH_LENGTH, SUBTITLE_EXTENSIONS
+from .constants import SUBTITLE_EXTENSIONS
+from .logging_config import truncate_logged_path
 from .path_utils import (
     get_breadcrumbs,
     get_safe_path,
@@ -47,13 +48,6 @@ class _PaginationResult:
     has_next: bool
     range_start: int
     range_end: int
-
-
-def _truncate_log_path(path: str) -> str:
-    """Truncate path strings before logging."""
-    if len(path) <= MAX_LOGGED_PATH_LENGTH:
-        return path
-    return f"{path[:MAX_LOGGED_PATH_LENGTH]}...(truncated)"
 
 
 def _session_username() -> str:
@@ -468,19 +462,18 @@ def handle_stream_request(
             )
         return "File type not allowed", 403
 
-    if server.config.max_file_size > 0:
-        file_size = safe_path.stat().st_size
-        if file_size > server.config.max_file_size:
-            if server.security_logger:
-                server.security_logger.log_security_violation(
-                    "file_too_large",
-                    (
-                        f"Stream rejected for oversized file {video_path}: "
-                        f"{file_size} bytes exceeds limit {server.config.max_file_size}"
-                    ),
-                    client_ip,
-                )
-            return "File exceeds maximum allowed size", 413
+    file_size = safe_path.stat().st_size
+    if server.config.max_file_size > 0 and file_size > server.config.max_file_size:
+        if server.security_logger:
+            server.security_logger.log_security_violation(
+                "file_too_large",
+                (
+                    f"Stream rejected for oversized file {video_path}: "
+                    f"{file_size} bytes exceeds limit {server.config.max_file_size}"
+                ),
+                client_ip,
+            )
+        return "File exceeds maximum allowed size", 413
 
     if server.security_logger:
         server.security_logger.log_file_access(
@@ -504,8 +497,6 @@ def handle_stream_request(
             )
         return "Video not found", 404
 
-    start_time = time.time()
-
     try:
         directory = safe_path.parent
         filename = safe_path.name
@@ -514,13 +505,18 @@ def handle_stream_request(
         if safe_path.suffix.lower() in SUBTITLE_EXTENSIONS:
             response.headers["Content-Type"] = "text/plain; charset=utf-8"
             response.headers["X-Content-Type-Options"] = "nosniff"
+        else:
+            response.headers["Content-Type"] = guess_media_mime_type(filename)
 
-        if server.performance_logger:
-            duration = time.time() - start_time
-            file_size = safe_path.stat().st_size
-            server.performance_logger.log_file_serve_time(
-                video_path, file_size, duration
-            )
+        perf_logger = server.performance_logger
+        if perf_logger is not None:
+            serve_start = time.time()
+
+            def _log_serve_metrics() -> None:
+                duration = time.time() - serve_start
+                perf_logger.log_file_serve_time(video_path, file_size, duration)
+
+            response.call_on_close(_log_serve_metrics)
 
         return response
 
@@ -587,7 +583,7 @@ def handle_api_files_request(
         if server.security_logger:
             server.security_logger.log_security_violation(
                 "access_denied",
-                f"Permission denied reading directory: {_truncate_log_path(path_param)!r}",
+                f"Permission denied reading directory: {truncate_logged_path(path_param)!r}",
                 server.get_client_ip(),
             )
         return jsonify({"error": "Access denied to directory"}), 403  # type: ignore[misc]

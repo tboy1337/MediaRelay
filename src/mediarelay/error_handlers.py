@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from flask import Response, request
 
 from .auth import auth_required_response
+from .constants import MAX_LOGGED_ERROR_LENGTH
 from .session_store import get_length_violation
 
 if TYPE_CHECKING:
@@ -19,8 +20,11 @@ def register_error_handlers(server: MediaRelayServer) -> None:
     @server.app.errorhandler(400)  # type: ignore[misc]
     def bad_request(error: Exception) -> tuple[str, int]:
         """Handle bad request errors."""
+        error_text = str(error)
+        if len(error_text) > MAX_LOGGED_ERROR_LENGTH:
+            error_text = f"{error_text[:MAX_LOGGED_ERROR_LENGTH]}...(truncated)"
         server.app.logger.warning(
-            f"Bad request from {server.get_client_ip()}: {error}"
+            f"Bad request from {server.get_client_ip()}: {error_text}"
             f"{server._request_id_suffix()}"
         )
         return "Bad Request - Invalid parameters", 400

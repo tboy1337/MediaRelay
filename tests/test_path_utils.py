@@ -432,6 +432,20 @@ class TestInodeLinkIndex:
             index.refresh()
             mock_build.assert_not_called()
 
+    def test_refresh_skips_when_mtime_unchanged_without_fingerprint(
+        self, tmp_path: Path
+    ) -> None:
+        """Periodic refresh skips fingerprint work when jail root mtime is unchanged."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        (video_dir / "clip.mp4").write_text("content", encoding="utf-8")
+
+        index = InodeLinkIndex(video_dir)
+        index.refresh()
+        with patch("mediarelay.path_utils._compute_jail_fingerprint") as mock_fp:
+            index.refresh()
+            mock_fp.assert_not_called()
+
     def test_refresh_force_rebuilds_when_fingerprint_unchanged(
         self, tmp_path: Path
     ) -> None:
@@ -490,6 +504,8 @@ class TestInodeLinkIndex:
         index.refresh()
 
         (video_dir / "new_clip.mp4").write_text("more", encoding="utf-8")
+        # Parent directory mtime must change for the mtime-only fast path to rebuild.
+        os.utime(video_dir, None)
         index.refresh()
 
         new_stat = (video_dir / "new_clip.mp4").stat()

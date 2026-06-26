@@ -26,6 +26,8 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 | `VIDEO_SERVER_SESSION_MAX_LIFETIME` | `86400` | Absolute session lifetime in seconds from login (default 24 hours). Must be greater than or equal to `VIDEO_SERVER_SESSION_TIMEOUT`. |
 | `VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS` | `5` | Failed logins before lockout. |
 | `VIDEO_SERVER_LOCKOUT_DURATION` | `900` | Lockout duration in seconds (minimum 60). |
+| `VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED` | `true` | When enabled, failed logins are tracked per username across all client IPs. |
+| `VIDEO_SERVER_SESSION_BIND_IP` | `true` | When enabled, sessions are invalidated when the client IP changes after login. Set `false` for mobile or CGNAT clients if you accept the reduced binding. |
 | `VIDEO_SERVER_SESSION_COOKIE_SECURE` | `true` | Send session cookies only over HTTPS. **Required `true` when `VIDEO_SERVER_PRODUCTION=true`.** |
 | `VIDEO_SERVER_SESSION_COOKIE_HTTPONLY` | `true` | Prevent JavaScript access to session cookies. **Required `true` when `VIDEO_SERVER_PRODUCTION=true`.** |
 | `VIDEO_SERVER_SESSION_COOKIE_SAMESITE` | `Strict` | SameSite policy: `Strict`, `Lax`, or `None` (case-insensitive). `None` requires `VIDEO_SERVER_SESSION_COOKIE_SECURE=true`. |

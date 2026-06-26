@@ -191,6 +191,8 @@ class TestServerConfig:
         assert config.session_timeout == 3600
         assert config.lockout_max_attempts == 5
         assert config.lockout_duration == 900
+        assert config.username_lockout_enabled is True
+        assert config.session_bind_ip is True
         assert ".mp4" in config.allowed_extensions
         assert ".srt" in config.allowed_extensions
         assert ".vtt" in config.allowed_extensions
@@ -236,6 +238,22 @@ class TestServerConfig:
 
         assert config.lockout_max_attempts == 3
         assert config.lockout_duration == 120
+
+    def test_security_feature_environment_variable_override(self):
+        """Test username lockout and session IP binding env overrides."""
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
+                "VIDEO_SERVER_DIRECTORY": str(Path.home()),
+                "VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED": "false",
+                "VIDEO_SERVER_SESSION_BIND_IP": "false",
+            },
+        ):
+            config = ServerConfig()
+
+        assert config.username_lockout_enabled is False
+        assert config.session_bind_ip is False
 
     def test_lockout_duration_minimum_validation(self):
         """Lockout duration must be at least 60 seconds."""

@@ -168,12 +168,28 @@ class InodeLinkIndex:
         self._counts: dict[tuple[int, int], int] = {}
         self._lock = threading.Lock()
         self._fingerprint: tuple[int, int] | None = None
+        self._cached_mtime_ns: int | None = None
 
     def refresh(self, *, force: bool = False) -> None:
         """Rebuild the inode link count index from the jail root."""
+        try:
+            mtime_ns = self._jail_root.stat().st_mtime_ns
+        except OSError:
+            mtime_ns = 0
+
+        with self._lock:
+            if (
+                not force
+                and self._cached_mtime_ns is not None
+                and mtime_ns == self._cached_mtime_ns
+            ):
+                _PATH_LOGGER.debug("Inode index refresh skipped; jail mtime unchanged")
+                return
+
         fingerprint = _compute_jail_fingerprint(self._jail_root)
         with self._lock:
             if not force and fingerprint == self._fingerprint:
+                self._cached_mtime_ns = mtime_ns
                 _PATH_LOGGER.debug(
                     "Inode index refresh skipped; jail fingerprint unchanged"
                 )
@@ -184,6 +200,7 @@ class InodeLinkIndex:
         with self._lock:
             self._counts = counts
             self._fingerprint = fingerprint
+            self._cached_mtime_ns = mtime_ns
 
     def count_links(self, ino: int, dev: int) -> int | None:
         """Return cached link count for an inode, or None when not indexed."""

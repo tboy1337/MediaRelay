@@ -95,14 +95,15 @@ def register_routes(server: MediaRelayServer) -> None:
             response.headers["Pragma"] = "no-cache"
 
         if has_request_timing() and server.performance_logger:
-            start_time = get_start_time()
-            if start_time is not None:
-                duration = time.time() - start_time
-                server.performance_logger.log_request_duration(
-                    request.endpoint or request.path,
-                    duration,
-                    response.status_code,
-                )
+            if not request.path.startswith("/stream/"):
+                start_time = get_start_time()
+                if start_time is not None:
+                    duration = time.time() - start_time
+                    server.performance_logger.log_request_duration(
+                        request.endpoint or request.path,
+                        duration,
+                        response.status_code,
+                    )
 
         return response
 

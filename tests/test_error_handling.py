@@ -17,11 +17,11 @@ from werkzeug.exceptions import TooManyRequests
 from mediarelay.config import ServerConfig
 from mediarelay.constants import MAX_LOGGED_PATH_LENGTH
 from mediarelay.handlers import (
-    _truncate_log_path,
     handle_api_files_request,
     handle_index_request,
     handle_stream_request,
 )
+from mediarelay.logging_config import truncate_logged_path
 from mediarelay.server import MediaRelayServer
 from tests.constants import TEST_PASSWORD_HASH
 
@@ -381,11 +381,11 @@ class TestHandlerUtilities:
 
     def test_truncate_log_path_short_path_unchanged(self) -> None:
         path = "movies/video.mp4"
-        assert _truncate_log_path(path) == path
+        assert truncate_logged_path(path) == path
 
     def test_truncate_log_path_long_path_truncated(self) -> None:
         long_path = "a" * (MAX_LOGGED_PATH_LENGTH + 20)
-        truncated = _truncate_log_path(long_path)
+        truncated = truncate_logged_path(long_path)
         assert truncated.endswith("...(truncated)")
         assert len(truncated) < len(long_path)
 

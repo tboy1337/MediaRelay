@@ -394,6 +394,12 @@ VIDEO_SERVER_MAX_FILE_SIZE=53687091200  # 50GB for high-capacity deployments
 VIDEO_SERVER_LOG_LEVEL=WARNING
 ```
 
+#### Graceful Shutdown
+
+MediaRelay runs on Waitress, which stops accepting new connections when it receives `SIGINT` or `SIGTERM` (for example, Ctrl+C or a process manager stop). Waitress does not provide a long connection-drain window; in-flight streams may be interrupted when the process exits.
+
+For production, configure your reverse proxy (for example, nginx or Caddy) with reasonable upstream timeouts so clients disconnect cleanly before the MediaRelay process is restarted.
+
 #### Operating System Tuning
 
 **Linux:**

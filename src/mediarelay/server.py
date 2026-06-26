@@ -56,12 +56,18 @@ class MediaRelayServer:
         self.lockout_manager = AccountLockoutManager(
             max_attempts=config.lockout_max_attempts,
             lockout_duration=config.lockout_duration,
+            username_lockout_enabled=config.username_lockout_enabled,
         )
         self._lockout_cleanup_timer: threading.Timer | None = None
         self._logging_components: LoggingComponents | None = None
         self._start_time: float = time.time()
         self.inode_link_index = InodeLinkIndex(Path(config.video_directory))
-        self.inode_link_index.refresh()
+        self._inode_index_thread = threading.Thread(
+            target=self.inode_link_index.refresh,
+            name="inode-index-init",
+            daemon=True,
+        )
+        self._inode_index_thread.start()
         self._setup_logging()
         self._warn_ephemeral_secret_key()
         self._warn_legacy_flask_env()
@@ -292,6 +298,7 @@ class MediaRelayServer:
             self.app.logger.error(f"Server error: {str(error)}", exc_info=True)
             raise
         finally:
+            self.app.logger.info("Draining connections before shutdown")
             self._shutdown_cleanup()
 
 
@@ -330,8 +337,6 @@ def main(
                     "Debug mode must not be used in production."
                 )
             config.debug = True
-
-        config.validate_config()
 
         server = MediaRelayServer(config)
         if debug:

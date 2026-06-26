@@ -416,6 +416,14 @@ class ServerConfig:
             max_val=MAX_LOCKOUT_DURATION_SECONDS,
         )
     )
+    username_lockout_enabled: bool = field(
+        default_factory=lambda: _parse_bool_env(
+            "VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED", "true"
+        )
+    )
+    session_bind_ip: bool = field(
+        default_factory=lambda: _parse_bool_env("VIDEO_SERVER_SESSION_BIND_IP", "true")
+    )
 
     # Directory Settings
     video_directory: str = field(
@@ -586,6 +594,8 @@ class ServerConfig:
             "session_max_lifetime": self.session_max_lifetime,
             "lockout_max_attempts": self.lockout_max_attempts,
             "lockout_duration": self.lockout_duration,
+            "username_lockout_enabled": self.username_lockout_enabled,
+            "session_bind_ip": self.session_bind_ip,
             "video_directory": self.video_directory,
             "log_directory": self.log_directory,
             "allowed_extensions": list(self.allowed_extensions),
@@ -767,6 +777,8 @@ VIDEO_SERVER_SESSION_TIMEOUT=3600
 VIDEO_SERVER_SESSION_MAX_LIFETIME=86400
 VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS=5
 VIDEO_SERVER_LOCKOUT_DURATION=900
+VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED=true
+VIDEO_SERVER_SESSION_BIND_IP=true
 
 # Session Cookie Settings
 # Set SESSION_COOKIE_SECURE=false for local HTTP development without TLS

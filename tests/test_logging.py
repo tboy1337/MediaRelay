@@ -18,6 +18,10 @@ import pytest
 from flask import g
 
 from mediarelay.config import ServerConfig
+from mediarelay.constants import (
+    MAX_LOGGED_PATH_LENGTH,
+    MAX_LOGGED_USER_AGENT_LENGTH,
+)
 from mediarelay.logging_config import (
     PerformanceLogger,
     SecurityEventLogger,
@@ -147,6 +151,24 @@ class TestSecurityEventLogger:
         assert event_data["violation_type"] == "path_traversal"
         assert event_data["details"] == "Attempted ../../../etc/passwd"
         assert event_data["ip_address"] == "10.0.0.1"
+
+    def test_log_security_violation_truncates_details(
+        self, server_config, tmp_path
+    ) -> None:
+        """Security violation details are truncated like file paths."""
+        server_config.log_directory = str(tmp_path)
+        logger = SecurityEventLogger(server_config)
+
+        long_details = "x" * (MAX_LOGGED_PATH_LENGTH + 100)
+        logger.log_security_violation("forbidden_access", long_details, "10.0.0.1")
+
+        security_log = tmp_path / "security.log"
+        log_data = json.loads(security_log.read_text().strip())
+
+        assert log_data["details"].endswith("...(truncated)")
+        assert len(log_data["details"]) <= MAX_LOGGED_PATH_LENGTH + len(
+            "...(truncated)"
+        )
 
     def test_log_rate_limit_exceeded(self, server_config, tmp_path):
         """Test logging rate limit violations"""
@@ -308,8 +330,6 @@ class TestPerformanceLogger:
 
     def test_log_file_serve_time_truncates_long_paths(self, server_config, tmp_path):
         """Long file paths in performance logs are truncated like security logs."""
-        from mediarelay.constants import MAX_LOGGED_PATH_LENGTH
-
         server_config.log_directory = str(tmp_path)
         logger = PerformanceLogger(server_config)
 
@@ -927,8 +947,6 @@ class TestLogLogout:
         self, server_config, tmp_path
     ) -> None:
         """Oversized User-Agent strings are truncated in security logs."""
-        from mediarelay.constants import MAX_LOGGED_USER_AGENT_LENGTH
-
         server_config.log_directory = str(tmp_path)
         logger = SecurityEventLogger(server_config)
         long_agent = "A" * (MAX_LOGGED_USER_AGENT_LENGTH + 100)

@@ -29,11 +29,13 @@ from werkzeug.exceptions import (
 from werkzeug.security import generate_password_hash
 
 from mediarelay.config import ServerConfig
-from mediarelay.handlers import handle_index_request
+from mediarelay.handlers import handle_index_request, handle_stream_request
 from mediarelay.lockout import AccountLockoutManager
+from mediarelay.path_utils import InodeLinkIndex
 from mediarelay.server import MediaRelayServer, main
 from mediarelay.templates import INDEX_HTML_TEMPLATE, render_index_template
 from tests.constants import TEST_PASSWORD_HASH
+from tests.helpers import authenticate_client
 
 
 class TestMediaRelayServer:
@@ -86,6 +88,31 @@ class TestMediaRelayServer:
         server = MediaRelayServer(server_config)
 
         assert server.limiter is None
+
+    def test_health_endpoint_without_rate_limiter(self, server_config):
+        """Health check works when the rate limiter is not configured."""
+        server_config.rate_limit_enabled = False
+        server = MediaRelayServer(server_config)
+        server.app.config["TESTING"] = True
+
+        try:
+            with server.app.test_client() as client:
+                response = client.get("/health")
+                assert response.status_code == 200
+                data = json.loads(response.data)
+                assert data["status"] in {"ok", "degraded"}
+        finally:
+            server._shutdown_cleanup()
+
+    def test_inode_index_starts_in_background_thread(self, server_config):
+        """Inode index initialization runs on a background thread at startup."""
+        with patch.object(InodeLinkIndex, "refresh") as mock_refresh:
+            server = MediaRelayServer(server_config)
+            try:
+                server._inode_index_thread.join(timeout=5)
+                mock_refresh.assert_called_once()
+            finally:
+                server._shutdown_cleanup()
 
 
 class TestMediaRelayServerComprehensive:
@@ -811,6 +838,66 @@ class TestMaxFileSizeHandling:
                     headers={"Authorization": f"Basic {credentials}"},
                 )
                 assert response.status_code == 413
+        finally:
+            server._shutdown_cleanup()
+
+    def test_stream_logs_performance_on_response_close(self, tmp_path: Path) -> None:
+        """Stream performance metrics are logged after the response body is sent."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        (video_dir / "clip.mp4").write_text("video content", encoding="utf-8")
+
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash=generate_password_hash("testpass"),
+            username="testuser",
+            max_file_size=0,
+        )
+        server = MediaRelayServer(config)
+        server.app.config["TESTING"] = True
+        mock_perf = MagicMock()
+        server.performance_logger = mock_perf
+
+        credentials = base64.b64encode(b"testuser:testpass").decode("utf-8")
+        try:
+            with server.app.test_request_context(
+                "/stream/clip.mp4",
+                headers={"Authorization": f"Basic {credentials}"},
+            ):
+                with patch.object(server, "check_authentication", return_value=True):
+                    response = handle_stream_request(server, "clip.mp4")
+                assert response.status_code == 200
+                assert response._on_close
+                for callback in response._on_close:
+                    callback()
+            mock_perf.log_file_serve_time.assert_called_once()
+        finally:
+            server._shutdown_cleanup()
+
+    def test_stream_sets_video_content_type(self, tmp_path: Path) -> None:
+        """Video streams include an explicit Content-Type header."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        (video_dir / "clip.mp4").write_text("video content", encoding="utf-8")
+
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash=generate_password_hash("testpass"),
+            username="testuser",
+            max_file_size=0,
+        )
+        server = MediaRelayServer(config)
+        server.app.config["TESTING"] = True
+
+        credentials = base64.b64encode(b"testuser:testpass").decode("utf-8")
+        try:
+            with server.app.test_client() as client:
+                response = client.get(
+                    "/stream/clip.mp4",
+                    headers={"Authorization": f"Basic {credentials}"},
+                )
+                assert response.status_code == 200
+                assert response.headers.get("Content-Type") == "video/mp4"
         finally:
             server._shutdown_cleanup()
 
@@ -1824,8 +1911,6 @@ class TestProductionAuditFixes:
         assert response.headers.get("Pragma") == "no-cache"
 
     def test_logout_uses_log_logout(self, media_relay_server, server_config):
-        from tests.helpers import authenticate_client
-
         media_relay_server.security_logger = MagicMock()
 
         with media_relay_server.app.test_client() as client:

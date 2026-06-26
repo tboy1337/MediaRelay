@@ -32,10 +32,10 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 - Session cookies after successful login (HttpOnly, Secure, SameSite configurable)
 - Constant-time username comparison (`hmac.compare_digest`)
 - Password verification on every login attempt, including when already locked out (mitigates username timing enumeration)
-- Account lockout after repeated failed attempts (per IP + username); lockout also terminates active sessions
+- Account lockout after repeated failed attempts (per IP + username, and per username across all IPs when `VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED=true`); lockout also terminates active sessions
 - Active lockout entries are never evicted from the lockout tracker when at capacity; trackers with in-progress failed-attempt counters are also preserved (only zero-failure inactive trackers are evicted)
 - New attackers receive an emergency lockout when all slots hold active lockouts or in-progress attempt counters
-- Session invalidation on client IP change; sessions without a bound login IP are rejected
+- Session invalidation on client IP change when `VIDEO_SERVER_SESSION_BIND_IP=true` (default); sessions without a bound login IP are rejected
 - Session invalidation when username or password hash changes (`credential_epoch` fingerprint)
 - Expired sessions fall through to valid HTTP Basic credentials on the same request
 - Idle session timeout (`VIDEO_SERVER_SESSION_TIMEOUT`) and absolute max lifetime (`VIDEO_SERVER_SESSION_MAX_LIFETIME`)
@@ -90,11 +90,11 @@ Run `python scripts/verify.py` locally before release; it enforces black, isort,
 | In-memory rate limiter | Limits reset on restart; not shared across multiple processes |
 | Shared-IP lockout | Lockout is keyed by IP + username; users behind the same NAT may affect each other |
 | Single-user model | One username/password pair; no role-based access control |
-| Session IP binding | Sessions invalidate when the client IP changes (VPN/mobile networks may require re-login) |
+| Session IP binding | When `VIDEO_SERVER_SESSION_BIND_IP=true` (default), sessions invalidate when the client IP changes (VPN/mobile networks may require re-login or disabling the setting) |
 | GET logout disabled | Logout requires `POST /logout` with a valid `X-CSRF-Token` header (token issued at login and returned on authenticated responses) |
 | Basic Auth credential caching | Browsers may re-send cached credentials after `POST /logout`; close the browser or use private browsing |
 | Subtitle files (`.srt`, `.vtt`) | Served with `Content-Type: text/plain` and `X-Content-Type-Options: nosniff`; subtitle content is rendered by the browser and is not sanitized server-side |
-| Distributed brute force | Lockout is per IP + username; use a strong password |
+| Distributed brute force | Username-wide lockout (`VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED`) limits cross-IP attacks; use a strong password |
 | Stream rate limit | `/stream/` has a dedicated high limit; tune `VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE` or restrict network access |
 | CSP inline styles | Embedded UI template requires `style-src 'unsafe-inline'` |
 | Extension-only file filter | No magic-byte content validation; only extension allowlist (custom extensions must match built-in set) |

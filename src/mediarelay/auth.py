@@ -126,20 +126,22 @@ def _session_invalid_reason(
     if auth_state.credential_epoch != server.config.credential_epoch:
         return "credential_changed"
 
-    client_ip = server.get_client_ip()
-    if auth_state.login_ip != client_ip:
-        if server.security_logger:
-            server.security_logger.log_security_violation(
-                "session_ip_mismatch",
-                (
-                    f"Session invalidated due to IP change from "
-                    f"{auth_state.login_ip} to {client_ip}"
-                ),
-                client_ip,
-            )
-        return "session_ip_mismatch"
+    if server.config.session_bind_ip:
+        client_ip = server.get_client_ip()
+        if auth_state.login_ip != client_ip:
+            if server.security_logger:
+                server.security_logger.log_security_violation(
+                    "session_ip_mismatch",
+                    (
+                        f"Session invalidated due to IP change from "
+                        f"{auth_state.login_ip} to {client_ip}"
+                    ),
+                    client_ip,
+                )
+            return "session_ip_mismatch"
 
     username = auth_state.username
+    client_ip = server.get_client_ip()
     if username and server.lockout_manager.is_locked_out(client_ip, str(username)):
         remaining = server.lockout_manager.get_remaining_lockout_seconds(
             client_ip, str(username)

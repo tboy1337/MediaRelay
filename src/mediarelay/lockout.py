@@ -27,15 +27,45 @@ class AccountLockoutManager:
         self,
         max_attempts: int = DEFAULT_LOCKOUT_MAX_ATTEMPTS,
         lockout_duration: int = DEFAULT_LOCKOUT_DURATION_SECONDS,
+        *,
+        username_lockout_enabled: bool = True,
     ) -> None:
         self.max_attempts = max_attempts
         self.lockout_duration = lockout_duration
+        self.username_lockout_enabled = username_lockout_enabled
         self._trackers: dict[str, LoginAttemptTracker] = {}
+        self._username_trackers: dict[str, LoginAttemptTracker] = {}
         self._lock = threading.Lock()
 
     def _get_key(self, ip_address: str, username: str) -> str:
         """Generate a unique key for tracking (combines IP and username)."""
         return f"{ip_address}:{username}"
+
+    @staticmethod
+    def _is_tracker_locked(
+        tracker: LoginAttemptTracker | None, current_time: float
+    ) -> bool:
+        """Return True when a tracker is actively locked out."""
+        if tracker is None:
+            return False
+
+        if tracker.lockout_until > current_time:
+            return True
+
+        if tracker.lockout_until > 0 and tracker.lockout_until <= current_time:
+            tracker.lockout_until = 0.0
+            tracker.failed_attempts = 0
+
+        return False
+
+    @staticmethod
+    def _remaining_lockout_seconds(
+        tracker: LoginAttemptTracker | None, current_time: float
+    ) -> int:
+        """Return remaining lockout seconds for a tracker."""
+        if tracker is None or tracker.lockout_until <= current_time:
+            return 0
+        return int(tracker.lockout_until - current_time)
 
     def is_locked_out(self, ip_address: str, username: str) -> bool:
         """Check if an IP/username combination is currently locked out."""
@@ -43,17 +73,12 @@ class AccountLockoutManager:
         current_time = time.time()
 
         with self._lock:
-            tracker = self._trackers.get(key)
-            if tracker is None:
-                return False
-
-            if tracker.lockout_until > current_time:
+            if self._is_tracker_locked(self._trackers.get(key), current_time):
                 return True
-
-            if tracker.lockout_until > 0 and tracker.lockout_until <= current_time:
-                tracker.lockout_until = 0.0
-                tracker.failed_attempts = 0
-
+            if self.username_lockout_enabled:
+                return self._is_tracker_locked(
+                    self._username_trackers.get(username), current_time
+                )
             return False
 
     def get_remaining_lockout_seconds(self, ip_address: str, username: str) -> int:
@@ -62,10 +87,15 @@ class AccountLockoutManager:
         current_time = time.time()
 
         with self._lock:
-            tracker = self._trackers.get(key)
-            if tracker is None or tracker.lockout_until <= current_time:
-                return 0
-            return int(tracker.lockout_until - current_time)
+            ip_remaining = self._remaining_lockout_seconds(
+                self._trackers.get(key), current_time
+            )
+            if not self.username_lockout_enabled:
+                return ip_remaining
+            username_remaining = self._remaining_lockout_seconds(
+                self._username_trackers.get(username), current_time
+            )
+            return max(ip_remaining, username_remaining)
 
     def _cleanup_expired_locked(self, current_time: float) -> int:
         """Remove expired lockout entries. Caller must hold ``_lock``."""
@@ -85,23 +115,42 @@ class AccountLockoutManager:
         ]
         for key in keys_to_remove:
             del self._trackers[key]
-        return len(keys_to_remove)
 
-    def _evict_oldest_tracker_if_needed(self, current_time: float) -> bool:
-        """Make room for a new tracker without evicting active lockouts.
+        username_keys_to_remove = [
+            key
+            for key, tracker in self._username_trackers.items()
+            if (tracker.lockout_until > 0 and tracker.lockout_until <= current_time)
+            or (
+                tracker.lockout_until <= current_time
+                and current_time - tracker.last_attempt > self.lockout_duration
+            )
+            or (
+                tracker.failed_attempts == 0
+                and tracker.lockout_until <= 0
+                and current_time - tracker.last_attempt > self.lockout_duration
+            )
+        ]
+        for key in username_keys_to_remove:
+            del self._username_trackers[key]
 
-        Returns True when a new tracker slot is available.
-        """
-        if len(self._trackers) < MAX_LOCKOUT_TRACKERS:
+        return len(keys_to_remove) + len(username_keys_to_remove)
+
+    def _evict_oldest_tracker_if_needed(
+        self,
+        trackers: dict[str, LoginAttemptTracker],
+        current_time: float,
+    ) -> bool:
+        """Make room for a new tracker without evicting active lockouts."""
+        if len(trackers) < MAX_LOCKOUT_TRACKERS:
             return True
 
         self._cleanup_expired_locked(current_time)
-        if len(self._trackers) < MAX_LOCKOUT_TRACKERS:
+        if len(trackers) < MAX_LOCKOUT_TRACKERS:
             return True
 
         inactive_keys = [
             key
-            for key, tracker in self._trackers.items()
+            for key, tracker in trackers.items()
             if (tracker.lockout_until <= current_time and tracker.failed_attempts == 0)
         ]
         if not inactive_keys:
@@ -109,10 +158,42 @@ class AccountLockoutManager:
 
         oldest_key = min(
             inactive_keys,
-            key=lambda tracker_key: self._trackers[tracker_key].last_attempt,
+            key=lambda tracker_key: trackers[tracker_key].last_attempt,
         )
-        del self._trackers[oldest_key]
-        return True
+        del trackers[oldest_key]
+        return len(trackers) < MAX_LOCKOUT_TRACKERS
+
+    def _record_failed_on_tracker(
+        self,
+        trackers: dict[str, LoginAttemptTracker],
+        key: str,
+        current_time: float,
+    ) -> tuple[bool, bool]:
+        """Record a failed attempt on a single tracker map."""
+        if key not in trackers:
+            if not self._evict_oldest_tracker_if_needed(trackers, current_time):
+                emergency = LoginAttemptTracker()
+                emergency.failed_attempts = self.max_attempts
+                emergency.lockout_until = current_time + self.lockout_duration
+                emergency.last_attempt = current_time
+                trackers[key] = emergency
+                return True, True
+            trackers[key] = LoginAttemptTracker()
+
+        tracker = trackers[key]
+
+        if tracker.lockout_until > 0 and tracker.lockout_until <= current_time:
+            tracker.lockout_until = 0.0
+            tracker.failed_attempts = 0
+
+        tracker.failed_attempts += 1
+        tracker.last_attempt = current_time
+
+        if tracker.failed_attempts >= self.max_attempts:
+            tracker.lockout_until = current_time + self.lockout_duration
+            return True, False
+
+        return False, False
 
     def record_failed_attempt(
         self, ip_address: str, username: str
@@ -126,30 +207,21 @@ class AccountLockoutManager:
         current_time = time.time()
 
         with self._lock:
-            if key not in self._trackers:
-                if not self._evict_oldest_tracker_if_needed(current_time):
-                    emergency = LoginAttemptTracker()
-                    emergency.failed_attempts = self.max_attempts
-                    emergency.lockout_until = current_time + self.lockout_duration
-                    emergency.last_attempt = current_time
-                    self._trackers[key] = emergency
+            ip_locked, ip_exhausted = self._record_failed_on_tracker(
+                self._trackers, key, current_time
+            )
+            if ip_exhausted:
+                return True, True
+
+            username_locked = False
+            if self.username_lockout_enabled:
+                username_locked, username_exhausted = self._record_failed_on_tracker(
+                    self._username_trackers, username, current_time
+                )
+                if username_exhausted:
                     return True, True
-                self._trackers[key] = LoginAttemptTracker()
 
-            tracker = self._trackers[key]
-
-            if tracker.lockout_until > 0 and tracker.lockout_until <= current_time:
-                tracker.lockout_until = 0.0
-                tracker.failed_attempts = 0
-
-            tracker.failed_attempts += 1
-            tracker.last_attempt = current_time
-
-            if tracker.failed_attempts >= self.max_attempts:
-                tracker.lockout_until = current_time + self.lockout_duration
-                return True, False
-
-            return False, False
+            return ip_locked or username_locked, False
 
     def record_successful_login(self, ip_address: str, username: str) -> None:
         """Clear failed attempts on successful login."""
@@ -158,9 +230,11 @@ class AccountLockoutManager:
         with self._lock:
             if key in self._trackers:
                 del self._trackers[key]
+            if username in self._username_trackers:
+                del self._username_trackers[username]
 
     def get_failed_attempts(self, ip_address: str, username: str) -> int:
-        """Get current failed attempt count."""
+        """Get current failed attempt count for an IP/username pair."""
         key = self._get_key(ip_address, username)
 
         with self._lock:
