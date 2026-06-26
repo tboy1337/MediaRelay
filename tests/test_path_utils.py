@@ -389,3 +389,24 @@ class TestInodeLinkIndex:
         stat_result = (video_dir / "clip.mp4").stat()
         count = index.count_links(stat_result.st_ino, stat_result.st_dev)
         assert count == 1
+
+    def test_hardlink_check_falls_back_when_inode_index_misses(
+        self, tmp_path: Path
+    ) -> None:
+        """When count_links returns None, hardlink check uses a live directory scan."""
+        from mediarelay.path_utils import _is_hardlink_outside_jail
+
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        clip = video_dir / "clip.mp4"
+        clip.write_text("content", encoding="utf-8")
+
+        index = InodeLinkIndex(video_dir)
+        jail_root = video_dir.resolve()
+        resolved = clip.resolve()
+
+        with patch.object(index, "count_links", return_value=None):
+            assert (
+                _is_hardlink_outside_jail(resolved, jail_root, inode_index=index)
+                is False
+            )

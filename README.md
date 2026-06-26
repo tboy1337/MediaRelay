@@ -111,7 +111,7 @@ CONFIGURATION VALUES FOR .env FILE
 ============================================================
 VIDEO_SERVER_SECRET_KEY=a1b2c3d4e5f67890abcdef1234567890abcdef1234567890abcdef1234567890
 VIDEO_SERVER_USERNAME=admin
-VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$abc123$def456...
+VIDEO_SERVER_PASSWORD_HASH=scrypt:32768:8:1$abc123$def456...
 ```
 
 **Important Security Notes**: 
@@ -231,7 +231,7 @@ HTTP_BASIC_AUTH + SESSION_MANAGEMENT + SAMESITE_COOKIES
 ```http
 X-Content-Type-Options: nosniff
 X-Frame-Options: SAMEORIGIN
-Strict-Transport-Security: max-age=31536000  # Only when SESSION_COOKIE_SECURE=true
+Strict-Transport-Security: max-age=31536000  # When VIDEO_SERVER_HSTS=true or VIDEO_SERVER_BEHIND_PROXY=true
 Content-Security-Policy: default-src 'self'; media-src 'self'; style-src 'self' 'unsafe-inline'
 Referrer-Policy: strict-origin-when-cross-origin
 Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
@@ -242,7 +242,7 @@ X-Permitted-Cross-Domain-Policies: none
 
 ### Reverse Proxy Warning
 
-Set `VIDEO_SERVER_BEHIND_PROXY=true` only when MediaRelay runs behind a trusted reverse proxy (nginx, Caddy, etc.) and is bound to localhost. Direct internet exposure with this flag enabled allows IP spoofing via `X-Forwarded-For`, weakening lockout and rate limits. See [SECURITY.md](SECURITY.md).
+Set `VIDEO_SERVER_BEHIND_PROXY=true` and `VIDEO_SERVER_PROXY_TRUSTED=true` only when MediaRelay runs behind a trusted reverse proxy (nginx, Caddy, etc.) and is bound to localhost. Without `PROXY_TRUSTED`, client IP and rate limits use the direct connection address, not `X-Forwarded-For`. Direct internet exposure with proxy headers enabled allows IP spoofing. See [SECURITY.md](SECURITY.md).
 
 ### Security Monitoring
 

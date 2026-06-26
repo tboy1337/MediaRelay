@@ -30,11 +30,11 @@ from mediarelay.templates import INDEX_HTML_TEMPLATE
 class TestMediaRelayServer:
     """Test cases for MediaRelayServer initialization and configuration"""
 
-    def test_server_initialization(self, test_config):
+    def test_server_initialization(self, server_config):
         """Test server initialization with configuration"""
-        server = MediaRelayServer(test_config)
+        server = MediaRelayServer(server_config)
 
-        assert server.config == test_config
+        assert server.config == server_config
         assert server.app is not None
         assert server.security_logger is not None
         assert server.performance_logger is not None
@@ -63,18 +63,18 @@ class TestMediaRelayServer:
             == test_server.config.session_timeout
         )
 
-    def test_rate_limiting_enabled(self, test_config):
+    def test_rate_limiting_enabled(self, server_config):
         """Test rate limiting when enabled"""
-        test_config.rate_limit_enabled = True
-        server = MediaRelayServer(test_config)
+        server_config.rate_limit_enabled = True
+        server = MediaRelayServer(server_config)
 
         assert hasattr(server, "limiter")
         assert server.limiter is not None
 
-    def test_rate_limiting_disabled(self, test_config):
+    def test_rate_limiting_disabled(self, server_config):
         """Test rate limiting when disabled"""
-        test_config.rate_limit_enabled = False
-        server = MediaRelayServer(test_config)
+        server_config.rate_limit_enabled = False
+        server = MediaRelayServer(server_config)
 
         assert server.limiter is None
 
@@ -183,10 +183,10 @@ class TestMediaRelayServerComprehensive:
 class TestAuthentication:
     """Test cases for authentication functionality"""
 
-    def test_check_auth_valid_credentials(self, test_server, test_config):
+    def test_check_auth_valid_credentials(self, test_server, server_config):
         """Test authentication with valid credentials"""
         with test_server.app.test_request_context():
-            result = test_server.check_auth(test_config.username, "testpass")
+            result = test_server.check_auth(server_config.username, "testpass")
             assert result is True
 
     def test_check_auth_invalid_username(self, test_server):
@@ -195,10 +195,10 @@ class TestAuthentication:
             result = test_server.check_auth("wronguser", "testpass")
             assert result is False
 
-    def test_check_auth_invalid_password(self, test_server, test_config):
+    def test_check_auth_invalid_password(self, test_server, server_config):
         """Test authentication with invalid password"""
         with test_server.app.test_request_context():
-            result = test_server.check_auth(test_config.username, "wrongpass")
+            result = test_server.check_auth(server_config.username, "wrongpass")
             assert result is False
 
     def test_check_auth_empty_credentials(self, test_server):
@@ -226,10 +226,10 @@ class TestAuthentication:
             session["credential_epoch"] = test_server.config.credential_epoch
             assert test_server.check_authentication() is True
 
-    def test_check_authentication_http_auth(self, test_server, test_config):
+    def test_check_authentication_http_auth(self, test_server, server_config):
         """Test authentication check with HTTP Basic Auth"""
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         with test_server.app.test_request_context(
@@ -707,7 +707,7 @@ class TestMaxFileSizeHandling:
 class TestSecurityHeaders:
     """Test cases for security headers"""
 
-    def test_security_headers_applied(self, test_client, test_config):
+    def test_security_headers_applied(self, test_client, server_config):
         """Test that security headers are applied to all responses"""
         response = test_client.get("/health")
 
@@ -726,7 +726,7 @@ class TestSecurityHeaders:
         assert "Cross-Origin-Opener-Policy" in response.headers
         assert "Cross-Origin-Resource-Policy" in response.headers
 
-        if test_config.should_send_hsts():
+        if server_config.should_send_hsts():
             assert "Strict-Transport-Security" in response.headers
         else:
             assert "Strict-Transport-Security" not in response.headers
@@ -740,14 +740,33 @@ class TestSecurityHeaders:
         assert "media-src 'self'" in csp
         assert "style-src 'self' 'unsafe-inline'" in csp
 
+    def test_hsts_header_when_hsts_enabled_only(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HSTS is sent when VIDEO_SERVER_HSTS=true without behind_proxy."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        monkeypatch.setenv("VIDEO_SERVER_PASSWORD_HASH", "test_hash")
+        monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(video_dir))
+        monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(tmp_path / "logs"))
+        monkeypatch.setenv("VIDEO_SERVER_HSTS", "true")
+        monkeypatch.setenv("VIDEO_SERVER_BEHIND_PROXY", "false")
+        monkeypatch.setenv("FLASK_ENV", "testing")
+
+        server = MediaRelayServer(ServerConfig())
+        with server.app.test_client() as client:
+            response = client.get("/health")
+        assert "Strict-Transport-Security" in response.headers
+        server._shutdown_cleanup()
+
 
 class TestSessionManagement:
     """Test cases for session management"""
 
-    def test_session_creation_on_auth(self, test_server, test_config):
+    def test_session_creation_on_auth(self, test_server, server_config):
         """Test session creation on successful authentication"""
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         with test_server.app.test_client() as client:
@@ -760,43 +779,43 @@ class TestSessionManagement:
             # Session should be created
             with client.session_transaction() as sess:
                 assert sess.get("authenticated") is True
-                assert sess.get("username") == test_config.username
+                assert sess.get("username") == server_config.username
                 assert "last_activity" in sess
-                assert sess.get("credential_epoch") == test_config.credential_epoch
+                assert sess.get("credential_epoch") == server_config.credential_epoch
 
-    def test_session_invalid_without_login_ip(self, test_server, test_config):
+    def test_session_invalid_without_login_ip(self, test_server, server_config):
         """Sessions missing login_ip must be rejected."""
         with test_server.app.test_client() as client:
             with client.session_transaction() as sess:
                 sess["authenticated"] = True
-                sess["username"] = test_config.username
+                sess["username"] = server_config.username
                 sess["last_activity"] = time.time()
                 sess["login_time"] = time.time()
-                sess["credential_epoch"] = test_config.credential_epoch
+                sess["credential_epoch"] = server_config.credential_epoch
 
             response = client.get("/")
             assert response.status_code == 401
 
     def test_session_invalid_after_credential_change(
-        self, test_server, test_config
+        self, test_server, server_config
     ) -> None:
         """Sessions must end when username or password hash changes."""
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         with test_server.app.test_client() as client:
             client.get("/", headers={"Authorization": f"Basic {credentials}"})
             assert client.get("/").status_code == 200
 
-            test_config.password_hash = generate_password_hash("newpass")
+            server_config.password_hash = generate_password_hash("newpass")
 
             assert client.get("/").status_code == 401
 
-    def test_session_persistence(self, test_server, test_config):
+    def test_session_persistence(self, test_server, server_config):
         """Test session persistence across requests"""
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         with test_server.app.test_client() as client:
@@ -1100,6 +1119,7 @@ class TestErrorHandlers:
             response = client.get("/health")
             assert response.status_code == 429
             assert b"Rate Limit Exceeded" in response.data
+            assert response.headers.get("Retry-After") == "60"
 
     def test_stream_route_has_separate_rate_limit(self, tmp_path: Path) -> None:
         """Stream endpoint uses a higher dedicated rate limit for range requests."""
@@ -1177,6 +1197,7 @@ class TestErrorHandlers:
             video_directory=str(video_dir),
             password_hash="test_hash",
             behind_proxy=True,
+            proxy_trusted=True,
             rate_limit_enabled=True,
             rate_limit_per_minute=60,
         )
@@ -1425,9 +1446,9 @@ class TestGracefulShutdown:
                 with patch.object(server, "_shutdown_cleanup"):
                     server.run()
 
-    def test_lockout_cleanup_reschedules_after_failure(self, test_config):
+    def test_lockout_cleanup_reschedules_after_failure(self, server_config):
         """Lockout cleanup timer reschedules even when cleanup_expired fails."""
-        server = MediaRelayServer(test_config)
+        server = MediaRelayServer(server_config)
         with patch.object(
             server.lockout_manager,
             "cleanup_expired",
@@ -1439,9 +1460,9 @@ class TestGracefulShutdown:
                 server._run_lockout_cleanup()
         mock_schedule.assert_called_once()
 
-    def test_stop_lockout_cleanup_without_active_timer(self, test_config):
+    def test_stop_lockout_cleanup_without_active_timer(self, server_config):
         """Stopping lockout cleanup is safe when no timer is scheduled."""
-        server = MediaRelayServer(test_config)
+        server = MediaRelayServer(server_config)
         server._lockout_cleanup_timer = None
         server._stop_lockout_cleanup()
 
@@ -1490,9 +1511,9 @@ class TestProductionAuditFixes:
         assert response.headers.get("Cache-Control") == "private, no-store"
         assert response.headers.get("Pragma") == "no-cache"
 
-    def test_logout_uses_log_logout(self, test_server, test_config):
+    def test_logout_uses_log_logout(self, test_server, server_config):
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
         test_server.security_logger = MagicMock()
 
@@ -1509,7 +1530,7 @@ class TestProductionAuditFixes:
         assert data["video_directory_accessible"] is True
 
     def test_check_authentication_lockout_logs_violation(
-        self, test_server, test_config
+        self, test_server, server_config
     ):
         test_server.security_logger = MagicMock()
         test_server.lockout_manager = AccountLockoutManager(
@@ -1527,7 +1548,7 @@ class TestProductionAuditFixes:
         )
 
     def test_subtitle_track_when_srt_exists(
-        self, test_server, test_config, temp_video_dir, authenticated_client
+        self, test_server, server_config, temp_video_dir, authenticated_client
     ):
         video = temp_video_dir / "captioned.mp4"
         video.write_text("video", encoding="utf-8")
@@ -1635,7 +1656,41 @@ class TestProductionAuditFixes:
         monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(video_dir))
         monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(tmp_path / "logs"))
         monkeypatch.setenv("VIDEO_SERVER_BEHIND_PROXY", "true")
+        monkeypatch.setenv("VIDEO_SERVER_PROXY_TRUSTED", "true")
         monkeypatch.setenv("FLASK_ENV", "testing")
 
         server = MediaRelayServer(ServerConfig())
         assert type(server.app.wsgi_app).__name__ == "ProxyFix"
+
+    def test_proxyfix_not_applied_when_proxy_untrusted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        monkeypatch.setenv("VIDEO_SERVER_PASSWORD_HASH", "test_hash")
+        monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(video_dir))
+        monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(tmp_path / "logs"))
+        monkeypatch.setenv("VIDEO_SERVER_BEHIND_PROXY", "true")
+        monkeypatch.setenv("VIDEO_SERVER_PROXY_TRUSTED", "false")
+        monkeypatch.setenv("FLASK_ENV", "testing")
+
+        server = MediaRelayServer(ServerConfig())
+        assert type(server.app.wsgi_app).__name__ != "ProxyFix"
+        server._shutdown_cleanup()
+
+    def test_rate_limit_response_includes_retry_after(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash="test_hash",
+            rate_limit_enabled=True,
+            rate_limit_per_minute=1,
+        )
+        server = MediaRelayServer(config)
+        with server.app.test_client() as client:
+            assert client.get("/health").status_code == 200
+            response = client.get("/health")
+        assert response.status_code == 429
+        assert response.headers.get("Retry-After") == "60"
+        server._shutdown_cleanup()

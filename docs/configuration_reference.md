@@ -21,7 +21,7 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 |----------|---------|-------------|
 | `VIDEO_SERVER_SECRET_KEY` | *(auto-generated if unset)* | Flask session signing key. **Required in production** via environment. |
 | `VIDEO_SERVER_USERNAME` | `tboy1337` | HTTP Basic Auth username. Must not be empty or whitespace. |
-| `VIDEO_SERVER_PASSWORD_HASH` | *(empty)* | Werkzeug PBKDF2 hash. **Required.** Generate with `mediarelay-genpass`. |
+| `VIDEO_SERVER_PASSWORD_HASH` | *(empty)* | Werkzeug scrypt hash. **Required.** Generate with `mediarelay-genpass`. |
 | `VIDEO_SERVER_SESSION_TIMEOUT` | `3600` | Session idle timeout in seconds. |
 | `VIDEO_SERVER_SESSION_MAX_LIFETIME` | `86400` | Absolute session lifetime in seconds from login (default 24 hours). Must be greater than or equal to `VIDEO_SERVER_SESSION_TIMEOUT`. |
 | `VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS` | `5` | Failed logins before lockout. |

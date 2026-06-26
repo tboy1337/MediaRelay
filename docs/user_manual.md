@@ -101,7 +101,7 @@ For detailed installation instructions including system requirements, security s
    Choose a strong password and copy the hash to your `.env` file:
    ```bash
    VIDEO_SERVER_USERNAME=your_username
-   VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:...your_hash
+   VIDEO_SERVER_PASSWORD_HASH=scrypt:32768:8:1$...your_hash
    ```
 
 4. **Start the Server**

@@ -17,17 +17,14 @@ from typing import Any, TypedDict
 
 import colorlog
 import psutil
-from flask import g, has_request_context
 
 from .config import ServerConfig
+from .session_store import get_request_id
 
 
 def _current_request_id() -> str | None:
     """Return the current Flask request ID when inside a request context."""
-    if not has_request_context():
-        return None
-    request_id = getattr(g, "request_id", None)
-    return str(request_id) if request_id is not None else None
+    return get_request_id()
 
 
 class _JsonLineFormatter(logging.Formatter):
@@ -100,10 +97,11 @@ class SecurityEventLogger:
 
     def log_logout(self, username: str, ip_address: str, user_agent: str = "") -> None:
         """Log user logout events."""
+        logged_username = username[:_MAX_LOGGED_USERNAME_LENGTH]
         event_data = self._build_event_data(
             {
                 "event_type": "logout",
-                "username": username,
+                "username": logged_username,
                 "ip_address": ip_address,
                 "user_agent": user_agent,
                 "timestamp": datetime.now(timezone.utc).isoformat(),

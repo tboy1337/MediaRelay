@@ -6,8 +6,18 @@ import hmac
 import time
 from typing import TYPE_CHECKING
 
-from flask import Response, request, session
+from flask import Response, request
 from werkzeug.security import check_password_hash
+
+from .session_store import (
+    clear_session,
+)
+from .session_store import establish_session as create_auth_session
+from .session_store import (
+    is_session_authenticated,
+    read_session_auth_state,
+    touch_session_activity,
+)
 
 if TYPE_CHECKING:
     from .server import MediaRelayServer
@@ -45,6 +55,7 @@ def check_auth(
         return False
 
     if server.lockout_manager.is_locked_out(ip_address, username):
+        check_password_hash(server.config.password_hash, password)
         remaining = server.lockout_manager.get_remaining_lockout_seconds(
             ip_address, username
         )
@@ -73,6 +84,13 @@ def check_auth(
         server.lockout_manager.record_successful_login(ip_address, username)
     else:
         now_locked = server.lockout_manager.record_failed_attempt(ip_address, username)
+        if server.lockout_manager.tracker_exhausted_on_last_attempt():
+            if server.security_logger:
+                server.security_logger.log_security_violation(
+                    "lockout_tracker_exhausted",
+                    "Lockout tracker at capacity; emergency lockout applied",
+                    ip_address,
+                )
         if now_locked and server.security_logger:
             server.security_logger.log_security_violation(
                 "account_locked",
@@ -88,38 +106,38 @@ def _session_invalid_reason(
     server: MediaRelayServer, current_time: float
 ) -> str | None:
     """Return a reason string when the active session is invalid, else None."""
-    last_activity = session.get("last_activity", 0)  # type: ignore[misc]
-    if current_time - last_activity > server.config.session_timeout:  # type: ignore[misc]
+    auth_state = read_session_auth_state()
+    if auth_state is None:
+        return None
+
+    if current_time - auth_state.last_activity > server.config.session_timeout:
         return "session_idle_timeout"
 
-    login_time = session.get("login_time")  # type: ignore[misc]
-    if login_time is not None and (
-        current_time - login_time > server.config.session_max_lifetime  # type: ignore[misc]
+    if auth_state.login_time is not None and (
+        current_time - auth_state.login_time > server.config.session_max_lifetime
     ):
         return "session_max_lifetime_exceeded"
 
-    login_ip = session.get("login_ip")  # type: ignore[misc]
-    if not login_ip:
+    if not auth_state.login_ip:
         return "session_missing_login_ip"
 
-    session_epoch = session.get("credential_epoch")  # type: ignore[misc]
-    if session_epoch != server.config.credential_epoch:
+    if auth_state.credential_epoch != server.config.credential_epoch:
         return "credential_changed"
 
     client_ip = server.get_client_ip()
-    if login_ip != client_ip:
+    if auth_state.login_ip != client_ip:
         if server.security_logger:
             server.security_logger.log_security_violation(
                 "session_ip_mismatch",
                 (
                     f"Session invalidated due to IP change from "
-                    f"{login_ip} to {client_ip}"
+                    f"{auth_state.login_ip} to {client_ip}"
                 ),
                 client_ip,
             )
         return "session_ip_mismatch"
 
-    username = session.get("username")  # type: ignore[misc]
+    username = auth_state.username
     if username and server.lockout_manager.is_locked_out(client_ip, str(username)):
         remaining = server.lockout_manager.get_remaining_lockout_seconds(
             client_ip, str(username)
@@ -141,11 +159,11 @@ def check_authentication(
 ) -> bool:
     """Check if the current request is authenticated with lockout protection."""
     current_time = time.time()
-    if session.get("authenticated"):  # type: ignore[misc]
+    if is_session_authenticated():
         if _session_invalid_reason(server, current_time) is None:
-            session["last_activity"] = current_time
+            touch_session_activity(current_time)
             return True
-        session.clear()
+        clear_session()
 
     auth = request.authorization
     if not auth or not auth.username or not auth.password:
@@ -153,14 +171,12 @@ def check_authentication(
 
     if check_auth(server, auth.username, auth.password):
         if establish_session:
-            session.clear()
-            session["authenticated"] = True
-            session["username"] = auth.username
-            session["last_activity"] = current_time
-            session["login_time"] = current_time
-            session["login_ip"] = server.get_client_ip()
-            session["credential_epoch"] = server.config.credential_epoch
-            session.permanent = True
+            create_auth_session(
+                username=auth.username,
+                current_time=current_time,
+                login_ip=server.get_client_ip(),
+                credential_epoch=server.config.credential_epoch,
+            )
         return True
 
     return False

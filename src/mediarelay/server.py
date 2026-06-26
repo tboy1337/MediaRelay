@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 import click
-from flask import Flask, Response, g, request
+from flask import Flask, Response, request
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from waitress import serve
@@ -34,11 +34,12 @@ from .logging_config import (
 )
 from .path_utils import InodeLinkIndex, get_breadcrumbs, get_safe_path
 from .routes import register_routes
+from .session_store import get_request_id
 
 
-def _client_address_from_request(behind_proxy: bool) -> str:
-    """Return the client IP, honoring reverse-proxy headers when configured."""
-    if behind_proxy and request.access_route:
+def _client_address_from_request(behind_proxy: bool, proxy_trusted: bool) -> str:
+    """Return the client IP, honoring reverse-proxy headers when trusted."""
+    if behind_proxy and proxy_trusted and request.access_route:
         return request.access_route[0]
     return request.remote_addr or "unknown"
 
@@ -81,9 +82,9 @@ class MediaRelayServer:
         if self.config.behind_proxy and not self.config.proxy_trusted:
             self.app.logger.warning(
                 "VIDEO_SERVER_BEHIND_PROXY is enabled but VIDEO_SERVER_PROXY_TRUSTED "
-                "is false: client IP and rate limits use X-Forwarded-For. Set "
-                "VIDEO_SERVER_PROXY_TRUSTED=true only when MediaRelay is behind a "
-                "trusted reverse proxy. Direct exposure allows IP spoofing."
+                "is false: client IP and rate limits use the direct connection "
+                "address, not X-Forwarded-For. Set VIDEO_SERVER_PROXY_TRUSTED=true "
+                "only when MediaRelay is behind a trusted reverse proxy."
             )
         elif self.config.behind_proxy:
             self.app.logger.info(
@@ -127,13 +128,15 @@ class MediaRelayServer:
             self._lockout_cleanup_timer = None
 
     def get_client_ip(self) -> str:
-        """Return the client IP, honoring reverse-proxy headers when configured."""
-        return _client_address_from_request(self.config.behind_proxy)
+        """Return the client IP, honoring reverse-proxy headers when trusted."""
+        return _client_address_from_request(
+            self.config.behind_proxy, self.config.proxy_trusted
+        )
 
     def _rate_limit_key(self) -> str:
         """Rate limiter key function respecting reverse-proxy configuration."""
-        if self.config.behind_proxy:
-            return _client_address_from_request(True)
+        if self.config.behind_proxy and self.config.proxy_trusted:
+            return _client_address_from_request(True, True)
         return get_remote_address()
 
     def auth_required_response(self) -> Response:
@@ -153,7 +156,7 @@ class MediaRelayServer:
         app.config["PERMANENT_SESSION_LIFETIME"] = self.config.session_timeout
         app.config["DEBUG"] = self.config.debug
 
-        if self.config.behind_proxy:
+        if self.config.behind_proxy and self.config.proxy_trusted:
             app.wsgi_app = ProxyFix(  # type: ignore[method-assign]
                 app.wsgi_app,
                 x_for=1,
@@ -197,7 +200,7 @@ class MediaRelayServer:
 
     def _request_id_suffix(self) -> str:
         """Return a log suffix with the current request ID when available."""
-        request_id = getattr(g, "request_id", None)
+        request_id = get_request_id()
         return f" [request_id={request_id}]" if request_id else ""
 
     def check_auth(self, username: str | None, password: str | None) -> bool:

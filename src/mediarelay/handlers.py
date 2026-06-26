@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
-from flask import Response, jsonify, request, send_from_directory, session
+from flask import Response, jsonify, request, send_from_directory
 
 from .path_utils import (
     get_breadcrumbs,
@@ -19,6 +19,7 @@ from .path_utils import (
     guess_media_mime_type,
     is_audio_file,
 )
+from .session_store import get_session_username
 from .templates import render_index_template
 
 if TYPE_CHECKING:
@@ -47,7 +48,7 @@ class _PaginationResult:
 
 
 def _session_username() -> str:
-    return str(session.get("username", "unknown"))  # type: ignore[misc]
+    return get_session_username()
 
 
 def _parse_page_arg() -> int | tuple[str, int]:

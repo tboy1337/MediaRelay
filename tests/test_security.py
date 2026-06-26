@@ -213,6 +213,22 @@ class TestAccountLockoutManager:
             "1.1.1.1:locked_user" in manager._trackers
         )  # pylint: disable=protected-access
 
+    def test_lockout_fail_closed_when_all_slots_active(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """New attackers are emergency-locked when every tracker slot is an active lockout."""
+        monkeypatch.setattr("mediarelay.lockout.MAX_LOCKOUT_TRACKERS", 2)
+        manager = AccountLockoutManager(max_attempts=2, lockout_duration=300)
+
+        manager.record_failed_attempt("1.1.1.1", "user_a")
+        assert manager.record_failed_attempt("1.1.1.1", "user_a") is True
+        manager.record_failed_attempt("2.2.2.2", "user_b")
+        assert manager.record_failed_attempt("2.2.2.2", "user_b") is True
+
+        assert manager.record_failed_attempt("3.3.3.3", "attacker") is True
+        assert manager.is_locked_out("3.3.3.3", "attacker")
+        assert manager.tracker_exhausted_on_last_attempt() is True
+
 
 class TestLoginAttemptTracker:
     """Test cases for LoginAttemptTracker dataclass"""
@@ -229,7 +245,7 @@ class TestAuthModule:
     """Direct tests for auth module edge cases."""
 
     def test_account_locked_logs_security_violation(
-        self, test_server, test_config
+        self, test_server, server_config
     ) -> None:
         """Lockout threshold must log an account_locked security violation."""
         test_server.security_logger = Mock()
@@ -258,11 +274,11 @@ class TestAuthModule:
         assert test_server.security_logger.log_auth_attempt.call_args.args[0] == "empty"
 
     def test_auth_required_response_omits_retry_after_when_not_locked(
-        self, test_server, test_config
+        self, test_server, server_config
     ) -> None:
         """401 without lockout must not include Retry-After."""
         credentials = base64.b64encode(
-            f"{test_config.username}:wrongpass".encode("utf-8")
+            f"{server_config.username}:wrongpass".encode("utf-8")
         ).decode("utf-8")
 
         with test_server.app.test_request_context(
@@ -285,14 +301,14 @@ class TestAuthModule:
 
     @patch("mediarelay.auth.check_password_hash", return_value=False)
     def test_check_auth_always_verifies_password_hash(
-        self, mock_check_hash: Mock, test_server, test_config
+        self, mock_check_hash: Mock, test_server, server_config
     ) -> None:
         """Password hash must be checked even when username does not match."""
         with test_server.app.test_request_context():
             assert test_server.check_auth("wronguser", "anypassword") is False
 
         mock_check_hash.assert_called_once_with(
-            test_config.password_hash, "anypassword"
+            server_config.password_hash, "anypassword"
         )
 
     @patch("mediarelay.auth.hmac.compare_digest", return_value=False)
@@ -302,13 +318,13 @@ class TestAuthModule:
         mock_check_hash: Mock,
         mock_compare_digest: Mock,
         test_server,
-        test_config,
+        server_config,
     ) -> None:
         """Username comparison must use hmac.compare_digest."""
         with test_server.app.test_request_context():
             assert test_server.check_auth("wronguser", "anypassword") is False
 
-        mock_compare_digest.assert_called_once_with("wronguser", test_config.username)
+        mock_compare_digest.assert_called_once_with("wronguser", server_config.username)
         mock_check_hash.assert_called_once()
 
 
@@ -316,7 +332,7 @@ class TestAuthenticationSecurity:
     """Test cases for authentication security"""
 
     def test_brute_force_protection_lockout(
-        self, test_server, test_config
+        self, test_server, server_config
     ):  # pylint: disable=unused-argument
         """Test that brute force attempts trigger lockout"""
         with test_server.app.test_request_context():
@@ -340,7 +356,7 @@ class TestAuthenticationSecurity:
             ) or test_server.lockout_manager.is_locked_out("unknown", "attacker")
 
     def test_brute_force_protection_logging(
-        self, test_server, test_config
+        self, test_server, server_config
     ):  # pylint: disable=unused-argument
         """Test that brute force attempts are logged"""
         failed_attempts = []
@@ -373,10 +389,10 @@ class TestAuthenticationSecurity:
         ]
         assert len(failed_auth_attempts) == 5
 
-    def test_session_fixation_protection(self, test_client, test_config):
+    def test_session_fixation_protection(self, test_client, server_config):
         """Test protection against session fixation attacks"""
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         # Get initial session
@@ -402,10 +418,10 @@ class TestAuthenticationSecurity:
             assert sess.get("login_time") is not None
             assert sess.get("login_ip") is not None
 
-    def test_session_hijacking_protection(self, test_client, test_config):
+    def test_session_hijacking_protection(self, test_client, server_config):
         """Test session cookie security attributes"""
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         response = test_client.get(
@@ -416,17 +432,17 @@ class TestAuthenticationSecurity:
         set_cookie_header = response.headers.get("Set-Cookie", "")
 
         # In production, these should be set
-        if test_config.is_production():
+        if server_config.is_production():
             assert "Secure" in set_cookie_header
         assert "HttpOnly" in set_cookie_header
         assert "SameSite=Strict" in set_cookie_header
 
     def test_session_ip_mismatch_invalidates_session(
-        self, test_client, test_config, test_server
+        self, test_client, server_config, test_server
     ):
         """Session is cleared when client IP changes after login."""
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         response = test_client.get(
@@ -441,10 +457,10 @@ class TestAuthenticationSecurity:
         with test_client.session_transaction() as sess:
             assert sess.get("authenticated") is None
 
-    def test_session_max_lifetime_expires(self, test_client, test_config):
+    def test_session_max_lifetime_expires(self, test_client, server_config):
         """Session is cleared when absolute max lifetime is exceeded."""
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         response = test_client.get(
@@ -453,7 +469,7 @@ class TestAuthenticationSecurity:
         assert response.status_code == 200
 
         with test_client.session_transaction() as sess:
-            sess["login_time"] = time.time() - test_config.session_max_lifetime - 1
+            sess["login_time"] = time.time() - server_config.session_max_lifetime - 1
             sess["last_activity"] = time.time()
 
         response = test_client.get("/")
@@ -463,11 +479,11 @@ class TestAuthenticationSecurity:
             assert sess.get("authenticated") is None
 
     def test_session_max_lifetime_falls_through_to_basic_auth(
-        self, test_client, test_config
+        self, test_client, server_config
     ):
         """Expired session with valid Basic Auth re-authenticates on the same request."""
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
         auth_header = {"Authorization": f"Basic {credentials}"}
 
@@ -475,7 +491,7 @@ class TestAuthenticationSecurity:
         assert response.status_code == 200
 
         with test_client.session_transaction() as sess:
-            sess["login_time"] = time.time() - test_config.session_max_lifetime - 1
+            sess["login_time"] = time.time() - server_config.session_max_lifetime - 1
             sess["last_activity"] = time.time()
 
         response = test_client.get("/", headers=auth_header)
@@ -484,10 +500,10 @@ class TestAuthenticationSecurity:
         with test_client.session_transaction() as sess:
             assert sess.get("authenticated") is True
 
-    def test_lockout_invalidates_active_session(self, test_server, test_config):
+    def test_lockout_invalidates_active_session(self, test_server, server_config):
         """Locked-out accounts cannot continue using an existing session."""
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
         test_server.lockout_manager = AccountLockoutManager(
             max_attempts=1, lockout_duration=60
@@ -501,16 +517,16 @@ class TestAuthenticationSecurity:
 
             client_ip = "127.0.0.1"
             test_server.lockout_manager.record_failed_attempt(
-                client_ip, test_config.username
+                client_ip, server_config.username
             )
 
             response = client.get("/")
             assert response.status_code == 401
 
-    def test_concurrent_sessions_allowed(self, test_server, test_config):
+    def test_concurrent_sessions_allowed(self, test_server, server_config):
         """Test that multiple independent clients can hold sessions concurrently"""
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         # Create two separate clients
@@ -530,13 +546,13 @@ class TestAuthenticationSecurity:
             assert response1.status_code == 200
             assert response2.status_code == 200
 
-    def test_password_hash_protection(self, test_config):
+    def test_password_hash_protection(self, server_config):
         """Test that password hash is not exposed"""
-        config_dict = test_config.to_dict()
+        config_dict = server_config.to_dict()
 
         # Password hash should not be in config dict
         assert "password_hash" not in config_dict
-        assert test_config.password_hash not in str(config_dict)
+        assert server_config.password_hash not in str(config_dict)
 
     def test_lockout_response_includes_retry_after(self, test_server):
         """Test that lockout response includes Retry-After header"""
@@ -564,10 +580,10 @@ class TestAuthenticationSecurity:
 class TestLogoutEndpoint:
     """Test cases for logout endpoint"""
 
-    def test_logout_clears_session(self, test_server, test_config):
+    def test_logout_clears_session(self, test_server, server_config):
         """Test that logout properly clears the session"""
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         with test_server.app.test_client() as client:
@@ -589,10 +605,10 @@ class TestLogoutEndpoint:
             with client.session_transaction() as sess:
                 assert sess.get("authenticated") is None
 
-    def test_logout_response_headers(self, test_server, test_config):
+    def test_logout_response_headers(self, test_server, server_config):
         """Test that logout response includes proper headers"""
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         with test_server.app.test_client() as client:
@@ -606,10 +622,10 @@ class TestLogoutEndpoint:
         response = test_client.post("/logout")
         assert response.status_code == 401
 
-    def test_logout_get_returns_method_not_allowed(self, test_server, test_config):
+    def test_logout_get_returns_method_not_allowed(self, test_server, server_config):
         """GET logout is rejected to prevent CSRF-forced logout."""
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         with test_server.app.test_client() as client:
@@ -662,11 +678,11 @@ class TestHealthEndpointSecurity:
             assert data["status"] in ["healthy", "unhealthy"]
 
     def test_health_basic_auth_does_not_create_session(
-        self, test_client, test_config
+        self, test_client, server_config
     ) -> None:
         """Basic Auth on /health must not establish a Flask session."""
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         with test_client.session_transaction() as sess:
@@ -713,12 +729,12 @@ class TestURLLengthValidation:
         # Should process normally (200 for video player, not 414)
         assert response.status_code in [200, 404]
 
-    def test_url_length_security_logging(self, test_server, test_config):
+    def test_url_length_security_logging(self, test_server, server_config):
         """Test that long URL attempts are logged"""
         test_server.security_logger = MagicMock()
 
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         with test_server.app.test_client() as client:
@@ -734,12 +750,12 @@ class TestURLLengthValidation:
             )
             assert violation_type == "url_too_long"
 
-    def test_path_length_security_logging(self, test_server, test_config):
+    def test_path_length_security_logging(self, test_server, server_config):
         """Test that long path attempts are logged with path_too_long."""
         test_server.security_logger = MagicMock()
 
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         with test_server.app.test_client() as client:
@@ -960,7 +976,7 @@ class TestInjectionAttackProtection:
             # Should be blocked or return safe error
             assert response.status_code in [400, 403, 404]
 
-    def test_header_injection_protection(self, test_client, test_config):
+    def test_header_injection_protection(self, test_client, server_config):
         """Test protection against header injection attacks"""
         # Try to inject headers through various parameters
         malicious_headers = [
@@ -970,7 +986,7 @@ class TestInjectionAttackProtection:
         ]
 
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         for malicious_header in malicious_headers:
@@ -1011,13 +1027,13 @@ class TestDenialOfServiceProtection:
         assert response.status_code in [400, 404]
 
     @pytest.mark.timeout(15)
-    def test_concurrent_auth_requests(self, test_server, test_config):
+    def test_concurrent_auth_requests(self, test_server, server_config):
         """Test server stability under concurrent authentication requests"""
         import threading
 
         results = []
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         def make_auth_request():
@@ -1072,14 +1088,14 @@ class TestDenialOfServiceProtection:
 class TestSecurityLogging:
     """Test cases for security event logging"""
 
-    def test_failed_auth_logging(self, test_server, test_config, tmp_path):
+    def test_failed_auth_logging(self, test_server, server_config, tmp_path):
         """Test logging of failed authentication attempts"""
-        test_config.log_directory = str(tmp_path)
+        server_config.log_directory = str(tmp_path)
 
         # Reset security logger with new config
         from mediarelay.logging_config import SecurityEventLogger
 
-        test_server.security_logger = SecurityEventLogger(test_config)
+        test_server.security_logger = SecurityEventLogger(server_config)
 
         # Attempt failed authentication
         with test_server.app.test_request_context():
@@ -1166,35 +1182,35 @@ class TestSecurityLogging:
 class TestCryptographicSecurity:
     """Test cases for cryptographic security"""
 
-    def test_session_secret_key_randomness(self, test_config):
+    def test_session_secret_key_randomness(self, server_config):
         """Test that session secret key is sufficiently random"""
         # Secret key should be long and contain variety of characters
-        assert len(test_config.secret_key) >= 32
+        assert len(server_config.secret_key) >= 32
 
         # Should contain different character types
-        key_chars = set(test_config.secret_key)
+        key_chars = set(server_config.secret_key)
         assert len(key_chars) > 10  # Should have reasonable character diversity
 
-    def test_password_hash_strength(self, test_config):
+    def test_password_hash_strength(self, server_config):
         """Test password hash appears to use strong hashing"""
         from werkzeug.security import check_password_hash
 
         # Hash should not be the plain password
-        assert test_config.password_hash != "testpass"
+        assert server_config.password_hash != "testpass"
 
         # Should be properly formatted hash
-        assert len(test_config.password_hash) > 20
+        assert len(server_config.password_hash) > 20
 
         # Should verify correctly
-        assert check_password_hash(test_config.password_hash, "testpass")
+        assert check_password_hash(server_config.password_hash, "testpass")
 
         # Should not verify incorrect password
-        assert not check_password_hash(test_config.password_hash, "wrongpass")
+        assert not check_password_hash(server_config.password_hash, "wrongpass")
 
-    def test_session_token_uniqueness(self, test_server, test_config):
+    def test_session_token_uniqueness(self, test_server, server_config):
         """Test that session tokens are unique across sessions"""
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         session_data = []
@@ -1222,14 +1238,14 @@ class TestSecurityPerformance:
     """Performance tests for security features"""
 
     @pytest.mark.timeout(20)
-    def test_authentication_performance(self, test_server, test_config):
+    def test_authentication_performance(self, test_server, server_config):
         """Test authentication performance under load"""
         start_time = time.time()
 
         with test_server.app.test_request_context():
             with patch("mediarelay.auth.check_password_hash", return_value=True):
                 for _ in range(50):
-                    test_server.check_auth(test_config.username, "testpass")
+                    test_server.check_auth(server_config.username, "testpass")
 
         end_time = time.time()
 
@@ -1351,10 +1367,10 @@ class TestParametrizedPathTraversal:
 class TestReverseProxySupport:
     """Test reverse-proxy client IP handling"""
 
-    def test_client_ip_ignores_forwarded_when_not_behind_proxy(self, test_config):
+    def test_client_ip_ignores_forwarded_when_not_behind_proxy(self, server_config):
         """Without behind_proxy, X-Forwarded-For must not override remote_addr."""
-        test_config.behind_proxy = False
-        server = MediaRelayServer(test_config)
+        server_config.behind_proxy = False
+        server = MediaRelayServer(server_config)
 
         with server.app.test_request_context(
             "/",
@@ -1365,10 +1381,26 @@ class TestReverseProxySupport:
         ):
             assert server.get_client_ip() == "192.168.1.50"
 
-    def test_client_ip_from_forwarded_header(self, monkeypatch, test_config):
+    def test_client_ip_ignores_forwarded_when_proxy_not_trusted(self, server_config):
+        """behind_proxy without proxy_trusted must use REMOTE_ADDR, not X-Forwarded-For."""
+        server_config.behind_proxy = True
+        server_config.proxy_trusted = False
+        server = MediaRelayServer(server_config)
+
+        with server.app.test_request_context(
+            "/",
+            environ_base={
+                "REMOTE_ADDR": "192.168.1.50",
+                "HTTP_X_FORWARDED_FOR": "203.0.113.5",
+            },
+        ):
+            assert server.get_client_ip() == "192.168.1.50"
+
+    def test_client_ip_from_forwarded_header(self, monkeypatch, server_config):
         """Behind a proxy, client IP comes from X-Forwarded-For"""
-        test_config.behind_proxy = True
-        server = MediaRelayServer(test_config)
+        server_config.behind_proxy = True
+        server_config.proxy_trusted = True
+        server = MediaRelayServer(server_config)
 
         with server.app.test_request_context(
             "/",
@@ -1379,10 +1411,11 @@ class TestReverseProxySupport:
         ):
             assert server.get_client_ip() == "203.0.113.5"
 
-    def test_client_ip_from_multi_hop_forwarded_header(self, test_config):
+    def test_client_ip_from_multi_hop_forwarded_header(self, server_config):
         """Multi-hop X-Forwarded-For must resolve to the leftmost client IP."""
-        test_config.behind_proxy = True
-        server = MediaRelayServer(test_config)
+        server_config.behind_proxy = True
+        server_config.proxy_trusted = True
+        server = MediaRelayServer(server_config)
 
         with server.app.test_request_context(
             "/",
@@ -1394,10 +1427,11 @@ class TestReverseProxySupport:
             assert server.get_client_ip() == "203.0.113.5"
             assert server.get_client_ip() != "198.51.100.10"
 
-    def test_lockout_uses_forwarded_client_ip(self, test_config):
+    def test_lockout_uses_forwarded_client_ip(self, server_config):
         """Account lockout tracks the forwarded client IP behind a proxy"""
-        test_config.behind_proxy = True
-        server = MediaRelayServer(test_config)
+        server_config.behind_proxy = True
+        server_config.proxy_trusted = True
+        server = MediaRelayServer(server_config)
         server.lockout_manager = AccountLockoutManager(
             max_attempts=2, lockout_duration=60
         )
@@ -1414,7 +1448,7 @@ class TestReverseProxySupport:
             assert server.lockout_manager.is_locked_out("203.0.113.50", "attacker")
 
     def test_auth_response_includes_retry_after_when_locked(
-        self, test_server, test_config
+        self, test_server, server_config
     ):
         """Locked-out accounts receive Retry-After on 401 responses"""
         test_server.lockout_manager = AccountLockoutManager(
@@ -1422,7 +1456,7 @@ class TestReverseProxySupport:
         )
         client_ip = "203.0.113.99"
         credentials = base64.b64encode(
-            f"{test_config.username}:wrongpass".encode("utf-8")
+            f"{server_config.username}:wrongpass".encode("utf-8")
         ).decode("utf-8")
 
         with test_server.app.test_request_context(
@@ -1431,7 +1465,7 @@ class TestReverseProxySupport:
             headers={"Authorization": f"Basic {credentials}"},
         ):
             test_server.lockout_manager.record_failed_attempt(
-                client_ip, test_config.username
+                client_ip, server_config.username
             )
             response = test_server.auth_required_response()
             assert response.status_code == 401

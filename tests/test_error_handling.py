@@ -88,21 +88,21 @@ class TestConfigErrorHandling:
 class TestServerErrorHandling:
     """Test cases for server error handling"""
 
-    def test_server_missing_video_directory(self, test_config):
+    def test_server_missing_video_directory(self, server_config):
         """Test server behavior when video directory is missing"""
-        test_config.video_directory = "/nonexistent/directory"
+        server_config.video_directory = "/nonexistent/directory"
 
         with pytest.raises(ValueError, match="does not exist"):
-            server = MediaRelayServer(test_config)
+            server = MediaRelayServer(server_config)
             server.run()
 
-    def test_server_permission_denied_directory(self, test_config, tmp_path):
+    def test_server_permission_denied_directory(self, server_config, tmp_path):
         """Test server behavior when directory listing raises PermissionError"""
         denied_dir = tmp_path / "denied"
         denied_dir.mkdir()
-        test_config.video_directory = str(denied_dir)
+        server_config.video_directory = str(denied_dir)
 
-        server = MediaRelayServer(test_config)
+        server = MediaRelayServer(server_config)
         with server.app.test_request_context():
             with patch.object(server, "check_authentication", return_value=True):
                 with patch(
@@ -113,7 +113,7 @@ class TestServerErrorHandling:
                     assert response == ("Access denied to directory", 403)
 
     def test_directory_listing_skips_dotfiles(
-        self, test_server, test_config, temp_video_dir, authenticated_client
+        self, test_server, server_config, temp_video_dir, authenticated_client
     ):
         """Hidden dotfiles must not appear in directory listings."""
         (temp_video_dir / ".hidden.mp4").write_text("secret", encoding="utf-8")
@@ -136,7 +136,7 @@ class TestServerErrorHandling:
         assert index_response.status_code == 404
 
     def test_directory_listing_skips_unreadable_entries(
-        self, test_server, test_config, temp_video_dir, authenticated_client
+        self, test_server, server_config, temp_video_dir, authenticated_client
     ):
         """Unreadable directory entries must not crash the listing."""
         readable = temp_video_dir / "readable.mp4"
@@ -159,17 +159,17 @@ class TestServerErrorHandling:
         assert "readable.mp4" in html
         assert "broken.mp4" not in html
 
-    def test_server_video_directory_is_file(self, test_config, tmp_path):
+    def test_server_video_directory_is_file(self, server_config, tmp_path):
         """Test server behavior when video directory is actually a file"""
         fake_dir = tmp_path / "not_a_directory.txt"
         fake_dir.write_text("This is a file, not a directory")
 
-        test_config.video_directory = str(fake_dir)
+        server_config.video_directory = str(fake_dir)
 
         # Should raise an error during config validation or server initialization
         # The config validation happens first, so we expect a ValueError there
         with pytest.raises(ValueError, match="is not a directory"):
-            test_config.validate_config()
+            server_config.validate_config()
 
 
 class TestRequestErrorHandling:
@@ -216,12 +216,12 @@ class TestRequestErrorHandling:
 class TestLoggingErrorHandling:
     """Test cases for logging error handling"""
 
-    def test_logging_disk_full_simulation(self, test_config, tmp_path):
+    def test_logging_disk_full_simulation(self, server_config, tmp_path):
         """Test logging behavior when disk is full"""
         from mediarelay.logging_config import SecurityEventLogger
 
-        test_config.log_directory = str(tmp_path)
-        logger = SecurityEventLogger(test_config)
+        server_config.log_directory = str(tmp_path)
+        logger = SecurityEventLogger(server_config)
 
         # Simulate disk full by mocking handler emit
         with patch.object(
@@ -231,12 +231,12 @@ class TestLoggingErrorHandling:
         ):
             logger.log_auth_attempt("user", True, "127.0.0.1")
 
-    def test_logging_permission_error(self, test_config, tmp_path):
+    def test_logging_permission_error(self, server_config, tmp_path):
         """Test logging behavior with permission errors"""
         from mediarelay.logging_config import SecurityEventLogger
 
-        test_config.log_directory = str(tmp_path)
-        logger = SecurityEventLogger(test_config)
+        server_config.log_directory = str(tmp_path)
+        logger = SecurityEventLogger(server_config)
         with patch.object(
             logger.logger.handlers[0],
             "emit",
@@ -318,7 +318,7 @@ class TestNetworkErrorHandling:
 class TestFileSystemErrorHandling:
     """Test cases for file system error handling"""
 
-    def test_index_handler_os_error_returns_500(self, test_server, test_config):
+    def test_index_handler_os_error_returns_500(self, test_server, server_config):
         """Index handler returns 500 when directory listing fails."""
         import base64
 
@@ -333,7 +333,7 @@ class TestFileSystemErrorHandling:
             with patch.object(test_server, "check_authentication", return_value=True):
                 with patch(
                     "mediarelay.handlers.get_safe_path",
-                    return_value=Path(test_config.video_directory),
+                    return_value=Path(server_config.video_directory),
                 ):
                     with patch(
                         "mediarelay.handlers.os.scandir",
@@ -343,15 +343,15 @@ class TestFileSystemErrorHandling:
         assert result == ("Error reading directory", 500)
 
     def test_index_handler_parent_path_value_error_fallback(
-        self, test_server, test_config
+        self, test_server, server_config
     ):
         """Index handler falls back to root parent path when relative_to fails."""
         import base64
 
         auth = base64.b64encode(b"testuser:testpass").decode()
-        safe_path = Path(test_config.video_directory) / "subdir"
+        safe_path = Path(server_config.video_directory) / "subdir"
         safe_path.mkdir(exist_ok=True)
-        video_root = Path(test_config.video_directory)
+        video_root = Path(server_config.video_directory)
 
         with test_server.app.test_request_context(
             "/subdir",
@@ -450,9 +450,11 @@ class TestHandlerErrorPaths:
 class TestProductionAuditErrorHandlers:
     """Tests for centralized error handlers added during production audit."""
 
-    def test_get_logout_uses_method_not_allowed_handler(self, test_server, test_config):
+    def test_get_logout_uses_method_not_allowed_handler(
+        self, test_server, server_config
+    ):
         credentials = base64.b64encode(
-            f"{test_config.username}:testpass".encode("utf-8")
+            f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
         with test_server.app.test_client() as client:

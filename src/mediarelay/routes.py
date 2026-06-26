@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from flask import Response, abort, g, jsonify, request, session
+from flask import Response, abort, jsonify, request
 
 from . import __version__
 from .auth import auth_required_response, check_authentication
@@ -18,6 +18,15 @@ from .handlers import (
     handle_stream_request,
 )
 from .logging_config import get_request_logger
+from .session_store import (
+    clear_session,
+    get_request_id,
+    get_session_username,
+    get_start_time,
+    set_length_violation,
+    set_request_id,
+    set_start_time,
+)
 
 if TYPE_CHECKING:
     from .server import MediaRelayServer
@@ -29,28 +38,29 @@ def register_routes(server: MediaRelayServer) -> None:
     @server.app.before_request
     def before_request() -> tuple[str, int] | None:
         """Process requests before handling."""
-        g.start_time = time.time()
-        g.request_id = secrets.token_hex(8)
+        set_start_time(time.time())
+        set_request_id(secrets.token_hex(8))
         client_ip = server.get_client_ip()
 
         full_url = request.url
         if len(full_url) > MAX_URL_LENGTH:
-            g.length_violation_type = "url_too_long"  # type: ignore[misc]
-            g.length_violation_detail = (  # type: ignore[misc]
-                f"URL length {len(full_url)} exceeds maximum {MAX_URL_LENGTH}"
+            set_length_violation(
+                "url_too_long",
+                f"URL length {len(full_url)} exceeds maximum {MAX_URL_LENGTH}",
             )
             abort(414)
 
         if len(request.path) > MAX_PATH_LENGTH:
-            g.length_violation_type = "path_too_long"  # type: ignore[misc]
-            g.length_violation_detail = (  # type: ignore[misc]
-                f"Path length {len(request.path)} exceeds maximum {MAX_PATH_LENGTH}"
+            set_length_violation(
+                "path_too_long",
+                f"Path length {len(request.path)} exceeds maximum {MAX_PATH_LENGTH}",
             )
             abort(414)
 
+        request_id = get_request_id()
         get_request_logger("mediarelay").debug(
             "Request %s: %s %s from %s",
-            g.request_id,  # type: ignore[misc]
+            request_id,
             request.method,
             request.path,
             client_ip,
@@ -60,8 +70,9 @@ def register_routes(server: MediaRelayServer) -> None:
     @server.app.after_request
     def after_request(response: Response) -> Response:
         """Process responses and add security headers."""
-        if hasattr(g, "request_id"):
-            response.headers["X-Request-ID"] = str(g.request_id)  # type: ignore[misc]
+        request_id = get_request_id()
+        if request_id is not None:
+            response.headers["X-Request-ID"] = request_id
         for header, value in server.config.security_headers.items():
             response.headers[header] = value
         if server.config.should_send_hsts():
@@ -74,10 +85,13 @@ def register_routes(server: MediaRelayServer) -> None:
             response.headers["Cache-Control"] = "no-store"
             response.headers["Pragma"] = "no-cache"
 
-        if hasattr(g, "start_time") and server.performance_logger:
-            duration = time.time() - g.start_time  # type: ignore[misc]
+        start_time = get_start_time()
+        if start_time is not None and server.performance_logger:
+            duration = time.time() - start_time
             server.performance_logger.log_request_duration(
-                request.endpoint or request.path, duration, response.status_code  # type: ignore[misc]
+                request.endpoint or request.path,
+                duration,
+                response.status_code,
             )
 
         return response
@@ -118,7 +132,7 @@ def register_routes(server: MediaRelayServer) -> None:
         if not check_authentication(server):
             return auth_required_response(server)
 
-        username: str = str(session.get("username", "unknown"))  # type: ignore[misc]
+        username = get_session_username()
         client_ip = server.get_client_ip()
 
         if server.security_logger:
@@ -129,7 +143,7 @@ def register_routes(server: MediaRelayServer) -> None:
             )
         server.app.logger.info(f"User '{username}' logged out from {client_ip}")
 
-        session.clear()
+        clear_session()
 
         return Response(
             "Logged out successfully. Close browser to complete logout.",

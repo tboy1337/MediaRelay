@@ -32,6 +32,7 @@ class AccountLockoutManager:
         self.lockout_duration = lockout_duration
         self._trackers: dict[str, LoginAttemptTracker] = {}
         self._lock = threading.Lock()
+        self._tracker_exhausted_on_last_attempt = False
 
     def _get_key(self, ip_address: str, username: str) -> str:
         """Generate a unique key for tracking (combines IP and username)."""
@@ -118,11 +119,18 @@ class AccountLockoutManager:
         """Record a failed login attempt. Returns True if account is now locked out."""
         key = self._get_key(ip_address, username)
         current_time = time.time()
+        self._tracker_exhausted_on_last_attempt = False
 
         with self._lock:
             if key not in self._trackers:
                 if not self._evict_oldest_tracker_if_needed(current_time):
-                    return False
+                    emergency = LoginAttemptTracker()
+                    emergency.failed_attempts = self.max_attempts
+                    emergency.lockout_until = current_time + self.lockout_duration
+                    emergency.last_attempt = current_time
+                    self._trackers[key] = emergency
+                    self._tracker_exhausted_on_last_attempt = True
+                    return True
                 self._trackers[key] = LoginAttemptTracker()
 
             tracker = self._trackers[key]
@@ -162,3 +170,7 @@ class AccountLockoutManager:
 
         with self._lock:
             return self._cleanup_expired_locked(current_time)
+
+    def tracker_exhausted_on_last_attempt(self) -> bool:
+        """Return True when the last failed attempt hit tracker capacity (fail-closed)."""
+        return self._tracker_exhausted_on_last_attempt

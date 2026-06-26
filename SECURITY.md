@@ -31,9 +31,9 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 - HTTP Basic Authentication with Werkzeug password hashes (scrypt via `mediarelay-genpass`)
 - Session cookies after successful login (HttpOnly, Secure, SameSite configurable)
 - Constant-time username comparison (`hmac.compare_digest`)
-- Password verification on every login attempt (mitigates username timing enumeration)
+- Password verification on every login attempt, including when already locked out (mitigates username timing enumeration)
 - Account lockout after repeated failed attempts (per IP + username); lockout also terminates active sessions
-- Active lockout entries are never evicted from the lockout tracker when at capacity
+- Active lockout entries are never evicted from the lockout tracker when at capacity; new attackers receive an emergency lockout when all slots hold active lockouts
 - Session invalidation on client IP change; sessions without a bound login IP are rejected
 - Session invalidation when username or password hash changes (`credential_epoch` fingerprint)
 - Expired sessions fall through to valid HTTP Basic credentials on the same request
@@ -51,7 +51,7 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 
 ### Network Controls
 
-- Configurable per-IP rate limiting (in-memory, single-process) on browsing and API routes
+- Configurable per-IP rate limiting (in-memory, single-process) on browsing and API routes; rate-limit keys use `X-Forwarded-For` only when both `VIDEO_SERVER_BEHIND_PROXY=true` and `VIDEO_SERVER_PROXY_TRUSTED=true`
 - `/stream/` uses a separate, higher per-IP rate limit (`VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE`, default 600/min) so range requests are not throttled during normal seeking
 - Security headers on all responses (CSP, X-Frame-Options, COOP, CORP, etc.)
 - `Cache-Control: no-store` on browsing and API responses; `Cache-Control: private, no-store` on `/stream/` responses
@@ -59,7 +59,7 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 - HTML UI output uses Jinja2 autoescape for filenames and paths rendered in templates
 - Directory listings capped at `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES` (default 10000) using lazy iteration to prevent memory exhaustion
 - `VIDEO_SERVER_MAX_FILE_SIZE` enforced on streaming responses (HTTP 413 when exceeded; `0` disables)
-- Lockout tracker bounded at 10000 IP:username entries (only inactive trackers evicted when full)
+- Lockout tracker bounded at 10000 IP:username entries (only inactive trackers evicted when full; fail-closed emergency lockout when saturated)
 
 ### Audit Logging
 
@@ -74,7 +74,7 @@ Run `python scripts/verify.py` locally before release; it enforces black, isort,
 3. **Terminate TLS** at nginx, Caddy, or another reverse proxy. Do not expose plain HTTP to the internet.
 4. Bind to `127.0.0.1` when using a reverse proxy; use firewall rules if binding to `0.0.0.0`. `mediarelay-validate` warns when `0.0.0.0` is used without `VIDEO_SERVER_BEHIND_PROXY`.
 5. Keep `VIDEO_SERVER_SESSION_COOKIE_SECURE=true` when using HTTPS (required for session cookies over TLS).
-6. Set `VIDEO_SERVER_BEHIND_PROXY=true` and `VIDEO_SERVER_PROXY_TRUSTED=true` **only** when MediaRelay is unreachable except through your trusted proxy.
+6. Set `VIDEO_SERVER_BEHIND_PROXY=true` and `VIDEO_SERVER_PROXY_TRUSTED=true` **only** when MediaRelay is unreachable except through your trusted proxy. Without `PROXY_TRUSTED`, client IP and rate limits use the direct connection address.
 7. Ensure the video directory is not writable by the server process (`mediarelay-validate` enforces this).
 8. Restrict access with firewall rules or VPN where possible.
 
@@ -96,6 +96,7 @@ Run `python scripts/verify.py` locally before release; it enforces black, isort,
 | Large directories | Listings above `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES` return HTTP 413 |
 | Hard links in video directory | Cached inode check blocks files also linked outside the jail; keep the video directory non-writable by untrusted users |
 | `mediarelay-genpass` output | Emits secrets to stdout; redirect to a secure file and avoid logging stdout/stderr |
+| Intentional `0.0.0.0` bind | Default host binding is audited with bandit `B104` skipped; use `127.0.0.1` behind a reverse proxy in production |
 
 ## Responsible Disclosure
 

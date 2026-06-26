@@ -19,7 +19,7 @@ from mediarelay.server import MediaRelayServer
 
 
 @pytest.fixture(scope="session")
-def temp_video_dir() -> Generator[Path]:
+def temp_video_dir() -> Generator[Path, None, None]:
     """Create a temporary video directory with test files"""
     temp_dir = Path(tempfile.mkdtemp())
 
@@ -44,7 +44,7 @@ def temp_video_dir() -> Generator[Path]:
 
 
 @pytest.fixture(scope="session")
-def temp_log_dir() -> Generator[Path]:
+def temp_log_dir() -> Generator[Path, None, None]:
     """Create a temporary log directory"""
     temp_dir = Path(tempfile.mkdtemp())
     yield temp_dir
@@ -52,7 +52,7 @@ def temp_log_dir() -> Generator[Path]:
 
 
 @pytest.fixture
-def test_config(
+def server_config(
     monkeypatch: pytest.MonkeyPatch,
     temp_video_dir: Path,
     temp_log_dir: Path,
@@ -75,14 +75,14 @@ def test_config(
 
 
 @pytest.fixture
-def test_server(test_config: ServerConfig) -> MediaRelayServer:
+def test_server(server_config: ServerConfig) -> MediaRelayServer:
     """Create a test server instance"""
-    server = MediaRelayServer(test_config)
+    server = MediaRelayServer(server_config)
     return server
 
 
 @pytest.fixture
-def test_client(test_server: MediaRelayServer) -> Generator[FlaskClient]:
+def test_client(test_server: MediaRelayServer) -> Generator[FlaskClient, None, None]:
     """Create a test client for the Flask app"""
     test_server.app.config["TESTING"] = True
     with test_server.app.test_client() as client:
@@ -91,11 +91,11 @@ def test_client(test_server: MediaRelayServer) -> Generator[FlaskClient]:
 
 @pytest.fixture
 def authenticated_client(
-    test_client: FlaskClient, test_config: ServerConfig
-) -> FlaskClient:
+    test_client: FlaskClient, server_config: ServerConfig
+) -> Generator[FlaskClient, None, None]:
     """Create an authenticated test client"""
     credentials = base64.b64encode(
-        f"{test_config.username}:testpass".encode("utf-8")
+        f"{server_config.username}:testpass".encode("utf-8")
     ).decode("utf-8")
 
     test_client.environ_base["HTTP_AUTHORIZATION"] = f"Basic {credentials}"
