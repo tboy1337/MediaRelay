@@ -25,6 +25,7 @@ from mediarelay.handlers import handle_index_request
 from mediarelay.lockout import AccountLockoutManager
 from mediarelay.server import MediaRelayServer, main
 from mediarelay.templates import INDEX_HTML_TEMPLATE
+from tests.constants import TEST_PASSWORD_HASH
 
 
 class TestMediaRelayServer:
@@ -88,7 +89,7 @@ class TestMediaRelayServerComprehensive:
             with patch.dict(os.environ, {"VIDEO_SERVER_PRODUCTION": "false"}):
                 config = ServerConfig(
                     video_directory=temp_dir,
-                    password_hash="test_hash",
+                    password_hash=TEST_PASSWORD_HASH,
                     rate_limit_enabled=True,
                     debug=True,
                 )
@@ -107,7 +108,7 @@ class TestMediaRelayServerComprehensive:
         with tempfile.TemporaryDirectory() as temp_dir:
             config = ServerConfig(
                 video_directory=temp_dir,
-                password_hash="test_hash",
+                password_hash=TEST_PASSWORD_HASH,
                 rate_limit_enabled=False,
             )
 
@@ -691,7 +692,7 @@ class TestMaxFileSizeHandling:
         video_dir.mkdir()
         log_dir = tmp_path / "logs"
         monkeypatch.setenv("VIDEO_SERVER_MAX_FILE_SIZE", "1073741824")
-        monkeypatch.setenv("VIDEO_SERVER_PASSWORD_HASH", "test_hash")
+        monkeypatch.setenv("VIDEO_SERVER_PASSWORD_HASH", TEST_PASSWORD_HASH)
         monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(video_dir))
         monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(log_dir))
 
@@ -710,7 +711,7 @@ class TestMaxFileSizeHandling:
         video_dir.mkdir()
         log_dir = tmp_path / "logs"
         monkeypatch.setenv("VIDEO_SERVER_MAX_FILE_SIZE", "0")
-        monkeypatch.setenv("VIDEO_SERVER_PASSWORD_HASH", "test_hash")
+        monkeypatch.setenv("VIDEO_SERVER_PASSWORD_HASH", TEST_PASSWORD_HASH)
         monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(video_dir))
         monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(log_dir))
 
@@ -793,7 +794,7 @@ class TestSecurityHeaders:
         """HSTS is sent when VIDEO_SERVER_HSTS=true without behind_proxy."""
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
-        monkeypatch.setenv("VIDEO_SERVER_PASSWORD_HASH", "test_hash")
+        monkeypatch.setenv("VIDEO_SERVER_PASSWORD_HASH", TEST_PASSWORD_HASH)
         monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(video_dir))
         monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(tmp_path / "logs"))
         monkeypatch.setenv("VIDEO_SERVER_HSTS", "true")
@@ -995,7 +996,7 @@ class TestServerRunMethod:
         with tempfile.TemporaryDirectory() as temp_dir:
             config = ServerConfig(
                 video_directory=temp_dir,
-                password_hash="test_hash",
+                password_hash=TEST_PASSWORD_HASH,
                 host="127.0.0.1",
                 port=5000,
                 threads=4,
@@ -1022,7 +1023,9 @@ class TestServerRunMethod:
         mock_serve.side_effect = KeyboardInterrupt()
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            config = ServerConfig(video_directory=temp_dir, password_hash="test_hash")
+            config = ServerConfig(
+                video_directory=temp_dir, password_hash=TEST_PASSWORD_HASH
+            )
             server = MediaRelayServer(config)
 
             with patch.object(server, "_shutdown_cleanup") as mock_shutdown:
@@ -1037,7 +1040,9 @@ class TestServerRunMethod:
         mock_serve.side_effect = RuntimeError("Server error")
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            config = ServerConfig(video_directory=temp_dir, password_hash="test_hash")
+            config = ServerConfig(
+                video_directory=temp_dir, password_hash=TEST_PASSWORD_HASH
+            )
             server = MediaRelayServer(config)
 
             with pytest.raises(RuntimeError):
@@ -1153,7 +1158,7 @@ class TestErrorHandlers:
 
         config = ServerConfig(
             video_directory=str(video_dir),
-            password_hash="test_hash",
+            password_hash=TEST_PASSWORD_HASH,
             rate_limit_enabled=True,
             rate_limit_per_minute=1,
         )
@@ -1242,7 +1247,7 @@ class TestErrorHandlers:
         video_dir.mkdir()
         config = ServerConfig(
             video_directory=str(video_dir),
-            password_hash="test_hash",
+            password_hash=TEST_PASSWORD_HASH,
             behind_proxy=True,
             proxy_trusted=True,
             rate_limit_enabled=True,
@@ -1258,7 +1263,9 @@ class TestErrorHandlers:
         """Lockout cleanup callback removes expired entries."""
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
-        config = ServerConfig(video_directory=str(video_dir), password_hash="test_hash")
+        config = ServerConfig(
+            video_directory=str(video_dir), password_hash=TEST_PASSWORD_HASH
+        )
         server = MediaRelayServer(config)
         server.lockout_manager.record_failed_attempt("127.0.0.1", "user")
         server.lockout_manager._trackers["127.0.0.1:user"].last_attempt = (
@@ -1296,7 +1303,7 @@ class TestSessionCookieWiring:
 
         config = ServerConfig(
             video_directory=str(video_dir),
-            password_hash="test_hash",
+            password_hash=TEST_PASSWORD_HASH,
             log_directory=str(tmp_path / "logs"),
             session_cookie_secure=False,
             session_cookie_httponly=False,
@@ -1320,7 +1327,7 @@ class TestCLIConfigFile:
         video_dir.mkdir()
         env_file = tmp_path / "custom.env"
         env_file.write_text(
-            f"VIDEO_SERVER_PASSWORD_HASH=test_hash\n"
+            f"VIDEO_SERVER_PASSWORD_HASH=scrypt:32768:8:1$PDnabs9h0vTp3nMK$ccdda3d296c0b59f5c875706be7ebdea90caf06a35aa97697c26ce4748a970b31202791996afe2c53604defce4d71a7ff2a0a2e9a78a52cd8246d3081ca57dab\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n",
             encoding="utf-8",
         )
@@ -1456,7 +1463,9 @@ class TestGracefulShutdown:
         mock_serve.side_effect = KeyboardInterrupt()
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            config = ServerConfig(video_directory=temp_dir, password_hash="test_hash")
+            config = ServerConfig(
+                video_directory=temp_dir, password_hash=TEST_PASSWORD_HASH
+            )
             server = MediaRelayServer(config)
             with patch.object(server, "_shutdown_cleanup") as mock_cleanup:
                 server.run()
@@ -1468,7 +1477,9 @@ class TestGracefulShutdown:
         mock_serve.side_effect = KeyboardInterrupt()
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            config = ServerConfig(video_directory=temp_dir, password_hash="test_hash")
+            config = ServerConfig(
+                video_directory=temp_dir, password_hash=TEST_PASSWORD_HASH
+            )
             server = MediaRelayServer(config)
             with patch.object(server, "_start_lockout_cleanup") as mock_start:
                 with patch.object(server, "_shutdown_cleanup"):
@@ -1495,11 +1506,58 @@ class TestGracefulShutdown:
         mock_serve.side_effect = invoke_handler_from_serve
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            config = ServerConfig(video_directory=temp_dir, password_hash="test_hash")
+            config = ServerConfig(
+                video_directory=temp_dir, password_hash=TEST_PASSWORD_HASH
+            )
             server = MediaRelayServer(config)
             with patch("mediarelay.server.signal.signal", side_effect=capture_signal):
                 with patch.object(server, "_shutdown_cleanup"):
                     server.run()
+
+    @patch("mediarelay.server.serve")
+    def test_sigterm_handler_raises_keyboard_interrupt(self, mock_serve):
+        """SIGTERM handler should raise KeyboardInterrupt to stop Waitress."""
+        import signal as signal_module
+
+        shutdown_handler: object = None
+
+        def capture_signal(signum: int, handler: object) -> None:
+            nonlocal shutdown_handler
+            if signum == signal_module.SIGTERM:
+                shutdown_handler = handler
+
+        def invoke_handler_from_serve(*_args: object, **_kwargs: object) -> None:
+            assert shutdown_handler is not None
+            with pytest.raises(KeyboardInterrupt):
+                shutdown_handler(signal_module.SIGTERM, None)  # type: ignore[operator]
+
+        mock_serve.side_effect = invoke_handler_from_serve
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = ServerConfig(
+                video_directory=temp_dir, password_hash=TEST_PASSWORD_HASH
+            )
+            server = MediaRelayServer(config)
+            with patch("mediarelay.server.signal.signal", side_effect=capture_signal):
+                with patch.object(server, "_shutdown_cleanup"):
+                    server.run()
+
+    def test_stream_revalidation_failure_returns_404(self, authenticated_client):
+        """Stream returns 404 when pre-serve revalidation fails (TOCTOU)."""
+        with patch("mediarelay.handlers.revalidate_before_serve", return_value=False):
+            response = authenticated_client.get("/stream/test_video.mp4")
+        assert response.status_code == 404
+
+    def test_behind_proxy_trusted_logs_info(self, server_config: ServerConfig) -> None:
+        """Info log when both proxy flags are enabled."""
+        server_config.behind_proxy = True
+        server_config.proxy_trusted = True
+        server = MediaRelayServer(server_config)
+        with patch.object(server.app.logger, "info") as mock_info:
+            server._warn_behind_proxy()
+        server._shutdown_cleanup()
+        mock_info.assert_called_once()
+        assert "VIDEO_SERVER_PROXY_TRUSTED are enabled" in mock_info.call_args[0][0]
 
     def test_lockout_cleanup_reschedules_after_failure(self, server_config):
         """Lockout cleanup timer reschedules even when cleanup_expired fails."""
@@ -1707,7 +1765,7 @@ class TestProductionAuditFixes:
     ) -> None:
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
-        monkeypatch.setenv("VIDEO_SERVER_PASSWORD_HASH", "test_hash")
+        monkeypatch.setenv("VIDEO_SERVER_PASSWORD_HASH", TEST_PASSWORD_HASH)
         monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(video_dir))
         monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(tmp_path / "logs"))
         monkeypatch.setenv("VIDEO_SERVER_BEHIND_PROXY", "true")
@@ -1722,7 +1780,7 @@ class TestProductionAuditFixes:
     ) -> None:
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
-        monkeypatch.setenv("VIDEO_SERVER_PASSWORD_HASH", "test_hash")
+        monkeypatch.setenv("VIDEO_SERVER_PASSWORD_HASH", TEST_PASSWORD_HASH)
         monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(video_dir))
         monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(tmp_path / "logs"))
         monkeypatch.setenv("VIDEO_SERVER_BEHIND_PROXY", "true")
@@ -1738,7 +1796,7 @@ class TestProductionAuditFixes:
         video_dir.mkdir()
         config = ServerConfig(
             video_directory=str(video_dir),
-            password_hash="test_hash",
+            password_hash=TEST_PASSWORD_HASH,
             rate_limit_enabled=True,
             rate_limit_per_minute=1,
         )

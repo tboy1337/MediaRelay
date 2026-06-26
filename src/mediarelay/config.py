@@ -23,8 +23,21 @@ from .constants import (
     DEFAULT_MAX_DIRECTORY_ENTRIES,
     DEFAULT_PAGE_SIZE,
     DEFAULT_STREAM_RATE_LIMIT_PER_MINUTE,
+    MAX_CHANNEL_TIMEOUT,
+    MAX_CLEANUP_INTERVAL,
+    MAX_CONNECTION_LIMIT,
+    MAX_DIRECTORY_ENTRIES,
+    MAX_LOCKOUT_DURATION_SECONDS,
+    MAX_LOCKOUT_MAX_ATTEMPTS,
+    MAX_LOG_BACKUP_COUNT,
+    MAX_LOG_MAX_BYTES,
     MAX_PAGE_SIZE,
+    MAX_RATE_LIMIT_PER_MINUTE,
+    MAX_SESSION_MAX_LIFETIME,
+    MAX_SESSION_TIMEOUT,
+    MAX_THREADS,
     MIN_PAGE_SIZE,
+    MIN_PRODUCTION_SECRET_KEY_LENGTH,
     VIDEO_EXTENSIONS,
 )
 
@@ -38,6 +51,7 @@ _PLACEHOLDER_SECRET_KEYS = frozenset(
 _PLACEHOLDER_PASSWORD_HASHES = frozenset({"", "your-password-hash-here"})
 _VALID_SAMESITE_VALUES = frozenset({"Strict", "Lax", "None"})
 _VALID_LOG_LEVELS = frozenset(logging.getLevelNamesMapping().keys())
+_VALID_PASSWORD_HASH_PREFIXES = ("scrypt:", "pbkdf2:", "argon2:")
 
 _CONFIG_LOGGER = logging.getLogger(__name__)
 
@@ -147,6 +161,24 @@ def _validate_log_directory(log_directory: str) -> None:
         raise ValueError(f"Log directory is not writable: {log_directory}") from exc
 
 
+def _validate_password_hash_format(password_hash: str) -> None:
+    """Ensure the password hash uses a supported Werkzeug hash format."""
+    normalized = password_hash.strip()
+    if normalized.startswith("$2"):
+        raise ValueError(
+            "VIDEO_SERVER_PASSWORD_HASH uses bcrypt format, which is not supported. "
+            "Run mediarelay-genpass to generate a Werkzeug scrypt hash."
+        )
+    if not any(
+        normalized.startswith(prefix) for prefix in _VALID_PASSWORD_HASH_PREFIXES
+    ):
+        raise ValueError(
+            "VIDEO_SERVER_PASSWORD_HASH must be a Werkzeug hash "
+            "(scrypt:, pbkdf2:, or argon2:). "
+            "Run mediarelay-genpass to create one."
+        )
+
+
 def _validate_credentials(config: "ServerConfig") -> None:
     """Validate username and password hash settings."""
     if not config.username.strip():
@@ -163,6 +195,8 @@ def _validate_credentials(config: "ServerConfig") -> None:
             "VIDEO_SERVER_PASSWORD_HASH must be set to a real hash, not a "
             "placeholder. Run mediarelay-genpass to create one."
         )
+
+    _validate_password_hash_format(config.password_hash)
 
 
 def _validate_server_settings(config: "ServerConfig") -> None:
@@ -221,6 +255,11 @@ def _validate_production_settings(config: "ServerConfig") -> None:
             "VIDEO_SERVER_SESSION_COOKIE_SECURE must be true in production."
         )
 
+    if not config.session_cookie_httponly:
+        raise ValueError(
+            "VIDEO_SERVER_SESSION_COOKIE_HTTPONLY must be true in production."
+        )
+
     env_secret = os.getenv("VIDEO_SERVER_SECRET_KEY", "")
     if env_secret.strip() in _PLACEHOLDER_SECRET_KEYS:
         raise ValueError(
@@ -233,15 +272,14 @@ def _validate_production_settings(config: "ServerConfig") -> None:
             "Auto-generated keys do not persist across restarts. "
             "Run mediarelay-genpass to create one."
         )
+    if len(env_secret.strip()) < MIN_PRODUCTION_SECRET_KEY_LENGTH:
+        raise ValueError(
+            f"VIDEO_SERVER_SECRET_KEY must be at least "
+            f"{MIN_PRODUCTION_SECRET_KEY_LENGTH} characters in production."
+        )
 
     if not config.rate_limit_enabled:
         raise ValueError("VIDEO_SERVER_RATE_LIMIT must be true in production.")
-
-    if config.max_file_size == 0:
-        _CONFIG_LOGGER.warning(
-            "VIDEO_SERVER_MAX_FILE_SIZE is 0 in production; streaming size "
-            "limits are disabled."
-        )
 
 
 def _default_security_headers() -> dict[str, str]:
@@ -282,23 +320,34 @@ class ServerConfig:
         default_factory=lambda: _parse_bool_env("VIDEO_SERVER_DEBUG", "false")
     )
     threads: int = field(
-        default_factory=lambda: _parse_int_env("VIDEO_SERVER_THREADS", "6", min_val=1)
+        default_factory=lambda: _parse_int_env(
+            "VIDEO_SERVER_THREADS", "6", min_val=1, max_val=MAX_THREADS
+        )
     )
 
     # Waitress server tuning
     channel_timeout: int = field(
         default_factory=lambda: _parse_int_env(
-            "VIDEO_SERVER_CHANNEL_TIMEOUT", "300", min_val=1
+            "VIDEO_SERVER_CHANNEL_TIMEOUT",
+            "300",
+            min_val=1,
+            max_val=MAX_CHANNEL_TIMEOUT,
         )
     )
     connection_limit: int = field(
         default_factory=lambda: _parse_int_env(
-            "VIDEO_SERVER_CONNECTION_LIMIT", "1000", min_val=1
+            "VIDEO_SERVER_CONNECTION_LIMIT",
+            "1000",
+            min_val=1,
+            max_val=MAX_CONNECTION_LIMIT,
         )
     )
     cleanup_interval: int = field(
         default_factory=lambda: _parse_int_env(
-            "VIDEO_SERVER_CLEANUP_INTERVAL", "30", min_val=1
+            "VIDEO_SERVER_CLEANUP_INTERVAL",
+            "30",
+            min_val=1,
+            max_val=MAX_CLEANUP_INTERVAL,
         )
     )
     page_size: int = field(
@@ -324,22 +373,34 @@ class ServerConfig:
     )
     session_timeout: int = field(
         default_factory=lambda: _parse_int_env(
-            "VIDEO_SERVER_SESSION_TIMEOUT", "3600", min_val=1
+            "VIDEO_SERVER_SESSION_TIMEOUT",
+            "3600",
+            min_val=1,
+            max_val=MAX_SESSION_TIMEOUT,
         )
     )
     session_max_lifetime: int = field(
         default_factory=lambda: _parse_int_env(
-            "VIDEO_SERVER_SESSION_MAX_LIFETIME", "86400", min_val=1
+            "VIDEO_SERVER_SESSION_MAX_LIFETIME",
+            "86400",
+            min_val=1,
+            max_val=MAX_SESSION_MAX_LIFETIME,
         )
     )
     lockout_max_attempts: int = field(
         default_factory=lambda: _parse_int_env(
-            "VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS", "5", min_val=1
+            "VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS",
+            "5",
+            min_val=1,
+            max_val=MAX_LOCKOUT_MAX_ATTEMPTS,
         )
     )
     lockout_duration: int = field(
         default_factory=lambda: _parse_int_env(
-            "VIDEO_SERVER_LOCKOUT_DURATION", "900", min_val=60
+            "VIDEO_SERVER_LOCKOUT_DURATION",
+            "900",
+            min_val=60,
+            max_val=MAX_LOCKOUT_DURATION_SECONDS,
         )
     )
 
@@ -370,6 +431,7 @@ class ServerConfig:
             "VIDEO_SERVER_MAX_DIRECTORY_ENTRIES",
             str(DEFAULT_MAX_DIRECTORY_ENTRIES),
             min_val=1,
+            max_val=MAX_DIRECTORY_ENTRIES,
         )
     )
     max_file_size: int = field(
@@ -384,12 +446,18 @@ class ServerConfig:
     )
     log_max_bytes: int = field(
         default_factory=lambda: _parse_int_env(
-            "VIDEO_SERVER_LOG_MAX_BYTES", "10485760", min_val=1
+            "VIDEO_SERVER_LOG_MAX_BYTES",
+            "10485760",
+            min_val=1,
+            max_val=MAX_LOG_MAX_BYTES,
         )
     )
     log_backup_count: int = field(
         default_factory=lambda: _parse_int_env(
-            "VIDEO_SERVER_LOG_BACKUP_COUNT", "5", min_val=0
+            "VIDEO_SERVER_LOG_BACKUP_COUNT",
+            "5",
+            min_val=0,
+            max_val=MAX_LOG_BACKUP_COUNT,
         )
     )
     log_console: bool = field(
@@ -402,7 +470,10 @@ class ServerConfig:
     )
     rate_limit_per_minute: int = field(
         default_factory=lambda: _parse_int_env(
-            "VIDEO_SERVER_RATE_LIMIT_PER_MIN", "60", min_val=1
+            "VIDEO_SERVER_RATE_LIMIT_PER_MIN",
+            "60",
+            min_val=1,
+            max_val=MAX_RATE_LIMIT_PER_MINUTE,
         )
     )
     stream_rate_limit_per_minute: int = field(
@@ -410,6 +481,7 @@ class ServerConfig:
             "VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE",
             str(DEFAULT_STREAM_RATE_LIMIT_PER_MINUTE),
             min_val=1,
+            max_val=MAX_RATE_LIMIT_PER_MINUTE,
         )
     )
 
@@ -575,14 +647,23 @@ def _validate_deployment_settings(config: ServerConfig) -> None:
         _CONFIG_LOGGER.warning(
             "VIDEO_SERVER_HOST is 0.0.0.0 without VIDEO_SERVER_BEHIND_PROXY. "
             "Bind to 127.0.0.1 behind a reverse proxy or restrict access with "
-            "firewall rules."
+            "firewall rules. Run mediarelay-validate after setting "
+            "VIDEO_SERVER_PRODUCTION=true."
         )
 
     if config.behind_proxy and not config.proxy_trusted:
         _CONFIG_LOGGER.warning(
             "VIDEO_SERVER_BEHIND_PROXY is enabled but VIDEO_SERVER_PROXY_TRUSTED "
             "is false. Set VIDEO_SERVER_PROXY_TRUSTED=true only when MediaRelay is "
-            "reachable exclusively through your trusted reverse proxy."
+            "reachable exclusively through your trusted reverse proxy. "
+            "Run mediarelay-validate after setting VIDEO_SERVER_PRODUCTION=true."
+        )
+
+    if config.max_file_size == 0:
+        _CONFIG_LOGGER.warning(
+            "VIDEO_SERVER_MAX_FILE_SIZE is 0 in production; streaming size "
+            "limits are disabled. Run mediarelay-validate to review deployment "
+            "settings."
         )
 
 

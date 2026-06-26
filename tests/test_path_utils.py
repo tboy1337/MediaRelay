@@ -17,6 +17,7 @@ from mediarelay.path_utils import (
     is_audio_file,
     resolve_path,
 )
+from tests.constants import TEST_PASSWORD_HASH
 
 
 class TestGuessMediaMimeType:
@@ -80,7 +81,7 @@ class TestGetSafePath:
         (video_dir / "test.mp4").write_text("content", encoding="utf-8")
         return ServerConfig(
             video_directory=str(video_dir),
-            password_hash="test_hash",
+            password_hash=TEST_PASSWORD_HASH,
             log_directory=str(tmp_path / "logs"),
         )
 
@@ -244,6 +245,30 @@ class TestGetSafePath:
             == "path_resolution_error"
         )
 
+    def test_symlink_escape_blocked_via_mocked_resolve(
+        self, video_config: ServerConfig, tmp_path: Path
+    ) -> None:
+        """Resolved path outside jail is rejected even when resolve is mocked."""
+        video_dir = Path(video_config.video_directory)
+        inside = video_dir / "inside.mp4"
+        inside.write_text("x")
+        outside = tmp_path / "outside.mp4"
+        outside.write_text("secret")
+
+        def fake_resolve(self: Path) -> Path:
+            if self == inside:
+                return outside
+            return self
+
+        with patch.object(Path, "resolve", fake_resolve):
+            result = get_safe_path(
+                video_config,
+                "inside.mp4",
+                client_ip="127.0.0.1",
+            )
+
+        assert result is None
+
     def test_hardlink_outside_jail_rejected(self, tmp_path: Path) -> None:
         """Hard links to files outside the video directory must be blocked."""
         video_dir = tmp_path / "videos"
@@ -260,7 +285,7 @@ class TestGetSafePath:
 
         config = ServerConfig(
             video_directory=str(video_dir),
-            password_hash="test_hash",
+            password_hash=TEST_PASSWORD_HASH,
             log_directory=str(tmp_path / "logs"),
         )
         security_logger = MagicMock()
@@ -290,7 +315,7 @@ class TestGetSafePath:
 
         config = ServerConfig(
             video_directory=str(video_dir),
-            password_hash="test_hash",
+            password_hash=TEST_PASSWORD_HASH,
             log_directory=str(tmp_path / "logs"),
         )
         result = get_safe_path(config, "alias.mp4", client_ip="127.0.0.1")
@@ -306,7 +331,7 @@ class TestGetBreadcrumbs:
         video_dir.mkdir()
         config = ServerConfig(
             video_directory=str(video_dir),
-            password_hash="test_hash",
+            password_hash=TEST_PASSWORD_HASH,
             log_directory=str(tmp_path / "logs"),
         )
         crumbs = get_breadcrumbs(config, video_dir)
@@ -321,7 +346,7 @@ class TestGetBreadcrumbs:
         outside.mkdir()
         config = ServerConfig(
             video_directory=str(video_dir),
-            password_hash="test_hash",
+            password_hash=TEST_PASSWORD_HASH,
             log_directory=str(tmp_path / "logs"),
         )
         crumbs = get_breadcrumbs(config, outside)
@@ -333,7 +358,7 @@ class TestGetBreadcrumbs:
         nested.mkdir(parents=True)
         config = ServerConfig(
             video_directory=str(video_dir),
-            password_hash="test_hash",
+            password_hash=TEST_PASSWORD_HASH,
             log_directory=str(tmp_path / "logs"),
         )
         crumbs = get_breadcrumbs(config, nested)
@@ -356,7 +381,7 @@ class TestGetBreadcrumbs:
         target.mkdir(parents=True)
         config = ServerConfig(
             video_directory=str(video_dir),
-            password_hash="test_hash",
+            password_hash=TEST_PASSWORD_HASH,
             log_directory=str(tmp_path / "logs"),
         )
         crumbs = get_breadcrumbs(config, target)

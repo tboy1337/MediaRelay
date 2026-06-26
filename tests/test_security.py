@@ -248,6 +248,40 @@ class TestAccountLockoutManager:
         assert manager.tracker_exhausted_on_last_attempt() is True
 
 
+class TestLockoutTrackerExhaustedAuth:
+    """Integration tests for lockout tracker exhaustion during authentication."""
+
+    def test_lockout_tracker_exhausted_logs_security_violation(
+        self, server_config: ServerConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Failed login when tracker is saturated logs lockout_tracker_exhausted."""
+        from mediarelay.lockout import AccountLockoutManager
+
+        monkeypatch.setattr("mediarelay.lockout.MAX_LOCKOUT_TRACKERS", 2)
+        server = MediaRelayServer(server_config)
+        server.lockout_manager = AccountLockoutManager(
+            max_attempts=2, lockout_duration=300
+        )
+
+        server.lockout_manager.record_failed_attempt("1.1.1.1", "user_a")
+        server.lockout_manager.record_failed_attempt("1.1.1.1", "user_a")
+        server.lockout_manager.record_failed_attempt("2.2.2.2", "user_b")
+        server.lockout_manager.record_failed_attempt("2.2.2.2", "user_b")
+
+        credentials = base64.b64encode(b"attacker:wrongpass").decode("utf-8")
+        assert server.security_logger is not None
+        with patch.object(server.security_logger, "log_security_violation") as mock_log:
+            with server.app.test_client() as client:
+                response = client.get(
+                    "/",
+                    headers={"Authorization": f"Basic {credentials}"},
+                )
+
+        assert response.status_code == 401
+        violation_types = [call.args[0] for call in mock_log.call_args_list]
+        assert "lockout_tracker_exhausted" in violation_types
+
+
 class TestLoginAttemptTracker:
     """Test cases for LoginAttemptTracker dataclass"""
 
@@ -873,14 +907,25 @@ class TestInputValidationSecurity:
         ]
 
         for path in malicious_paths:
-            # Test directory listing
-            response = authenticated_client.get(f"/{path}")
-            # Should either be blocked (403/404) or safely handled
-            assert response.status_code in [200, 403, 404, 400]
+            is_traversal = path in security_test_payloads["path_traversal"]
+            has_injection = any(char in path for char in ("\x00", "\r", "\n", "\t"))
+            expected_blocked = {403, 404, 400} if has_injection else {403, 404}
 
-            # Test file streaming
+            response = authenticated_client.get(f"/{path}")
+            if is_traversal or has_injection:
+                assert (
+                    response.status_code in expected_blocked
+                ), f"Unexpected status for path {path!r}: {response.status_code}"
+            else:
+                assert response.status_code in {200, 403, 404, 400}
+
             response = authenticated_client.get(f"/stream/{path}")
-            assert response.status_code in [200, 403, 404, 400]
+            if is_traversal or has_injection:
+                assert (
+                    response.status_code in expected_blocked
+                ), f"Unexpected stream status for {path!r}: {response.status_code}"
+            else:
+                assert response.status_code in {200, 403, 404, 400}
 
     def test_query_parameter_validation(
         self, authenticated_client, security_test_payloads

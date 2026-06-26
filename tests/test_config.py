@@ -22,6 +22,7 @@ from mediarelay.config import (
     load_config,
     validate_deployment_config,
 )
+from tests.constants import TEST_PASSWORD_HASH, TEST_PRODUCTION_SECRET_KEY
 
 
 def _patch_video_dir_readonly(monkeypatch: pytest.MonkeyPatch, video_dir: Path) -> None:
@@ -49,7 +50,7 @@ def _setup_production_env(
 ) -> None:
     """Configure environment variables for valid production ServerConfig."""
     monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "true")
-    monkeypatch.setenv("VIDEO_SERVER_SECRET_KEY", "secure-production-key")
+    monkeypatch.setenv("VIDEO_SERVER_SECRET_KEY", TEST_PRODUCTION_SECRET_KEY)
     monkeypatch.setenv("VIDEO_SERVER_RATE_LIMIT", "true")
     monkeypatch.setenv("VIDEO_SERVER_DEBUG", "false")
     monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(video_dir))
@@ -96,7 +97,8 @@ class TestConfigValidationEdgeCases:
         # Create config with non-existent video directory
         with pytest.raises(ValueError, match="Video directory does not exist"):
             ServerConfig(
-                video_directory="/nonexistent/directory", password_hash="test_hash"
+                video_directory="/nonexistent/directory",
+                password_hash=TEST_PASSWORD_HASH,
             )
 
     def test_port_validation_edge_cases(self):
@@ -105,13 +107,15 @@ class TestConfigValidationEdgeCases:
             # Test port too low
             with pytest.raises(ValueError, match="Port must be between 1 and 65535"):
                 ServerConfig(
-                    video_directory=temp_dir, password_hash="test_hash", port=0
+                    video_directory=temp_dir, password_hash=TEST_PASSWORD_HASH, port=0
                 )
 
             # Test port too high
             with pytest.raises(ValueError, match="Port must be between 1 and 65535"):
                 ServerConfig(
-                    video_directory=temp_dir, password_hash="test_hash", port=70000
+                    video_directory=temp_dir,
+                    password_hash=TEST_PASSWORD_HASH,
+                    port=70000,
                 )
 
     def test_thread_count_validation_failure(self):
@@ -119,7 +123,9 @@ class TestConfigValidationEdgeCases:
         with tempfile.TemporaryDirectory() as temp_dir:
             with pytest.raises(ValueError, match="Thread count must be at least 1"):
                 ServerConfig(
-                    video_directory=temp_dir, password_hash="test_hash", threads=0
+                    video_directory=temp_dir,
+                    password_hash=TEST_PASSWORD_HASH,
+                    threads=0,
                 )
 
     def test_empty_password_hash_validation(self):
@@ -144,7 +150,7 @@ class TestServerConfig:
         with patch.dict(
             os.environ,
             {
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                 "VIDEO_SERVER_DIRECTORY": str(Path.home()),
                 "VIDEO_SERVER_USERNAME": "tboy1337",
             },
@@ -178,7 +184,7 @@ class TestServerConfig:
                 "VIDEO_SERVER_THREADS": "12",
                 "VIDEO_SERVER_USERNAME": "customuser",
                 "VIDEO_SERVER_SESSION_TIMEOUT": "7200",
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                 "VIDEO_SERVER_DIRECTORY": str(Path.home()),
             },
         ):
@@ -196,7 +202,7 @@ class TestServerConfig:
         with patch.dict(
             os.environ,
             {
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                 "VIDEO_SERVER_DIRECTORY": str(Path.home()),
                 "VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS": "3",
                 "VIDEO_SERVER_LOCKOUT_DURATION": "120",
@@ -213,7 +219,7 @@ class TestServerConfig:
             with patch.dict(
                 os.environ,
                 {
-                    "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                    "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                     "VIDEO_SERVER_DIRECTORY": temp_dir,
                     "VIDEO_SERVER_LOCKOUT_DURATION": "30",
                 },
@@ -237,7 +243,7 @@ class TestServerConfigValidationComprehensive:
         # Test valid configuration
         config = ServerConfig(
             video_directory=str(video_dir),
-            password_hash="valid_hash",
+            password_hash=TEST_PASSWORD_HASH,
             port=8080,
             threads=4,
             log_directory=str(tmp_path / "logs"),
@@ -257,7 +263,9 @@ class TestServerConfigValidationComprehensive:
 
         # Should raise validation error during initialization - file is not a directory
         with pytest.raises(ValueError, match="is not a directory"):
-            ServerConfig(video_directory=str(fake_dir), password_hash="test_hash")
+            ServerConfig(
+                video_directory=str(fake_dir), password_hash=TEST_PASSWORD_HASH
+            )
 
     def test_validate_config_port_range_validation(self, tmp_path):
         """Test port range validation edge cases"""
@@ -266,7 +274,7 @@ class TestServerConfigValidationComprehensive:
 
         # Test port = 1 (minimum valid)
         config = ServerConfig(
-            video_directory=str(video_dir), password_hash="test_hash", port=1
+            video_directory=str(video_dir), password_hash=TEST_PASSWORD_HASH, port=1
         )
         config.validate_config()  # Should not raise
 
@@ -291,7 +299,7 @@ class TestServerConfigValidationComprehensive:
 
         # Test threads = 1 (minimum valid)
         config = ServerConfig(
-            video_directory=str(video_dir), password_hash="test_hash", threads=1
+            video_directory=str(video_dir), password_hash=TEST_PASSWORD_HASH, threads=1
         )
         config.validate_config()  # Should not raise
 
@@ -315,7 +323,7 @@ class TestServerConfigValidationComprehensive:
 
         config = ServerConfig(
             video_directory=str(video_dir),
-            password_hash="test_hash",
+            password_hash=TEST_PASSWORD_HASH,
             log_directory=str(nested_log_dir),
         )
 
@@ -340,7 +348,7 @@ class TestServerConfigEnvironmentVariables:
             {
                 "VIDEO_SERVER_ALLOWED_EXTENSIONS": ".mp4,.mkv,.webm",
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
             },
             clear=True,
         ):
@@ -358,7 +366,7 @@ class TestServerConfigEnvironmentVariables:
             {
                 "VIDEO_SERVER_ALLOWED_EXTENSIONS": ".mp4,.html",
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
             },
             clear=True,
         ):
@@ -377,7 +385,7 @@ class TestServerConfigEnvironmentVariables:
             {
                 "VIDEO_SERVER_ALLOWED_EXTENSIONS": ".MP4,.MKV",
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
             },
             clear=True,
         ):
@@ -394,7 +402,7 @@ class TestServerConfigEnvironmentVariables:
             {
                 "VIDEO_SERVER_MAX_DIRECTORY_ENTRIES": "500",
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
             },
             clear=True,
         ):
@@ -411,7 +419,7 @@ class TestServerConfigEnvironmentVariables:
             {
                 "VIDEO_SERVER_ALLOWED_EXTENSIONS": "",
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
             },
             clear=True,
         ):
@@ -428,7 +436,7 @@ class TestServerConfigEnvironmentVariables:
             {
                 "VIDEO_SERVER_ALLOWED_EXTENSIONS": " .mp4 , .mkv , .avi ",
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
             },
             clear=True,
         ):
@@ -450,7 +458,7 @@ class TestServerConfigEnvironmentVariables:
                 {
                     "VIDEO_SERVER_DEBUG": value,
                     "VIDEO_SERVER_DIRECTORY": str(video_dir),
-                    "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                    "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                 },
                 clear=True,
             ):
@@ -463,7 +471,7 @@ class TestServerConfigEnvironmentVariables:
                 {
                     "VIDEO_SERVER_DEBUG": value,
                     "VIDEO_SERVER_DIRECTORY": str(video_dir),
-                    "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                    "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                 },
                 clear=True,
             ):
@@ -481,7 +489,7 @@ class TestServerConfigEnvironmentVariables:
             {
                 "VIDEO_SERVER_RATE_LIMIT": "true",
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
             },
             clear=True,
         ):
@@ -494,7 +502,7 @@ class TestServerConfigEnvironmentVariables:
             {
                 "VIDEO_SERVER_RATE_LIMIT": "false",
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
             },
             clear=True,
         ):
@@ -507,7 +515,7 @@ class TestServerConfigEnvironmentVariables:
             {
                 "VIDEO_SERVER_RATE_LIMIT": "invalid",
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
             },
             clear=True,
         ):
@@ -525,7 +533,7 @@ class TestServerConfigEnvironmentVariables:
                 "VIDEO_SERVER_SESSION_COOKIE_SECURE": "true",
                 "VIDEO_SERVER_SESSION_COOKIE_HTTPONLY": "false",
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
             },
             clear=True,
         ):
@@ -549,7 +557,7 @@ class TestServerConfigEnvironmentVariables:
                 "VIDEO_SERVER_LOG_BACKUP_COUNT": "10",
                 "VIDEO_SERVER_RATE_LIMIT_PER_MIN": "120",
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
             },
             clear=True,
         ):
@@ -573,7 +581,7 @@ class TestMaxFileSizeConfiguration:
             with patch.dict(
                 os.environ,
                 {
-                    "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                    "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                     "VIDEO_SERVER_DIRECTORY": temp_dir,
                 },
                 clear=True,
@@ -589,7 +597,7 @@ class TestMaxFileSizeConfiguration:
                 os.environ,
                 {
                     "VIDEO_SERVER_MAX_FILE_SIZE": "5368709120",  # 5GB
-                    "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                    "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                     "VIDEO_SERVER_DIRECTORY": temp_dir,
                 },
             ):
@@ -603,7 +611,7 @@ class TestMaxFileSizeConfiguration:
                 os.environ,
                 {
                     "VIDEO_SERVER_MAX_FILE_SIZE": "0",
-                    "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                    "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                     "VIDEO_SERVER_DIRECTORY": temp_dir,
                 },
             ):
@@ -617,7 +625,7 @@ class TestMaxFileSizeConfiguration:
                 os.environ,
                 {
                     "VIDEO_SERVER_MAX_FILE_SIZE": "-1",
-                    "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                    "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                     "VIDEO_SERVER_DIRECTORY": temp_dir,
                 },
             ):
@@ -632,7 +640,7 @@ class TestMaxFileSizeConfiguration:
             os.environ,
             {
                 "VIDEO_SERVER_PORT": "99999",
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                 "VIDEO_SERVER_DIRECTORY": str(Path.home()),
             },
         ):
@@ -647,7 +655,7 @@ class TestMaxFileSizeConfiguration:
             os.environ,
             {
                 "VIDEO_SERVER_THREADS": "0",
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                 "VIDEO_SERVER_DIRECTORY": str(Path.home()),
             },
         ):
@@ -673,7 +681,7 @@ class TestMaxFileSizeConfiguration:
             os.environ,
             {
                 "VIDEO_SERVER_DIRECTORY": "/nonexistent/directory",
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
             },
         ):
             with pytest.raises(ValueError, match="Video directory does not exist"):
@@ -688,7 +696,7 @@ class TestMaxFileSizeConfiguration:
                 os.environ,
                 {
                     "VIDEO_SERVER_LOG_DIR": str(log_dir),
-                    "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                    "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                     "VIDEO_SERVER_DIRECTORY": str(Path.home()),
                 },
             ):
@@ -707,7 +715,7 @@ class TestMaxFileSizeConfiguration:
         _setup_production_env(monkeypatch, video_dir, log_dir)
 
         config = ServerConfig(
-            password_hash="test_hash",
+            password_hash=TEST_PASSWORD_HASH,
             video_directory=str(video_dir),
             log_directory=str(log_dir),
         )
@@ -719,7 +727,7 @@ class TestMaxFileSizeConfiguration:
     def test_to_dict_excludes_sensitive_data(self):
         """Test that to_dict excludes sensitive information"""
         config = ServerConfig(
-            password_hash="secret_hash",
+            password_hash=TEST_PASSWORD_HASH,
             secret_key="secret_key",
             video_directory=str(Path.home()),
         )
@@ -740,7 +748,9 @@ class TestServerConfigMethodsComprehensive:
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
 
-        config = ServerConfig(video_directory=str(video_dir), password_hash="test_hash")
+        config = ServerConfig(
+            video_directory=str(video_dir), password_hash=TEST_PASSWORD_HASH
+        )
 
         # Test production environment
         with patch.dict(os.environ, {"VIDEO_SERVER_PRODUCTION": "true"}):
@@ -767,7 +777,7 @@ class TestServerConfigMethodsComprehensive:
 
         config = ServerConfig(
             video_directory=str(video_dir),
-            password_hash="secret_hash",
+            password_hash=TEST_PASSWORD_HASH,
             secret_key="secret_key_value",
             username="testuser",
             host="localhost",
@@ -818,7 +828,7 @@ class TestConfigLoading:
             os.environ,
             {
                 "VIDEO_SERVER_HOST": "testhost",
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                 "VIDEO_SERVER_DIRECTORY": str(Path.home()),
             },
         ):
@@ -861,7 +871,7 @@ class TestConfigLoadingComprehensive:
             os.environ,
             {
                 "VIDEO_SERVER_HOST": "testhost",
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                 "VIDEO_SERVER_DIRECTORY": str(Path.home()),
             },
         ):
@@ -923,7 +933,7 @@ class TestSecurityHeaders:
     def test_default_security_headers(self):
         """Test default security headers"""
         config = ServerConfig(
-            password_hash="test_hash", video_directory=str(Path.home())
+            password_hash=TEST_PASSWORD_HASH, video_directory=str(Path.home())
         )
 
         headers = config.security_headers
@@ -939,7 +949,7 @@ class TestSecurityHeaders:
     def test_content_security_policy(self):
         """Test Content Security Policy configuration"""
         config = ServerConfig(
-            password_hash="test_hash", video_directory=str(Path.home())
+            password_hash=TEST_PASSWORD_HASH, video_directory=str(Path.home())
         )
 
         csp = config.security_headers["Content-Security-Policy"]
@@ -957,7 +967,7 @@ class TestConfigPerformance:
         with patch.dict(
             os.environ,
             {
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                 "VIDEO_SERVER_DIRECTORY": str(Path.home()),
             },
         ):
@@ -972,7 +982,7 @@ class TestConfigPerformance:
     def test_config_validation_performance(self):
         """Test configuration validation performance"""
         config = ServerConfig(
-            password_hash="test_hash", video_directory=str(Path.home())
+            password_hash=TEST_PASSWORD_HASH, video_directory=str(Path.home())
         )
 
         start_time = time.time()
@@ -994,7 +1004,9 @@ class TestConfigComprehensiveEdgeCases:
         fake_file = tmp_path / "fake_directory.txt"
         fake_file.write_text("not a directory")
 
-        config = ServerConfig(video_directory=str(tmp_path), password_hash="test_hash")
+        config = ServerConfig(
+            video_directory=str(tmp_path), password_hash=TEST_PASSWORD_HASH
+        )
         config.video_directory = str(fake_file)
 
         with pytest.raises(ValueError, match="is not a directory"):
@@ -1044,7 +1056,7 @@ class TestProductionSecretKeyValidation:
             with pytest.raises(ValueError, match="VIDEO_SERVER_SECRET_KEY"):
                 ServerConfig(
                     video_directory=str(video_dir),
-                    password_hash="test_hash",
+                    password_hash=TEST_PASSWORD_HASH,
                 )
 
     def test_production_rejects_unset_secret_key(self, tmp_path):
@@ -1061,7 +1073,7 @@ class TestProductionSecretKeyValidation:
             with pytest.raises(ValueError, match="VIDEO_SERVER_SECRET_KEY must be set"):
                 ServerConfig(
                     video_directory=str(video_dir),
-                    password_hash="test_hash",
+                    password_hash=TEST_PASSWORD_HASH,
                 )
 
     def test_production_rejects_debug_mode(self, tmp_path):
@@ -1075,7 +1087,7 @@ class TestProductionSecretKeyValidation:
             os.environ,
             {
                 "VIDEO_SERVER_PRODUCTION": "true",
-                "VIDEO_SERVER_SECRET_KEY": "secure-production-key",
+                "VIDEO_SERVER_SECRET_KEY": TEST_PRODUCTION_SECRET_KEY,
                 "VIDEO_SERVER_DEBUG": "true",
                 "VIDEO_SERVER_RATE_LIMIT": "true",
                 "VIDEO_SERVER_LOG_DIR": str(log_dir),
@@ -1084,7 +1096,7 @@ class TestProductionSecretKeyValidation:
             with pytest.raises(ValueError, match="Debug mode cannot be enabled"):
                 ServerConfig(
                     video_directory=str(video_dir),
-                    password_hash="test_hash",
+                    password_hash=TEST_PASSWORD_HASH,
                     log_directory=str(log_dir),
                 )
 
@@ -1102,7 +1114,7 @@ class TestProductionSecretKeyValidation:
         with pytest.raises(ValueError, match="VIDEO_SERVER_RATE_LIMIT must be true"):
             ServerConfig(
                 video_directory=str(video_dir),
-                password_hash="test_hash",
+                password_hash=TEST_PASSWORD_HASH,
                 log_directory=str(log_dir),
             )
 
@@ -1115,7 +1127,7 @@ class TestProductionSecretKeyValidation:
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
         monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "true")
-        monkeypatch.setenv("VIDEO_SERVER_SECRET_KEY", "secure-production-key")
+        monkeypatch.setenv("VIDEO_SERVER_SECRET_KEY", TEST_PRODUCTION_SECRET_KEY)
         monkeypatch.setenv("VIDEO_SERVER_RATE_LIMIT", "true")
         monkeypatch.setenv("VIDEO_SERVER_DEBUG", "false")
         monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(video_dir))
@@ -1124,7 +1136,7 @@ class TestProductionSecretKeyValidation:
         with pytest.raises(ValueError, match="must not be writable"):
             ServerConfig(
                 video_directory=str(video_dir),
-                password_hash="test_hash",
+                password_hash=TEST_PASSWORD_HASH,
                 log_directory=str(log_dir),
             )
 
@@ -1149,7 +1161,7 @@ class TestParseIntEnv:
             os.environ,
             {
                 env_name: env_value,
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
             },
         ):
@@ -1167,7 +1179,7 @@ class TestLoadConfigFile:
         env_file = tmp_path / "test.env"
         env_file.write_text(
             f"VIDEO_SERVER_HOST=10.0.0.1\n"
-            f"VIDEO_SERVER_PASSWORD_HASH=test_hash\n"
+            f"VIDEO_SERVER_PASSWORD_HASH=scrypt:32768:8:1$PDnabs9h0vTp3nMK$ccdda3d296c0b59f5c875706be7ebdea90caf06a35aa97697c26ce4748a970b31202791996afe2c53604defce4d71a7ff2a0a2e9a78a52cd8246d3081ca57dab\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n",
             encoding="utf-8",
         )
@@ -1191,7 +1203,10 @@ class TestEnvFilePermissions:
             pytest.skip("POSIX permission bits are not checked on Windows")
 
         env_file = tmp_path / ".env"
-        env_file.write_text("VIDEO_SERVER_PASSWORD_HASH=test_hash\n", encoding="utf-8")
+        env_file.write_text(
+            "VIDEO_SERVER_PASSWORD_HASH=scrypt:32768:8:1$PDnabs9h0vTp3nMK$ccdda3d296c0b59f5c875706be7ebdea90caf06a35aa97697c26ce4748a970b31202791996afe2c53604defce4d71a7ff2a0a2e9a78a52cd8246d3081ca57dab\n",
+            encoding="utf-8",
+        )
         env_file.chmod(0o644)
         monkeypatch.chdir(tmp_path)
 
@@ -1207,7 +1222,10 @@ class TestEnvFilePermissions:
             pytest.skip("POSIX permission bits are not checked on Windows")
 
         env_file = tmp_path / ".env"
-        env_file.write_text("VIDEO_SERVER_PASSWORD_HASH=test_hash\n", encoding="utf-8")
+        env_file.write_text(
+            "VIDEO_SERVER_PASSWORD_HASH=scrypt:32768:8:1$PDnabs9h0vTp3nMK$ccdda3d296c0b59f5c875706be7ebdea90caf06a35aa97697c26ce4748a970b31202791996afe2c53604defce4d71a7ff2a0a2e9a78a52cd8246d3081ca57dab\n",
+            encoding="utf-8",
+        )
         env_file.chmod(0o600)
         monkeypatch.chdir(tmp_path)
 
@@ -1231,7 +1249,7 @@ class TestDeploymentConfigValidation:
         env_file = tmp_path / "test.env"
         env_file.write_text(
             f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
-            f"VIDEO_SERVER_SECRET_KEY=secure-production-key\n"
+            f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
             f"VIDEO_SERVER_PRODUCTION=true\n"
@@ -1250,7 +1268,7 @@ class TestDeploymentConfigValidation:
         env_file = tmp_path / "test.env"
         env_file.write_text(
             f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
-            f"VIDEO_SERVER_SECRET_KEY=secure-production-key\n"
+            f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_PRODUCTION=false\n",
             encoding="utf-8",
@@ -1284,7 +1302,7 @@ class TestDeploymentConfigValidation:
         env_file = tmp_path / "test.env"
         env_file.write_text(
             f"VIDEO_SERVER_PASSWORD_HASH=your-password-hash-here\n"
-            f"VIDEO_SERVER_SECRET_KEY=secure-production-key\n"
+            f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_PRODUCTION=true\n",
             encoding="utf-8",
@@ -1303,7 +1321,7 @@ class TestConfigProductionAuditEdgeCases:
         with patch.dict(
             os.environ,
             {
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
                 "VIDEO_SERVER_ALLOWED_EXTENSIONS": "",
             },
@@ -1317,7 +1335,7 @@ class TestConfigProductionAuditEdgeCases:
         with pytest.raises(ValueError, match="max_file_size cannot be negative"):
             ServerConfig(
                 video_directory=str(video_dir),
-                password_hash="test_hash",
+                password_hash=TEST_PASSWORD_HASH,
                 max_file_size=-1,
             )
 
@@ -1327,7 +1345,7 @@ class TestConfigProductionAuditEdgeCases:
         with patch.dict(
             os.environ,
             {
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
                 "VIDEO_SERVER_SESSION_COOKIE_SAMESITE": "Invalid",
             },
@@ -1341,7 +1359,7 @@ class TestConfigProductionAuditEdgeCases:
         with patch.dict(
             os.environ,
             {
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
                 "VIDEO_SERVER_SESSION_COOKIE_SAMESITE": "None",
                 "VIDEO_SERVER_SESSION_COOKIE_SECURE": "false",
@@ -1355,14 +1373,20 @@ class TestConfigProductionAuditEdgeCases:
         video_dir.mkdir()
         env_file = tmp_path / ".env"
         env_file.write_text(
-            f"VIDEO_SERVER_PASSWORD_HASH=test_hash\n"
+            f"VIDEO_SERVER_PASSWORD_HASH=scrypt:32768:8:1$PDnabs9h0vTp3nMK$ccdda3d296c0b59f5c875706be7ebdea90caf06a35aa97697c26ce4748a970b31202791996afe2c53604defce4d71a7ff2a0a2e9a78a52cd8246d3081ca57dab\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_USERNAME=envuser\n"
             f"VIDEO_SERVER_PRODUCTION=false\n",
             encoding="utf-8",
         )
         monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("VIDEO_SERVER_PRODUCTION", raising=False)
+        for env_name in (
+            "VIDEO_SERVER_PRODUCTION",
+            "VIDEO_SERVER_USERNAME",
+            "VIDEO_SERVER_PASSWORD_HASH",
+            "VIDEO_SERVER_DIRECTORY",
+        ):
+            monkeypatch.delenv(env_name, raising=False)
         config = load_config()
         assert config.username == "envuser"
 
@@ -1373,7 +1397,7 @@ class TestConfigProductionAuditEdgeCases:
         with patch.dict(
             os.environ,
             {
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
                 "VIDEO_SERVER_SESSION_COOKIE_SAMESITE": "lax",
             },
@@ -1387,7 +1411,7 @@ class TestConfigProductionAuditEdgeCases:
         with patch.dict(
             os.environ,
             {
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
                 "VIDEO_SERVER_ALLOWED_EXTENSIONS": "mp4",
             },
@@ -1403,7 +1427,7 @@ class TestConfigProductionAuditEdgeCases:
         with patch.dict(
             os.environ,
             {
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
                 "VIDEO_SERVER_ALLOWED_EXTENSIONS": ".m$p4",
             },
@@ -1425,7 +1449,7 @@ class TestConfigProductionAuditEdgeCases:
         env_file = tmp_path / "test.env"
         env_file.write_text(
             f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
-            f"VIDEO_SERVER_SECRET_KEY=secure-production-key\n"
+            f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
             f"VIDEO_SERVER_PRODUCTION=true\n"
@@ -1455,7 +1479,7 @@ class TestConfigProductionAuditEdgeCases:
         env_file = tmp_path / "test.env"
         env_file.write_text(
             f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
-            f"VIDEO_SERVER_SECRET_KEY=secure-production-key\n"
+            f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
             f"VIDEO_SERVER_HOST=0.0.0.0\n"
@@ -1476,7 +1500,7 @@ class TestConfigProductionAuditEdgeCases:
         video_dir.mkdir()
         config = ServerConfig(
             video_directory=str(video_dir),
-            password_hash="test_hash",
+            password_hash=TEST_PASSWORD_HASH,
             log_directory=str(tmp_path / "logs"),
         )
         assert config.check_runtime_health() is True
@@ -1486,7 +1510,7 @@ class TestConfigProductionAuditEdgeCases:
         video_dir.mkdir()
         config = ServerConfig(
             video_directory=str(video_dir),
-            password_hash="test_hash",
+            password_hash=TEST_PASSWORD_HASH,
             log_directory=str(tmp_path / "logs"),
         )
         video_dir.rmdir()
@@ -1498,7 +1522,7 @@ class TestConfigProductionAuditEdgeCases:
         video_dir.mkdir()
         config = ServerConfig(
             video_directory=str(video_dir),
-            password_hash="test_hash",
+            password_hash=TEST_PASSWORD_HASH,
             log_directory=str(tmp_path / "logs"),
             port=port,
         )
@@ -1509,7 +1533,7 @@ class TestConfigProductionAuditEdgeCases:
         video_dir.mkdir()
         config = ServerConfig(
             video_directory=str(video_dir),
-            password_hash="test_hash",
+            password_hash=TEST_PASSWORD_HASH,
             log_directory=str(tmp_path / "logs"),
         )
         assert config.channel_timeout == 300
@@ -1522,7 +1546,7 @@ class TestConfigProductionAuditEdgeCases:
         with pytest.raises(ValueError, match="VIDEO_SERVER_LOG_LEVEL"):
             ServerConfig(
                 video_directory=str(video_dir),
-                password_hash="test_hash",
+                password_hash=TEST_PASSWORD_HASH,
                 log_directory=str(tmp_path / "logs"),
                 log_level="INVALID_LEVEL",
             )
@@ -1533,7 +1557,7 @@ class TestConfigProductionAuditEdgeCases:
         with pytest.raises(ValueError, match="USERNAME must not be empty"):
             ServerConfig(
                 video_directory=str(video_dir),
-                password_hash="test_hash",
+                password_hash=TEST_PASSWORD_HASH,
                 log_directory=str(tmp_path / "logs"),
                 username="   ",
             )
@@ -1544,7 +1568,7 @@ class TestConfigProductionAuditEdgeCases:
         with pytest.raises(ValueError, match="SESSION_MAX_LIFETIME"):
             ServerConfig(
                 video_directory=str(video_dir),
-                password_hash="test_hash",
+                password_hash=TEST_PASSWORD_HASH,
                 log_directory=str(tmp_path / "logs"),
                 session_timeout=7200,
                 session_max_lifetime=3600,
@@ -1557,14 +1581,14 @@ class TestConfigProductionAuditEdgeCases:
             os.environ,
             {
                 "VIDEO_SERVER_PRODUCTION": "true",
-                "VIDEO_SERVER_SECRET_KEY": "secure-production-key",
+                "VIDEO_SERVER_SECRET_KEY": TEST_PRODUCTION_SECRET_KEY,
                 "VIDEO_SERVER_SESSION_COOKIE_SECURE": "false",
             },
         ):
             with pytest.raises(ValueError, match="SESSION_COOKIE_SECURE must be true"):
                 ServerConfig(
                     video_directory=str(video_dir),
-                    password_hash="test_hash",
+                    password_hash=TEST_PASSWORD_HASH,
                     log_directory=str(tmp_path / "logs"),
                 )
 
@@ -1574,7 +1598,7 @@ class TestConfigProductionAuditEdgeCases:
         with patch.dict(
             os.environ,
             {
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
                 "VIDEO_SERVER_SESSION_COOKIE_SAMESITE": "strict",
             },
@@ -1588,7 +1612,7 @@ class TestConfigProductionAuditEdgeCases:
         with patch.dict(
             os.environ,
             {
-                "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
                 "VIDEO_SERVER_DIRECTORY": str(video_dir),
                 "VIDEO_SERVER_DEBUG": " true ",
                 "VIDEO_SERVER_PRODUCTION": "false",
@@ -1604,7 +1628,7 @@ class TestConfigProductionAuditEdgeCases:
             with pytest.raises(ValueError, match="not readable"):
                 ServerConfig(
                     video_directory=str(video_dir),
-                    password_hash="test_hash",
+                    password_hash=TEST_PASSWORD_HASH,
                     log_directory=str(tmp_path / "logs"),
                 )
 
@@ -1613,8 +1637,106 @@ class TestConfigProductionAuditEdgeCases:
         video_dir.mkdir()
         config = ServerConfig(
             video_directory=str(video_dir),
-            password_hash="test_hash",
+            password_hash=TEST_PASSWORD_HASH,
             log_directory=str(tmp_path / "logs"),
         )
         with patch.object(Path, "exists", side_effect=OSError("boom")):
             assert config.check_runtime_health() is False
+
+
+class TestPasswordHashFormatValidation:
+    """Password hash must use a supported Werkzeug format at startup."""
+
+    @pytest.mark.parametrize(
+        "invalid_hash,match",
+        [
+            ("plaintext", "Werkzeug hash"),
+            ("$2b$12$invalidbcrypt", "bcrypt format"),
+            ("md5:deadbeef", "Werkzeug hash"),
+        ],
+    )
+    def test_rejects_invalid_hash_formats(
+        self, tmp_path: Path, invalid_hash: str, match: str
+    ) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with pytest.raises(ValueError, match=match):
+            ServerConfig(
+                video_directory=str(video_dir),
+                password_hash=invalid_hash,
+                log_directory=str(tmp_path / "logs"),
+            )
+
+
+class TestProductionHttponlyValidation:
+    """Production mode requires HttpOnly session cookies."""
+
+    def test_production_rejects_httponly_false(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        _setup_production_env(monkeypatch, video_dir, log_dir)
+        monkeypatch.setenv("VIDEO_SERVER_SESSION_COOKIE_HTTPONLY", "false")
+
+        with pytest.raises(ValueError, match="HTTPONLY must be true"):
+            ServerConfig(
+                video_directory=str(video_dir),
+                password_hash=TEST_PASSWORD_HASH,
+                log_directory=str(log_dir),
+            )
+
+
+class TestNumericUpperBounds:
+    """Numeric settings reject values above documented upper bounds."""
+
+    def test_threads_upper_bound(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_THREADS": "999999",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+            },
+        ):
+            with pytest.raises(
+                ValueError, match="VIDEO_SERVER_THREADS must be at most"
+            ):
+                ServerConfig(log_directory=str(tmp_path / "logs"))
+
+    def test_invalid_log_max_bytes_env(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_LOG_MAX_BYTES": "invalid",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+            },
+        ):
+            with pytest.raises(
+                ValueError, match="VIDEO_SERVER_LOG_MAX_BYTES must be an integer"
+            ):
+                ServerConfig(log_directory=str(tmp_path / "logs"))
+
+    def test_production_rejects_short_secret_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        _setup_production_env(monkeypatch, video_dir, log_dir)
+        monkeypatch.setenv("VIDEO_SERVER_SECRET_KEY", "too-short")
+
+        with pytest.raises(ValueError, match="at least 32 characters"):
+            ServerConfig(
+                video_directory=str(video_dir),
+                password_hash=TEST_PASSWORD_HASH,
+                log_directory=str(log_dir),
+            )

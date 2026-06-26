@@ -14,6 +14,21 @@ DEFAULT_MAX_DIRECTORY_ENTRIES: int = 10000
 MAX_LOCKOUT_TRACKERS: int = 10000
 DEFAULT_STREAM_RATE_LIMIT_PER_MINUTE: int = 600
 
+# Upper bounds for numeric configuration (prevent accidental resource exhaustion)
+MAX_THREADS: int = 256
+MAX_CONNECTION_LIMIT: int = 100_000
+MAX_CHANNEL_TIMEOUT: int = 86_400
+MAX_CLEANUP_INTERVAL: int = 86_400
+MAX_RATE_LIMIT_PER_MINUTE: int = 10_000
+MAX_LOCKOUT_MAX_ATTEMPTS: int = 100
+MAX_LOCKOUT_DURATION_SECONDS: int = 86_400
+MAX_SESSION_TIMEOUT: int = 2_592_000  # 30 days
+MAX_SESSION_MAX_LIFETIME: int = 2_592_000  # 30 days
+MAX_DIRECTORY_ENTRIES: int = 1_000_000
+MAX_LOG_MAX_BYTES: int = 1_073_741_824  # 1 GiB
+MAX_LOG_BACKUP_COUNT: int = 100
+MIN_PRODUCTION_SECRET_KEY_LENGTH: int = 32
+
 AUDIO_EXTENSIONS: frozenset[str] = frozenset({".mp3", ".aac", ".ogg", ".wav"})
 VIDEO_EXTENSIONS: frozenset[str] = frozenset(
     {".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v", ".flv"}

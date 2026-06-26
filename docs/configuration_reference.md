@@ -9,7 +9,7 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 | `VIDEO_SERVER_HOST` | `0.0.0.0` | Bind address. Use `127.0.0.1` when behind a reverse proxy. |
 | `VIDEO_SERVER_PORT` | `5000` | TCP port (1–65535). |
 | `VIDEO_SERVER_DEBUG` | `false` | Flask debug mode. Must be `false` when `VIDEO_SERVER_PRODUCTION=true`. |
-| `VIDEO_SERVER_THREADS` | `6` | Waitress worker threads (minimum 1). |
+| `VIDEO_SERVER_THREADS` | `6` | Waitress worker threads (1–256). |
 | `VIDEO_SERVER_CHANNEL_TIMEOUT` | `300` | Waitress channel timeout in seconds. |
 | `VIDEO_SERVER_CONNECTION_LIMIT` | `1000` | Maximum concurrent connections. |
 | `VIDEO_SERVER_CLEANUP_INTERVAL` | `30` | Waitress cleanup interval in seconds. |
@@ -19,15 +19,15 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VIDEO_SERVER_SECRET_KEY` | *(auto-generated if unset)* | Flask session signing key. **Required in production** via environment. |
+| `VIDEO_SERVER_SECRET_KEY` | *(auto-generated if unset)* | Flask session signing key. **Required in production** (minimum 32 characters). |
 | `VIDEO_SERVER_USERNAME` | `tboy1337` | HTTP Basic Auth username. Must not be empty or whitespace. |
-| `VIDEO_SERVER_PASSWORD_HASH` | *(empty)* | Werkzeug scrypt hash. **Required.** Generate with `mediarelay-genpass`. |
+| `VIDEO_SERVER_PASSWORD_HASH` | *(empty)* | Werkzeug hash (`scrypt:`, `pbkdf2:`, or `argon2:`). **Required.** Generate with `mediarelay-genpass`. |
 | `VIDEO_SERVER_SESSION_TIMEOUT` | `3600` | Session idle timeout in seconds. |
 | `VIDEO_SERVER_SESSION_MAX_LIFETIME` | `86400` | Absolute session lifetime in seconds from login (default 24 hours). Must be greater than or equal to `VIDEO_SERVER_SESSION_TIMEOUT`. |
 | `VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS` | `5` | Failed logins before lockout. |
 | `VIDEO_SERVER_LOCKOUT_DURATION` | `900` | Lockout duration in seconds (minimum 60). |
 | `VIDEO_SERVER_SESSION_COOKIE_SECURE` | `true` | Send session cookies only over HTTPS. **Required `true` when `VIDEO_SERVER_PRODUCTION=true`.** |
-| `VIDEO_SERVER_SESSION_COOKIE_HTTPONLY` | `true` | Prevent JavaScript access to session cookies. |
+| `VIDEO_SERVER_SESSION_COOKIE_HTTPONLY` | `true` | Prevent JavaScript access to session cookies. **Required `true` when `VIDEO_SERVER_PRODUCTION=true`.** |
 | `VIDEO_SERVER_SESSION_COOKIE_SAMESITE` | `Strict` | SameSite policy: `Strict`, `Lax`, or `None` (case-insensitive). `None` requires `VIDEO_SERVER_SESSION_COOKIE_SECURE=true`. |
 | `VIDEO_SERVER_BEHIND_PROXY` | `false` | Trust `X-Forwarded-*` headers. Enable only behind a trusted reverse proxy. |
 | `VIDEO_SERVER_PROXY_TRUSTED` | `false` | Acknowledge that MediaRelay is only reachable through your trusted reverse proxy. Set `true` with `BEHIND_PROXY` in production. |
@@ -63,10 +63,19 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 
 ## Production notes
 
+**Minimal local setup (development):**
+
+1. `pip install mediarelay`
+2. `mediarelay-genpass > .env` (redirect securely; set `VIDEO_SERVER_VIDEO_DIRECTORY`)
+3. `mediarelay`
+
+**Production deploy:** set `VIDEO_SERVER_PRODUCTION=true`, then run `mediarelay-validate` before starting the service.
+
 - Restrict `.env` permissions: `chmod 600 .env` (Linux/macOS).
 - Generate credentials: `mediarelay-genpass --non-interactive --username tboy1337`
 - Validate before deploy: `VIDEO_SERVER_PRODUCTION=true mediarelay-validate` (checks log directory, rejects writable video directory, warns on `0.0.0.0` without proxy)
-- Production startup requires `VIDEO_SERVER_SECRET_KEY`, a real password hash, `VIDEO_SERVER_DEBUG=false`, and `VIDEO_SERVER_SESSION_COOKIE_SECURE=true`.
+- Production startup requires: real Werkzeug password hash, `VIDEO_SERVER_SECRET_KEY` (32+ chars), `VIDEO_SERVER_DEBUG=false`, `VIDEO_SERVER_SESSION_COOKIE_SECURE=true`, `VIDEO_SERVER_SESSION_COOKIE_HTTPONLY=true`, and `VIDEO_SERVER_RATE_LIMIT=true`.
+- Numeric settings have documented upper bounds (e.g. threads 256, rate limit 10,000/min) to prevent accidental resource exhaustion.
 - Do not expose plain HTTP to the internet; terminate TLS at a reverse proxy. See [Deployment Guide](deployment_guide.md) and [SECURITY.md](../SECURITY.md).
 - Sessions are bound to the client IP at login. VPN or mobile network IP changes invalidate the session and require re-authentication.
 

@@ -8,6 +8,7 @@ from flask import Flask
 from mediarelay.session_store import (
     clear_session,
     establish_session,
+    get_length_violation,
     get_request_id,
     get_session_credential_epoch,
     get_session_last_activity,
@@ -18,6 +19,7 @@ from mediarelay.session_store import (
     has_request_timing,
     is_session_authenticated,
     read_session_auth_state,
+    set_length_violation,
     set_request_id,
     set_start_time,
     touch_session_activity,
@@ -143,3 +145,20 @@ class TestRequestContextHelpers:
     def test_has_request_timing_false_when_unset(self, app: Flask) -> None:
         with app.test_request_context():
             assert has_request_timing() is False
+
+
+class TestLengthViolationContext:
+    """URL/path length violation metadata on Flask ``g``."""
+
+    def test_set_and_get_length_violation(self, app: Flask) -> None:
+        with app.test_request_context():
+            set_length_violation("path_too_long", "Path exceeds limit")
+            violation_type, detail = get_length_violation()
+            assert violation_type == "path_too_long"
+            assert detail == "Path exceeds limit"
+
+    def test_get_length_violation_defaults(self, app: Flask) -> None:
+        with app.test_request_context():
+            violation_type, detail = get_length_violation()
+            assert violation_type == "url_too_long"
+            assert detail == "Request URI too long"

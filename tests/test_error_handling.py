@@ -13,76 +13,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mediarelay.config import ServerConfig, _get_default_video_directory
+from mediarelay.config import ServerConfig
 from mediarelay.handlers import handle_index_request
 from mediarelay.server import MediaRelayServer
-
-
-class TestConfigErrorHandling:
-    """Test cases for configuration error handling"""
-
-    def test_get_default_video_directory_fallback(self):
-        """Test default video directory fallback when home is unavailable"""
-        with patch("pathlib.Path.home", side_effect=RuntimeError("No home")):
-            result = _get_default_video_directory()
-            assert result == "./videos"
-
-    def test_get_default_video_directory_success(self):
-        """Test default video directory when home is available"""
-        with patch("pathlib.Path.home") as mock_home:
-            mock_home.return_value = Path("/home/user")
-            result = _get_default_video_directory()
-            # Convert to forward slashes for cross-platform compatibility
-            expected = str(Path("/home/user/Videos")).replace("\\", "/")
-            actual = str(result).replace("\\", "/")
-            assert actual == expected
-
-    def test_config_invalid_port_edge_cases(self):
-        """Test config validation with edge case ports"""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Test port 0 (invalid)
-            with patch.dict(
-                os.environ,
-                {
-                    "VIDEO_SERVER_PORT": "0",
-                    "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
-                    "VIDEO_SERVER_DIRECTORY": temp_dir,
-                },
-            ):
-                with pytest.raises(
-                    ValueError, match="VIDEO_SERVER_PORT must be at least 1"
-                ):
-                    ServerConfig()
-
-            # Test port 65536 (invalid)
-            with patch.dict(
-                os.environ,
-                {
-                    "VIDEO_SERVER_PORT": "65536",
-                    "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
-                    "VIDEO_SERVER_DIRECTORY": temp_dir,
-                },
-            ):
-                with pytest.raises(
-                    ValueError, match="VIDEO_SERVER_PORT must be at most 65535"
-                ):
-                    ServerConfig()
-
-    def test_config_invalid_log_max_bytes(self):
-        """Test config with invalid log max bytes"""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with patch.dict(
-                os.environ,
-                {
-                    "VIDEO_SERVER_LOG_MAX_BYTES": "invalid",
-                    "VIDEO_SERVER_PASSWORD_HASH": "test_hash",
-                    "VIDEO_SERVER_DIRECTORY": temp_dir,
-                },
-            ):
-                with pytest.raises(
-                    ValueError, match="VIDEO_SERVER_LOG_MAX_BYTES must be an integer"
-                ):
-                    ServerConfig()
+from tests.constants import TEST_PASSWORD_HASH
 
 
 class TestServerErrorHandling:
@@ -213,38 +147,6 @@ class TestRequestErrorHandling:
         assert response.status_code == 404
 
 
-class TestLoggingErrorHandling:
-    """Test cases for logging error handling"""
-
-    def test_logging_disk_full_simulation(self, server_config, tmp_path):
-        """Test logging behavior when disk is full"""
-        from mediarelay.logging_config import SecurityEventLogger
-
-        server_config.log_directory = str(tmp_path)
-        logger = SecurityEventLogger(server_config)
-
-        # Simulate disk full by mocking handler emit
-        with patch.object(
-            logger.logger.handlers[0],
-            "emit",
-            side_effect=OSError("No space left on device"),
-        ):
-            logger.log_auth_attempt("user", True, "127.0.0.1")
-
-    def test_logging_permission_error(self, server_config, tmp_path):
-        """Test logging behavior with permission errors"""
-        from mediarelay.logging_config import SecurityEventLogger
-
-        server_config.log_directory = str(tmp_path)
-        logger = SecurityEventLogger(server_config)
-        with patch.object(
-            logger.logger.handlers[0],
-            "emit",
-            side_effect=PermissionError("denied"),
-        ):
-            logger.log_auth_attempt("user", True, "127.0.0.1")
-
-
 class TestMemoryErrorHandling:
     """Test cases for memory-related error handling"""
 
@@ -295,24 +197,6 @@ class TestMemoryErrorHandling:
             with patch.object(Path, "is_file", return_value=True):
                 response = authenticated_client.get("/")
                 assert response.status_code in (200, 400)
-
-
-class TestNetworkErrorHandling:
-    """Test cases for network-related error handling"""
-
-    def test_slow_client_connection(self, test_server):
-        """Test handling of slow client connections"""
-        # This would require more sophisticated network testing
-        # For now, just test that server doesn't crash with normal requests
-        with test_server.app.test_client() as client:
-            response = client.get("/health")
-            assert response.status_code == 200
-
-    def test_client_disconnect_during_streaming(self, authenticated_client):
-        """Test handling of client disconnect during file streaming"""
-        # Create a test file
-        response = authenticated_client.get("/stream/test_video.mp4")
-        assert response.status_code == 200
 
 
 class TestFileSystemErrorHandling:

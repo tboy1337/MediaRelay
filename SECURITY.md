@@ -70,11 +70,12 @@ Run `python scripts/verify.py` locally before release; it enforces black, isort,
 ## Production Deployment Checklist
 
 1. Set `VIDEO_SERVER_PRODUCTION=true`. Deployment checks (writable media root, log directory, bind/proxy warnings) run automatically at `mediarelay` startup. Use `mediarelay-validate` as a pre-deploy dry run without starting the server.
-2. Generate credentials with `mediarelay-genpass` (or `mediarelay-genpass --non-interactive` for scripts).
+2. Generate credentials with `mediarelay-genpass` (or `mediarelay-genpass --non-interactive` for scripts). Redirect output to `.env`; the password hash must be a Werkzeug `scrypt:`, `pbkdf2:`, or `argon2:` string (validated at startup).
 3. Set `VIDEO_SERVER_RATE_LIMIT=true` in production (required at startup).
 4. **Terminate TLS** at nginx, Caddy, or another reverse proxy. Do not expose plain HTTP to the internet.
-5. Bind to `127.0.0.1` when using a reverse proxy; use firewall rules if binding to `0.0.0.0`. Startup validation warns when `0.0.0.0` is used without `VIDEO_SERVER_BEHIND_PROXY`.
-6. Keep `VIDEO_SERVER_SESSION_COOKIE_SECURE=true` when using HTTPS (required for session cookies over TLS).
+5. Bind to `127.0.0.1` when using a reverse proxy; use firewall rules if binding to `0.0.0.0`. Startup validation warns when `0.0.0.0` is used without `VIDEO_SERVER_BEHIND_PROXY` (LAN binding remains allowed).
+6. Keep `VIDEO_SERVER_SESSION_COOKIE_SECURE=true` and `VIDEO_SERVER_SESSION_COOKIE_HTTPONLY=true` when using HTTPS (both required in production).
+7. Set `VIDEO_SERVER_SECRET_KEY` to at least 32 characters in production (use `mediarelay-genpass`).
 7. Set `VIDEO_SERVER_BEHIND_PROXY=true` and `VIDEO_SERVER_PROXY_TRUSTED=true` **only** when MediaRelay is unreachable except through your trusted proxy. Without `PROXY_TRUSTED`, client IP and rate limits use the direct connection address.
 8. Ensure the video directory is not writable by the server process (enforced at startup in production).
 9. Use authenticated `/health` for readiness monitoring; unauthenticated `/health` returns liveness only (`{"status":"ok"}`).

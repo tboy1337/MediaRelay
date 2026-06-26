@@ -22,6 +22,7 @@ from mediarelay.logging_config import (
     log_system_info,
     setup_logging,
 )
+from tests.constants import TEST_PASSWORD_HASH
 
 
 class TestSecurityEventLogger:
@@ -496,7 +497,7 @@ class TestLoggingSetupComprehensive:
         with tempfile.TemporaryDirectory() as temp_dir:
             config = ServerConfig(
                 video_directory=temp_dir,
-                password_hash="test_hash",
+                password_hash=TEST_PASSWORD_HASH,
                 log_directory=str(log_dir),
             )
 
@@ -852,6 +853,42 @@ class TestLoggingErrorScenarios:
 
             for expected_call in expected_calls:
                 mock_log_info.assert_any_call(expected_call)
+
+
+class TestSecurityLoggerSafeEmit:
+    """Security logger must not break requests when log I/O fails."""
+
+    def test_safe_emit_swallows_oserror(self, server_config, tmp_path, caplog):
+        from mediarelay.logging_config import SecurityEventLogger
+
+        server_config.log_directory = str(tmp_path)
+        logger = SecurityEventLogger(server_config)
+        with patch.object(
+            logger.logger.handlers[0],
+            "emit",
+            side_effect=OSError("No space left on device"),
+        ):
+            logger.log_auth_attempt("user", True, "127.0.0.1")
+
+        assert any(
+            "Security log write failed" in record.message for record in caplog.records
+        )
+
+    def test_safe_emit_swallows_permission_error(self, server_config, tmp_path, caplog):
+        from mediarelay.logging_config import SecurityEventLogger
+
+        server_config.log_directory = str(tmp_path)
+        logger = SecurityEventLogger(server_config)
+        with patch.object(
+            logger.logger.handlers[0],
+            "emit",
+            side_effect=PermissionError("denied"),
+        ):
+            logger.log_auth_attempt("user", True, "127.0.0.1")
+
+        assert any(
+            "Security log write failed" in record.message for record in caplog.records
+        )
 
 
 class TestLogLogout:
