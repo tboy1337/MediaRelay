@@ -22,6 +22,8 @@ from mediarelay.config import (
     ServerConfig,
     _get_default_video_directory,
     _warn_insecure_env_file_permissions,
+    _warn_video_directory_symlink,
+    _warn_windows_insecure_env_file_permissions,
     create_sample_env_file,
     load_config,
     validate_deployment_config,
@@ -1315,6 +1317,26 @@ class TestEnvFilePermissions:
 
         mock_warning.assert_not_called()
 
+    def test_icacls_read_line_without_world_principal_no_warning(
+        self, tmp_path: Path
+    ) -> None:
+        """Lines with (R) but no broad principal do not trigger warnings."""
+        env_file = tmp_path / ".env"
+        env_file.write_text("VIDEO_SERVER_SECRET_KEY=test\n", encoding="utf-8")
+        completed = subprocess.CompletedProcess(
+            args=["icacls", str(env_file)],
+            returncode=0,
+            stdout=f"{env_file} CUSTOMGROUP:(R)\n{env_file} LAPTOP\\User:(F)\n",
+            stderr="",
+        )
+        with (
+            patch("mediarelay.config.shutil.which", return_value="icacls"),
+            patch("mediarelay.config.subprocess.run", return_value=completed),
+            patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning,
+        ):
+            _warn_windows_insecure_env_file_permissions(env_file)
+        mock_warning.assert_not_called()
+
     def test_world_readable_env_file_logs_warning_windows(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -2075,6 +2097,48 @@ class TestConfigProductionAuditEdgeCases:
         )
         with patch.object(Path, "exists", side_effect=OSError("boom")):
             assert config.check_runtime_health() is False
+
+    def test_warn_video_directory_symlink_logs_resolved_target(
+        self, tmp_path: Path
+    ) -> None:
+        """Production symlink check logs the resolved target path."""
+        target = tmp_path / "media_target"
+        target.mkdir()
+        link = tmp_path / "media_link"
+        try:
+            link.symlink_to(target, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("Symlinks not supported on this platform")
+
+        with patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning:
+            _warn_video_directory_symlink(str(link))
+
+        mock_warning.assert_called_once()
+        assert str(target.resolve()) in str(mock_warning.call_args[0][1])
+
+    def test_warn_video_directory_symlink_resolve_oserror_silent(
+        self, tmp_path: Path
+    ) -> None:
+        """Broken symlink resolution does not log when resolve fails."""
+        link = tmp_path / "broken_link"
+        with (
+            patch.object(Path, "is_symlink", return_value=True),
+            patch.object(Path, "resolve", side_effect=OSError("broken")),
+            patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning,
+        ):
+            _warn_video_directory_symlink(str(link))
+
+        mock_warning.assert_not_called()
+
+    def test_warn_video_directory_symlink_skips_non_symlink(
+        self, tmp_path: Path
+    ) -> None:
+        """Non-symlink directories do not trigger symlink warnings."""
+        normal_dir = tmp_path / "normal"
+        normal_dir.mkdir()
+        with patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning:
+            _warn_video_directory_symlink(str(normal_dir))
+        mock_warning.assert_not_called()
 
 
 class TestPasswordHashFormatValidation:

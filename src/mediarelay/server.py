@@ -63,7 +63,6 @@ class MediaRelayServer:
         self._start_time: float = time.time()
         self.inode_link_index = InodeLinkIndex(Path(config.video_directory))
         self.inode_index_ready = False
-        self._inode_index_thread: threading.Thread | None = None
         self._setup_logging()
         self._initialize_inode_index()
         self._warn_ephemeral_secret_key()
@@ -212,9 +211,6 @@ class MediaRelayServer:
     def _shutdown_cleanup(self) -> None:
         """Release background resources and flush log handlers on shutdown."""
         self._stop_lockout_cleanup()
-        if self._inode_index_thread is not None and self._inode_index_thread.is_alive():
-            self._inode_index_thread.join(timeout=5.0)
-            self._inode_index_thread = None
         if self._logging_components is not None:
             cleanup_logging(self._logging_components)
             self._logging_components = None

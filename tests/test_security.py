@@ -1228,6 +1228,15 @@ class TestCsrfTokenScope:
         assert response.status_code == 200
         assert "X-CSRF-Token" not in response.headers
 
+    def test_html_response_omits_csrf_when_token_unavailable(
+        self, authenticated_client
+    ) -> None:
+        """HTML responses omit CSRF header when no token is available."""
+        with patch("mediarelay.routes.get_csrf_token", return_value=None):
+            response = authenticated_client.get("/")
+        assert response.status_code == 200
+        assert "X-CSRF-Token" not in response.headers
+
 
 class TestAuthDirect:
     """Direct unit tests for mediarelay.auth helpers."""

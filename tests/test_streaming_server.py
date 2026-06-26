@@ -109,9 +109,27 @@ class TestMediaRelayServer:
         with patch.object(InodeLinkIndex, "refresh") as mock_refresh:
             server = MediaRelayServer(server_config)
             try:
-                assert server._inode_index_thread is None
                 assert server.inode_index_ready is True
                 mock_refresh.assert_called_once_with(force=True)
+            finally:
+                server._shutdown_cleanup()
+
+    def test_inode_index_init_failure_reports_degraded_health(self, server_config):
+        """Failed inode index build marks health as degraded for unauthenticated probes."""
+        with patch.object(
+            InodeLinkIndex,
+            "refresh",
+            side_effect=OSError("index build failed"),
+        ):
+            server = MediaRelayServer(server_config)
+            try:
+                assert server.inode_index_ready is False
+                server.app.config["TESTING"] = True
+                with server.app.test_client() as client:
+                    response = client.get("/health")
+                    assert response.status_code == 503
+                    data = json.loads(response.data)
+                    assert data["status"] == "degraded"
             finally:
                 server._shutdown_cleanup()
 
@@ -1377,6 +1395,19 @@ class TestRequestLogging:
 
                 # Verify performance logging was called
                 media_relay_server.performance_logger.log_request_duration.assert_called_once()
+
+    def test_after_request_skips_performance_log_when_start_time_missing(
+        self, media_relay_server, authenticated_client
+    ):
+        """Performance logging is skipped when timing is set but start_time is missing."""
+        media_relay_server.performance_logger = MagicMock()
+        with (
+            patch("mediarelay.routes.has_request_timing", return_value=True),
+            patch("mediarelay.routes.get_start_time", return_value=None),
+        ):
+            response = authenticated_client.get("/")
+        assert response.status_code == 200
+        media_relay_server.performance_logger.log_request_duration.assert_not_called()
 
 
 class TestErrorHandlers:

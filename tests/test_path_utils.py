@@ -14,6 +14,7 @@ from mediarelay.path_utils import (
     _build_inode_counts,
     _compute_jail_fingerprint,
     _count_inode_links_under_jail,
+    _decode_url_path,
     _inode_key_for_path,
     _is_hardlink_outside_jail,
     _log_path_violation,
@@ -395,6 +396,14 @@ class TestGetBreadcrumbs:
         assert len(crumbs) == len(relative_parts) + 1
         assert crumbs[0] == {"name": "Home", "path": "/"}
         assert crumbs[-1]["name"] == relative_parts[-1]
+
+
+class TestDecodeUrlPath:
+    """Tests for multi-pass URL path decoding."""
+
+    def test_decode_url_path_applies_multiple_passes(self) -> None:
+        """Double-encoded segments are decoded through repeated unquote passes."""
+        assert _decode_url_path("%252e") == "."
 
 
 class TestResolvePath:
