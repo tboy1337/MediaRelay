@@ -265,7 +265,7 @@ class TestHandlerErrorPaths:
     """Tests for handler 500 error responses."""
 
     def test_stream_handler_os_error_returns_500(self, media_relay_server):
-        """Stream handler returns 500 when send_file fails."""
+        """Stream handler returns 500 when wrap_file fails."""
         from mediarelay.path_utils import ValidatedFileHandle
 
         auth = base64.b64encode(b"testuser:testpass").decode()
@@ -282,12 +282,24 @@ class TestHandlerErrorPaths:
                     return_value=ValidatedFileHandle(fd=0, path=Path("test_video.mp4")),
                 ):
                     with patch(
-                        "mediarelay.handlers.send_file",
-                        side_effect=OSError("disk error"),
+                        "mediarelay.handlers.os.fstat",
+                        return_value=type(
+                            "Stat",
+                            (),
+                            {"st_size": 18, "st_mtime": 1.0},
+                        )(),
                     ):
-                        result = handle_stream_request(
-                            media_relay_server, "test_video.mp4"
-                        )
+                        with patch(
+                            "mediarelay.handlers.os.fdopen",
+                            return_value=MagicMock(),
+                        ):
+                            with patch(
+                                "mediarelay.handlers.wrap_file",
+                                side_effect=OSError("disk error"),
+                            ):
+                                result = handle_stream_request(
+                                    media_relay_server, "test_video.mp4"
+                                )
         assert result == ("Error streaming file", 500)
 
     def test_api_files_handler_os_error_returns_500(self, media_relay_server):

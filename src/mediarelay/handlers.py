@@ -11,7 +11,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
-from flask import Response, jsonify, request, send_file
+from flask import Response, jsonify, request
+from werkzeug.exceptions import RequestedRangeNotSatisfiable
+from werkzeug.wsgi import wrap_file
 
 from .constants import MAX_SUBTITLE_FILE_SIZE, SUBTITLE_EXTENSIONS
 from .logging_config import truncate_logged_path
@@ -534,12 +536,35 @@ def handle_stream_request(
             response.headers["X-Content-Type-Options"] = "nosniff"
         else:
             filename = safe_path.name
-            os.close(validated_file.fd)
-            response = send_file(
-                validated_file.path,
-                mimetype=guess_media_mime_type(filename),
-                conditional=True,
-            )
+            stat_result = os.fstat(validated_file.fd)
+            try:
+                file_obj = os.fdopen(validated_file.fd, "rb")
+            except OSError:
+                os.close(validated_file.fd)
+                raise
+            try:
+                response = Response(
+                    wrap_file(request.environ, file_obj),
+                    mimetype=guess_media_mime_type(filename),
+                    direct_passthrough=True,
+                )
+                response.content_length = stat_result.st_size
+                response.last_modified = stat_result.st_mtime
+                response.cache_control.no_cache = True
+                try:
+                    response = response.make_conditional(
+                        request.environ,
+                        accept_ranges=True,
+                        complete_length=stat_result.st_size,
+                    )
+                except RequestedRangeNotSatisfiable:
+                    file_obj.close()
+                    raise
+            except RequestedRangeNotSatisfiable:
+                raise
+            except BaseException:
+                file_obj.close()
+                raise
 
         perf_logger = server.performance_logger
         if perf_logger is not None:

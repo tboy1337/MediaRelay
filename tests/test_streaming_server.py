@@ -533,6 +533,24 @@ class TestVideoStreaming:
         content_range = response.headers.get("Content-Range", "")
         assert content_range.startswith("bytes 0-4/")
 
+    def test_stream_serves_media_from_validated_file_descriptor(
+        self, authenticated_client, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Media streaming serves from the validated FD via wrap_file, not path reopen."""
+        captured: dict[str, object] = {}
+
+        def _capture_wrap_file(environ: object, file_obj: object) -> object:
+            captured["file_obj"] = file_obj
+            captured["has_fileno"] = hasattr(file_obj, "fileno")
+            return file_obj
+
+        monkeypatch.setattr("mediarelay.handlers.wrap_file", _capture_wrap_file)
+        response = authenticated_client.get("/stream/test_video.mp4")
+
+        assert response.status_code == 200
+        assert captured.get("has_fileno") is True
+        assert hasattr(captured.get("file_obj"), "read")
+
     def test_stream_range_request_invalid_range(self, authenticated_client):
         """Test invalid Range request returns 416"""
         headers = {"Range": "bytes=10000-20000"}

@@ -603,6 +603,7 @@ class ServerConfig:
 
     def to_dict(self) -> dict[str, Any]:  # type: ignore[explicit-any]
         """Convert config to dictionary (excluding sensitive data)"""
+        username_value = "[redacted]" if self.is_production() else self.username
         return {
             "host": self.host,
             "port": self.port,
@@ -612,7 +613,7 @@ class ServerConfig:
             "connection_limit": self.connection_limit,
             "cleanup_interval": self.cleanup_interval,
             "page_size": self.page_size,
-            "username": self.username,
+            "username": username_value,
             "session_timeout": self.session_timeout,
             "session_max_lifetime": self.session_max_lifetime,
             "lockout_max_attempts": self.lockout_max_attempts,

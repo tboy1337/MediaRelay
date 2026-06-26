@@ -8,6 +8,7 @@ Includes comprehensive configuration validation tests.
 import builtins
 import logging
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -783,6 +784,28 @@ class TestMaxFileSizeConfiguration:
         assert config_dict["username"] == config.username
         assert config_dict["host"] == config.host
 
+    def test_to_dict_redacts_username_in_production(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Production startup logs must not include the configured username."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        _setup_production_env(monkeypatch, video_dir, log_dir)
+
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            log_directory=str(log_dir),
+            password_hash=TEST_PASSWORD_HASH,
+            username="secret-operator",
+        )
+
+        config_dict = config.to_dict()
+
+        assert config_dict["username"] == "[redacted]"
+        assert config.is_production() is True
+
 
 class TestServerConfigMethodsComprehensive:
     """Test ServerConfig methods comprehensively"""
@@ -1271,6 +1294,25 @@ class TestEnvFilePermissions:
 
         mock_warning.assert_called_once()
         assert "readable by group or others" in mock_warning.call_args[0][0]
+
+    def test_owner_only_env_file_no_warning_posix_mock(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No POSIX permission warning when .env is owner-readable only."""
+        env_file = tmp_path / ".env"
+        env_file.write_text("VIDEO_SERVER_SECRET_KEY=test\n", encoding="utf-8")
+        owner_only_mode = stat.S_IRUSR | stat.S_IWUSR
+
+        with patch.object(os, "name", "posix"):
+            with patch.object(
+                Path,
+                "stat",
+                return_value=type("Stat", (), {"st_mode": owner_only_mode})(),
+            ):
+                with patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning:
+                    _warn_insecure_env_file_permissions(env_file)
+
+        mock_warning.assert_not_called()
 
     def test_owner_only_env_file_no_warning(self, tmp_path, monkeypatch):
         """No warning when .env is owner-readable only on POSIX."""

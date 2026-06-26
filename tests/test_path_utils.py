@@ -425,6 +425,18 @@ class TestDecodeUrlPath:
         """Triple-encoded segments require more than one decode iteration."""
         assert _decode_url_path("%25252e") == "."
 
+    def test_decode_url_path_exhausts_decode_pass_limit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Decoding stops after ten passes even when input still changes."""
+        requested = "payload"
+
+        def _always_change(value: str) -> str:
+            return f"{value}a"
+
+        monkeypatch.setattr("mediarelay.path_utils.unquote", _always_change)
+        assert _decode_url_path(requested) == "payload" + ("a" * 10)
+
 
 class TestResolvePath:
     """Tests for resolve_path helper."""

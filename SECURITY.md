@@ -34,7 +34,7 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 - Password verification on every login attempt, including when already locked out (mitigates username timing enumeration); `/health` probes with `record_lockout=false` skip lockout accounting and expensive hash work during lockout
 - Account lockout after repeated failed attempts (per IP + username, and per username across all IPs when `VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED=true`); lockout also terminates active sessions
 - Active lockout entries are never evicted from the lockout tracker when at capacity; trackers with in-progress failed-attempt counters are also preserved (only zero-failure inactive trackers are evicted)
-- New attackers receive an emergency lockout when all slots hold active lockouts or in-progress attempt counters
+- When all tracker slots hold active lockouts or in-progress attempt counters, new failed attempts are not recorded and new attackers are not locked out; a `lockout_tracker_capacity_exceeded` security event is logged instead
 - Session invalidation on client IP change when `VIDEO_SERVER_SESSION_BIND_IP=true` (default); sessions without a bound login IP are rejected
 - Session invalidation when username or password hash changes (`credential_epoch` fingerprint)
 - Expired sessions fall through to valid HTTP Basic credentials on the same request
@@ -60,7 +60,7 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 - HTML UI output uses Jinja2 autoescape for filenames and paths rendered in templates
 - Directory listings capped at `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES` (default 10000) using lazy iteration to prevent memory exhaustion
 - `VIDEO_SERVER_MAX_FILE_SIZE` enforced on streaming responses (HTTP 413 when exceeded; `0` disables; upper bound 20 GiB at startup validation)
-- Lockout tracker bounded at 10000 IP:username entries (only inactive trackers with zero failed attempts evicted when full; fail-closed emergency lockout when saturated)
+- Lockout tracker bounded at 10000 IP:username entries (only inactive trackers with zero failed attempts evicted when full; when saturated, new attackers are not locked out but the event is logged as `lockout_tracker_capacity_exceeded`)
 
 ### Audit Logging
 
