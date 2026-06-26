@@ -58,12 +58,21 @@ class TestAccountLockoutManager:
         manager = AccountLockoutManager(max_attempts=3, lockout_duration=300)
 
         # Record 2 failed attempts - should not lock out yet
-        assert manager.record_failed_attempt("192.168.1.1", "testuser") is False
-        assert manager.record_failed_attempt("192.168.1.1", "testuser") is False
+        assert manager.record_failed_attempt("192.168.1.1", "testuser") == (
+            False,
+            False,
+        )
+        assert manager.record_failed_attempt("192.168.1.1", "testuser") == (
+            False,
+            False,
+        )
         assert manager.is_locked_out("192.168.1.1", "testuser") is False
 
         # Third attempt should trigger lockout
-        assert manager.record_failed_attempt("192.168.1.1", "testuser") is True
+        assert manager.record_failed_attempt("192.168.1.1", "testuser") == (
+            True,
+            False,
+        )
         assert manager.is_locked_out("192.168.1.1", "testuser") is True
 
     def test_get_remaining_lockout_seconds(self) -> None:
@@ -138,15 +147,21 @@ class TestAccountLockoutManager:
         assert removed == 1
         assert "192.168.1.1:testuser" not in manager._trackers
 
-    def test_lockout_expiry(self) -> None:
+    def test_lockout_expiry(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that lockout expires after duration"""
         manager = AccountLockoutManager(max_attempts=1, lockout_duration=0)
+        current = [1000.0]
+
+        def fake_time() -> float:
+            return current[0]
+
+        monkeypatch.setattr("mediarelay.lockout.time.time", fake_time)
 
         # Trigger lockout
         manager.record_failed_attempt("192.168.1.1", "testuser")
 
         # With lockout_duration=0, should immediately expire
-        time.sleep(0.01)
+        current[0] += 0.01
         assert manager.is_locked_out("192.168.1.1", "testuser") is False
 
     def test_get_remaining_lockout_seconds_zero_when_not_locked(self) -> None:
@@ -170,7 +185,10 @@ class TestAccountLockoutManager:
 
         current[0] += 1.1
         assert manager.is_locked_out("192.168.1.1", "testuser") is False
-        assert manager.record_failed_attempt("192.168.1.1", "testuser") is False
+        assert manager.record_failed_attempt("192.168.1.1", "testuser") == (
+            False,
+            False,
+        )
         assert manager.get_failed_attempts("192.168.1.1", "testuser") == 1
 
     def test_expired_lockout_resets_inside_record_failed_attempt(
@@ -186,10 +204,10 @@ class TestAccountLockoutManager:
         monkeypatch.setattr("mediarelay.lockout.time.time", fake_time)
 
         manager.record_failed_attempt("10.0.0.1", "user")
-        assert manager.record_failed_attempt("10.0.0.1", "user") is True
+        assert manager.record_failed_attempt("10.0.0.1", "user") == (True, False)
 
         current[0] += 1.1
-        assert manager.record_failed_attempt("10.0.0.1", "user") is False
+        assert manager.record_failed_attempt("10.0.0.1", "user") == (False, False)
         assert manager.get_failed_attempts("10.0.0.1", "user") == 1
 
     def test_concurrent_failed_attempts_thread_safe(self) -> None:
@@ -237,7 +255,7 @@ class TestAccountLockoutManager:
         manager = AccountLockoutManager(max_attempts=2, lockout_duration=300)
 
         manager.record_failed_attempt("1.1.1.1", "locked_user")
-        assert manager.record_failed_attempt("1.1.1.1", "locked_user") is True
+        assert manager.record_failed_attempt("1.1.1.1", "locked_user") == (True, False)
         assert manager.is_locked_out("1.1.1.1", "locked_user")
 
         manager.record_failed_attempt("2.2.2.2", "other")
@@ -256,13 +274,12 @@ class TestAccountLockoutManager:
         manager = AccountLockoutManager(max_attempts=2, lockout_duration=300)
 
         manager.record_failed_attempt("1.1.1.1", "user_a")
-        assert manager.record_failed_attempt("1.1.1.1", "user_a") is True
+        assert manager.record_failed_attempt("1.1.1.1", "user_a") == (True, False)
         manager.record_failed_attempt("2.2.2.2", "user_b")
-        assert manager.record_failed_attempt("2.2.2.2", "user_b") is True
+        assert manager.record_failed_attempt("2.2.2.2", "user_b") == (True, False)
 
-        assert manager.record_failed_attempt("3.3.3.3", "attacker") is True
+        assert manager.record_failed_attempt("3.3.3.3", "attacker") == (True, True)
         assert manager.is_locked_out("3.3.3.3", "attacker")
-        assert manager.tracker_exhausted_on_last_attempt() is True
 
 
 class TestLockoutTrackerExhaustedAuth:
@@ -730,7 +747,7 @@ class TestHealthEndpointSecurity:
     """Test cases for secured health endpoint"""
 
     def test_health_unauthenticated_minimal_info(self, flask_client):
-        """Test that unauthenticated requests get liveness-only health info"""
+        """Test that unauthenticated requests get minimal readiness info"""
         response = flask_client.get("/health")
         data = json.loads(response.data)
 
@@ -757,23 +774,48 @@ class TestHealthEndpointSecurity:
         assert "rate_limiting_enabled" in data
 
     def test_health_uptime_is_positive_and_increases(
-        self, authenticated_client, temp_video_dir  # pylint: disable=unused-argument
+        self,
+        authenticated_client,
+        media_relay_server,
+        temp_video_dir,  # pylint: disable=unused-argument
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Authenticated health responses report monotonic server uptime."""
+        current = [1000.0]
+
+        def fake_time() -> float:
+            return current[0]
+
+        monkeypatch.setattr("mediarelay.routes.time.time", fake_time)
+        media_relay_server._start_time = 995.0
+
         first = json.loads(authenticated_client.get("/health").data)
         assert first["uptime_seconds"] >= 0
 
-        time.sleep(0.05)
+        current[0] += 5.0
         second = json.loads(authenticated_client.get("/health").data)
         assert second["uptime_seconds"] >= first["uptime_seconds"]
 
     def test_health_returns_correct_status_code(self, flask_client):
-        """Test health endpoint returns liveness 200 when unauthenticated."""
+        """Test health endpoint returns 200 ok when healthy and unauthenticated."""
         response = flask_client.get("/health")
 
         assert response.status_code == 200
         data = json.loads(response.data)
         assert data["status"] == "ok"
+
+    def test_health_unauthenticated_degraded_when_unhealthy(
+        self, media_relay_server
+    ) -> None:
+        """Unauthenticated health returns degraded when video directory is inaccessible."""
+        with media_relay_server.app.test_client() as client:
+            with patch.object(Path, "exists", return_value=False):
+                response = client.get("/health")
+
+        assert response.status_code == 503
+        data = json.loads(response.data)
+        assert data["status"] == "degraded"
+        assert "version" not in data
 
     def test_health_basic_auth_does_not_create_session(
         self, flask_client, server_config
@@ -1192,8 +1234,7 @@ class TestDenialOfServiceProtection:
         deep_path = "/".join(["dir"] * 100) + "/file.mp4"
         response = authenticated_client.get(f"/stream/{deep_path}")
 
-        # Should handle gracefully
-        assert response.status_code in [400, 404]
+        assert response.status_code == 404
 
     @pytest.mark.timeout(15)
     def test_concurrent_auth_requests(self, media_relay_server, server_config):
@@ -1454,6 +1495,66 @@ class TestSecurityPerformance:
 
         # Should log events quickly
         assert end_time - start_time < 5.0
+
+
+class TestDirectoryListingSymlinkMetadata:
+    """Directory listings must not leak target metadata through symlinks."""
+
+    def test_symlink_listing_uses_lstat_not_target_stat(self, tmp_path: Path) -> None:
+        """Symlink size in listings comes from lstat, not the link target."""
+        from mediarelay.handlers import _collect_directory_items
+
+        video_root = tmp_path / "jail"
+        video_root.mkdir()
+        outside = tmp_path / "outside.mp4"
+        outside.write_bytes(b"x" * 50_000)
+
+        link = video_root / "link.mp4"
+        try:
+            link.symlink_to(outside)
+        except OSError:
+            pytest.skip("Symlink creation not supported in this environment")
+
+        result = _collect_directory_items(video_root, video_root, {".mp4"}, 100)
+        assert len(result.items) == 1
+        assert result.items[0]["size"] < 50_000
+
+    def test_symlink_listing_prefers_lstat_when_paths_differ(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Listing code calls lstat for symlinks so stat() cannot leak target size."""
+        from mediarelay.handlers import _collect_directory_items
+
+        video_root = tmp_path / "jail"
+        video_root.mkdir()
+        entry_file = video_root / "linked.mp4"
+        entry_file.write_bytes(b"x")
+
+        large_stat = os.stat_result((0, 0, 0, 0, 0, 0, 99_999, 0, 0, 0))
+        small_lstat = os.stat_result((0, 0, 0, 0, 0, 0, 42, 0, 0, 0))
+
+        original_is_symlink = Path.is_symlink
+
+        def is_symlink_for_linked(self: Path) -> bool:
+            return self == entry_file or original_is_symlink(self)
+
+        def lstat_for_linked(self: Path) -> os.stat_result:
+            if self == entry_file:
+                return small_lstat
+            return os.lstat(self)
+
+        def stat_for_linked(self: Path) -> os.stat_result:
+            if self == entry_file:
+                return large_stat
+            return os.stat(self)
+
+        monkeypatch.setattr(Path, "is_symlink", is_symlink_for_linked)
+        monkeypatch.setattr(Path, "lstat", lstat_for_linked)
+        monkeypatch.setattr(Path, "stat", stat_for_linked)
+
+        result = _collect_directory_items(video_root, video_root, {".mp4"}, 100)
+        assert len(result.items) == 1
+        assert result.items[0]["size"] == 42
 
 
 class TestSymlinkPathContainment:

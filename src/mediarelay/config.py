@@ -328,6 +328,9 @@ class ServerConfig:
     debug: bool = field(
         default_factory=lambda: _parse_bool_env("VIDEO_SERVER_DEBUG", "false")
     )
+    production: bool = field(
+        default_factory=lambda: _parse_bool_env("VIDEO_SERVER_PRODUCTION", "false")
+    )
     threads: int = field(
         default_factory=lambda: _parse_int_env(
             "VIDEO_SERVER_THREADS", "6", min_val=1, max_val=MAX_THREADS
@@ -542,7 +545,7 @@ class ServerConfig:
 
     def is_production(self) -> bool:
         """Check if running in production environment"""
-        return _parse_bool_env("VIDEO_SERVER_PRODUCTION", "false")
+        return self.production
 
     @property
     def credential_epoch(self) -> str:

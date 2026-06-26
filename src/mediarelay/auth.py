@@ -83,8 +83,10 @@ def check_auth(
     if valid:
         server.lockout_manager.record_successful_login(ip_address, username)
     else:
-        now_locked = server.lockout_manager.record_failed_attempt(ip_address, username)
-        if server.lockout_manager.tracker_exhausted_on_last_attempt():
+        now_locked, tracker_exhausted = server.lockout_manager.record_failed_attempt(
+            ip_address, username
+        )
+        if tracker_exhausted:
             if server.security_logger:
                 server.security_logger.log_security_violation(
                     "lockout_tracker_exhausted",

@@ -157,7 +157,7 @@ When `VIDEO_SERVER_PRODUCTION=true`, the same deployment checks also run automat
 
 The validator checks password hash format, secret key presence, video/log directory permissions, rate limiting, and port range. Fix any reported errors before deployment.
 
-Unauthenticated `GET /health` returns liveness only (`{"status":"ok"}`). Use authenticated `/health` for readiness (disk access, version, uptime).
+Unauthenticated `GET /health` returns minimal readiness (`{"status":"ok"}` when healthy, `{"status":"degraded"}` with HTTP 503 when the video directory is inaccessible). Use authenticated `/health` for full readiness (disk access, version, uptime).
 
 ### 3. Directory Structure
 
@@ -356,15 +356,21 @@ The server provides a health check endpoint:
 curl http://localhost:5000/health
 ```
 
-Unauthenticated response (liveness only, always HTTP 200):
+Unauthenticated response when healthy (HTTP 200):
 
 ```json
 {"status": "ok"}
 ```
 
+When the video directory is inaccessible, unauthenticated `/health` returns HTTP 503:
+
+```json
+{"status": "degraded"}
+```
+
 Authenticated response includes readiness (`healthy`/`unhealthy`), version, uptime, and configuration details. See [API Documentation](api_documentation.md#1-health-check).
 
-`/health` is subject to the same per-IP rate limit as other endpoints when rate limiting is enabled. Use a dedicated monitoring source or adjust `VIDEO_SERVER_RATE_LIMIT_PER_MIN` if probes share an IP with heavy traffic.
+`/health` is exempt from rate limiting so monitoring probes are not throttled.
 
 ### 4. Performance Tuning
 

@@ -322,7 +322,9 @@ def _collect_directory_items(
 
             try:
                 relative_path = entry_path.relative_to(video_root)
-                item_stat = entry_path.stat()
+                item_stat = (
+                    entry_path.lstat() if entry_path.is_symlink() else entry_path.stat()
+                )
             except (OSError, PermissionError, ValueError) as error:
                 if log_warning is not None:
                     log_warning(f"Skipping unreadable entry {entry_path}: {error}")

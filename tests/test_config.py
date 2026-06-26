@@ -743,7 +743,7 @@ class TestMaxFileSizeConfiguration:
         assert config.is_production() is True
 
         with patch.dict(os.environ, {"VIDEO_SERVER_PRODUCTION": "false"}):
-            assert config.is_production() is False
+            assert config.is_production() is True
 
     def test_to_dict_excludes_sensitive_data(self):
         """Test that to_dict excludes sensitive information"""
@@ -764,32 +764,41 @@ class TestMaxFileSizeConfiguration:
 class TestServerConfigMethodsComprehensive:
     """Test ServerConfig methods comprehensively"""
 
-    def test_is_production_environment_variations(self, tmp_path):
-        """Test is_production with various environment values"""
+    def test_is_production_environment_variations(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test production flag is snapshotted when ServerConfig is created."""
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
 
-        config = ServerConfig(
-            video_directory=str(video_dir), password_hash=TEST_PASSWORD_HASH
+        dev_config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash=TEST_PASSWORD_HASH,
+            production=False,
         )
+        assert dev_config.is_production() is False
 
-        # Test production environment
-        with patch.dict(os.environ, {"VIDEO_SERVER_PRODUCTION": "true"}):
-            assert config.is_production() is True
+        _setup_production_env(monkeypatch, video_dir, log_dir)
+        prod_config = ServerConfig(
+            password_hash=TEST_PASSWORD_HASH,
+            video_directory=str(video_dir),
+            log_directory=str(log_dir),
+        )
+        assert prod_config.is_production() is True
 
-        # Test development environment
         with patch.dict(os.environ, {"VIDEO_SERVER_PRODUCTION": "false"}):
-            assert config.is_production() is False
+            assert prod_config.is_production() is True
+            assert dev_config.is_production() is False
 
-        # Test other values (should be False)
         with patch.dict(os.environ, {"VIDEO_SERVER_PRODUCTION": "testing"}):
-            assert config.is_production() is False
-
-        # Test missing environment variable (should be False)
-        with patch.dict(os.environ, {}, clear=True):
-            if "VIDEO_SERVER_PRODUCTION" in os.environ:
-                del os.environ["VIDEO_SERVER_PRODUCTION"]
-            assert config.is_production() is False
+            invalid_config = ServerConfig(
+                video_directory=str(video_dir),
+                password_hash=TEST_PASSWORD_HASH,
+                production=False,
+            )
+            assert invalid_config.is_production() is False
 
     def test_to_dict_comprehensive_exclusions(self, tmp_path):
         """Test to_dict method excludes all sensitive data"""

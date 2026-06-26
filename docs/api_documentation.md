@@ -48,7 +48,7 @@ Check server health and status.
 
 **Endpoint**: `GET /health`
 **Authentication**: Optional — unauthenticated callers receive minimal information
-**Rate Limit**: Subject to global per-IP rate limit when enabled (default: 60/minute)
+**Rate Limit**: Exempt from global rate limiting (monitoring probes are not throttled)
 
 #### Request
 ```http
@@ -58,11 +58,19 @@ Host: localhost:5000
 
 #### Response (unauthenticated)
 
-Returns liveness only (always HTTP 200, regardless of video directory health):
+Returns minimal readiness without leaking configuration details:
 
 ```json
 {
     "status": "ok"
+}
+```
+
+When the video directory is inaccessible, the response is HTTP `503` with:
+
+```json
+{
+    "status": "degraded"
 }
 ```
 
@@ -77,13 +85,13 @@ When authenticated (HTTP Basic Auth or session cookie), returns full readiness d
     "version": "1.0.14",
     "uptime_seconds": 3600,
     "video_directory_accessible": true,
-    "config_valid": true,
     "rate_limiting_enabled": true
 }
 ```
 
 #### Status Codes
-- Unauthenticated: always `200 OK` with `{"status":"ok"}` (liveness probe)
+- Unauthenticated `200 OK`: Process is up and video directory is accessible (`{"status":"ok"}`)
+- Unauthenticated `503 Service Unavailable`: Process is up but video directory is inaccessible (`{"status":"degraded"}`)
 - Authenticated `200 OK`: Server is healthy (video directory accessible)
 - Authenticated `503 Service Unavailable`: Video directory is inaccessible
 
@@ -95,7 +103,6 @@ When authenticated (HTTP Basic Auth or session cookie), returns full readiness d
 | version | string | Installed package version |
 | uptime_seconds | number | Server uptime in seconds |
 | video_directory_accessible | boolean | Whether video directory is accessible |
-| config_valid | boolean | Whether runtime-critical configuration paths are accessible |
 | rate_limiting_enabled | boolean | Whether rate limiting is active |
 
 ### 2. Logout
@@ -323,7 +330,8 @@ Common plain-text responses:
 The API implements rate limiting to prevent abuse.
 
 ### Default Limits
-- **Browsing, API, health, and auth routes**: 60 requests per minute per IP (configurable via `VIDEO_SERVER_RATE_LIMIT_PER_MIN`)
+- **Browsing, API, and auth routes**: 60 requests per minute per IP (configurable via `VIDEO_SERVER_RATE_LIMIT_PER_MIN`)
+- **`/health`**: Exempt from rate limiting (monitoring probes are not throttled)
 - **Streaming (`/stream/`)**: 600 requests per minute per IP by default (`VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE`), high enough for range seeking during playback
 
 ### Rate Limit Headers
@@ -461,7 +469,7 @@ Accept-Ranges: bytes
 
 #### Check Server Health
 
-Unauthenticated callers receive liveness only (`{"status": "ok"}`), always HTTP 200. Full readiness details require HTTP Basic Auth or a valid session cookie.
+Unauthenticated callers receive minimal readiness (`{"status": "ok"}` when healthy, `{"status": "degraded"}` with HTTP 503 when the video directory is inaccessible). Full readiness details require HTTP Basic Auth or a valid session cookie.
 
 ```bash
 curl http://localhost:5000/health
@@ -475,8 +483,7 @@ curl -u username:password http://localhost:5000/health
     "timestamp": "2023-12-01T12:00:00.000Z",
     "version": "1.0.14",
     "uptime_seconds": 7200,
-    "video_directory_accessible": true,
-    "config_valid": true
+    "video_directory_accessible": true
 }
 ```
 

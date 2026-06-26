@@ -96,8 +96,7 @@ def register_routes(server: MediaRelayServer) -> None:
 
         return response
 
-    @server.app.route("/health")
-    def health_check() -> Response | tuple[Response, int]:
+    def _health_handler() -> Response | tuple[Response, int]:
         """Health check endpoint for monitoring."""
         is_authenticated = check_authentication(server, establish_session=False)
 
@@ -110,7 +109,9 @@ def register_routes(server: MediaRelayServer) -> None:
         status_code = 200 if is_healthy else 503
 
         if not is_authenticated:
-            return jsonify({"status": "ok"}), 200  # type: ignore[misc]
+            liveness_status = "ok" if is_healthy else "degraded"
+            liveness_code = 200 if is_healthy else 503
+            return jsonify({"status": liveness_status}), liveness_code  # type: ignore[misc]
 
         health_data = {  # type: ignore[misc]
             "status": status,
@@ -118,11 +119,15 @@ def register_routes(server: MediaRelayServer) -> None:
             "version": __version__,
             "uptime_seconds": round(time.time() - server._start_time, 2),
             "video_directory_accessible": is_healthy,
-            "config_valid": is_healthy,
             "rate_limiting_enabled": server.config.rate_limit_enabled,
         }
 
         return jsonify(health_data), status_code  # type: ignore[misc]
+
+    if server.limiter is not None:
+        _health_handler = server.limiter.exempt(_health_handler)
+
+    server.app.route("/health")(_health_handler)
 
     @server.app.route("/logout", methods=["POST"])
     def logout() -> Response | tuple[Response, int]:

@@ -528,11 +528,10 @@ class TestAPIEndpoints:
         """Test health check endpoint with authentication (detailed info)"""
         response = authenticated_client.get("/health")
 
-        assert response.status_code in [200, 503]
+        assert response.status_code == 200
         data = json.loads(response.data)
 
-        # Authenticated requests should get full details
-        assert data["status"] in ["healthy", "unhealthy"]
+        assert data["status"] == "healthy"
         assert "timestamp" in data
         assert "version" in data
         assert data["version"] != "2.0.0"
@@ -595,14 +594,14 @@ class TestHealthCheckComprehensive:
                     assert "timestamp" not in data
 
     def test_health_check_unhealthy_unauthenticated(self, media_relay_server):
-        """Unauthenticated health always returns liveness ok regardless of disk."""
+        """Unauthenticated health returns degraded when video directory is inaccessible."""
         with media_relay_server.app.test_client() as client:
             with patch.object(Path, "exists", return_value=False):
                 response = client.get("/health")
-                assert response.status_code == 200
+                assert response.status_code == 503
 
                 data = json.loads(response.data)
-                assert data["status"] == "ok"
+                assert data["status"] == "degraded"
 
     def test_health_check_unhealthy_authenticated(
         self, media_relay_server, server_config
@@ -1030,6 +1029,36 @@ class TestMainFunctionComprehensive:
         assert result.exit_code == 1
         assert "Server Error: Server error" in result.output
 
+    @pytest.mark.parametrize(
+        ("exception_type", "message"),
+        [
+            (OSError, "Disk full"),
+            (ImportError, "Missing module"),
+            (PermissionError, "Permission denied"),
+        ],
+    )
+    @patch("mediarelay.server.load_config")
+    @patch("mediarelay.server.MediaRelayServer")
+    def test_main_function_server_errors(
+        self,
+        mock_server_class,
+        mock_load_config,
+        exception_type: type[BaseException],
+        message: str,
+    ) -> None:
+        """Test main function exits with code 1 on server startup failures."""
+        mock_config = Mock()
+        mock_load_config.return_value = mock_config
+        mock_server = Mock()
+        mock_server.run.side_effect = exception_type(message)
+        mock_server_class.return_value = mock_server
+
+        runner = CliRunner()
+        result = runner.invoke(main, [])
+
+        assert result.exit_code == 1
+        assert f"Server Error: {message}" in result.output
+
 
 class TestServerRunMethod:
     """Test the server run method comprehensively"""
@@ -1223,6 +1252,7 @@ class TestErrorHandlers:
         config = ServerConfig(
             video_directory=str(video_dir),
             password_hash=TEST_PASSWORD_HASH,
+            username="testuser",
             rate_limit_enabled=True,
             rate_limit_per_minute=1,
         )
@@ -1230,12 +1260,16 @@ class TestErrorHandlers:
         server.security_logger = MagicMock()
         server.app.config["TESTING"] = True
 
+        credentials = base64.b64encode(b"testuser:testpass").decode("utf-8")
+        auth_header = {"Authorization": f"Basic {credentials}"}
+
         with server.app.test_client() as client:
-            assert client.get("/health").status_code == 200
-            response = client.get("/health")
+            assert client.get("/", headers=auth_header).status_code == 200
+            response = client.get("/")
             assert response.status_code == 429
             assert b"Rate Limit Exceeded" in response.data
             assert response.headers.get("Retry-After") == "60"
+            assert client.get("/health").status_code == 200
 
     def test_stream_route_has_separate_rate_limit(self, tmp_path: Path) -> None:
         """Stream endpoint uses a higher dedicated rate limit for range requests."""
@@ -1266,9 +1300,12 @@ class TestErrorHandlers:
                 client.get("/stream/test.mp4", headers=auth_header).status_code == 429
             )
 
-            assert client.get("/health").status_code == 200
-            assert client.get("/health").status_code == 200
-            assert client.get("/health").status_code == 429
+            for _ in range(5):
+                assert client.get("/health").status_code == 200
+
+            assert client.get("/", headers=auth_header).status_code == 200
+            assert client.get("/", headers=auth_header).status_code == 200
+            assert client.get("/", headers=auth_header).status_code == 429
 
     def test_bad_request_error_handler(self, media_relay_server):
         """Test 400 error handler"""
@@ -1434,11 +1471,9 @@ class TestServerWarnings:
         mock_warning.assert_called_once()
         assert "VIDEO_SERVER_PRODUCTION is not enabled" in mock_warning.call_args[0][0]
 
-    def test_warn_non_production_silent_in_production(
-        self, media_relay_server, monkeypatch
-    ):
-        """No warning when VIDEO_SERVER_PRODUCTION is enabled."""
-        monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "true")
+    def test_warn_non_production_silent_in_production(self, media_relay_server):
+        """No warning when production mode is enabled on the config snapshot."""
+        media_relay_server.config.production = True
         with patch.object(media_relay_server.app.logger, "warning") as mock_warning:
             media_relay_server._warn_non_production()
         mock_warning.assert_not_called()
@@ -1716,10 +1751,11 @@ class TestProductionAuditFixes:
 
         media_relay_server.security_logger.log_logout.assert_called_once()
 
-    def test_health_config_valid_reflects_runtime(self, authenticated_client):
+    def test_health_video_directory_accessible_reflects_runtime(
+        self, authenticated_client
+    ):
         response = authenticated_client.get("/health")
         data = json.loads(response.data)
-        assert data["config_valid"] is True
         assert data["video_directory_accessible"] is True
 
     def test_check_authentication_lockout_logs_violation(
@@ -1875,13 +1911,17 @@ class TestProductionAuditFixes:
         config = ServerConfig(
             video_directory=str(video_dir),
             password_hash=TEST_PASSWORD_HASH,
+            username="testuser",
             rate_limit_enabled=True,
             rate_limit_per_minute=1,
         )
         server = MediaRelayServer(config)
+        credentials = base64.b64encode(b"testuser:testpass").decode("utf-8")
+        auth_header = {"Authorization": f"Basic {credentials}"}
         with server.app.test_client() as client:
             assert client.get("/health").status_code == 200
-            response = client.get("/health")
+            assert client.get("/", headers=auth_header).status_code == 200
+            response = client.get("/")
         assert response.status_code == 429
         assert response.headers.get("Retry-After") == "60"
         server._shutdown_cleanup()
