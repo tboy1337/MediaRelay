@@ -903,13 +903,23 @@ class TestInjectionAttackProtection:
             pytest.skip(f"Filesystem cannot create filename: {malicious_filename!r}")
 
         response = authenticated_client.get(f"/{quote(malicious_filename)}")
-
         assert response.status_code == 200
-        response_text = response.data.decode("utf-8", errors="ignore")
+        response_text = response.get_data(as_text=True)
         assert "<script>" not in response_text.lower()
         assert "onerror=alert" not in response_text.lower()
         if "<" in malicious_filename:
-            assert "&lt;" in response_text or malicious_filename not in response_text
+            assert malicious_filename not in response_text
+            assert "&lt;" in response_text
+
+    def test_xss_payloads_blocked_in_api_path_query(
+        self, authenticated_client, security_test_payloads
+    ):
+        """XSS payloads in API path queries must not be reflected unescaped."""
+        for payload in security_test_payloads["xss_payloads"]:
+            response = authenticated_client.get(f"/api/files?path={quote(payload)}")
+            assert response.status_code in [400, 403, 404]
+            if response.status_code == 200:
+                assert payload not in response.get_data(as_text=True)
 
     def test_command_injection_protection(self, authenticated_client):
         """Test protection against command injection in file paths"""
@@ -1279,6 +1289,27 @@ class TestSymlinkPathContainment:
 
         with test_server.app.test_request_context():
             safe_path = test_server.get_safe_path("escape_link")
+            assert safe_path is None
+
+
+class TestHardlinkPathContainment:
+    """Test hard-link path jail enforcement"""
+
+    def test_hardlink_outside_video_dir_blocked(self, test_server, tmp_path):
+        """Hard links pointing at files outside the video directory are rejected"""
+        outside_dir = tmp_path / "outside"
+        outside_dir.mkdir()
+        secret_file = outside_dir / "secret.mp4"
+        secret_file.write_text("secret", encoding="utf-8")
+
+        link_path = Path(test_server.config.video_directory) / "escape_link.mp4"
+        try:
+            os.link(secret_file, link_path)
+        except (OSError, NotImplementedError):
+            pytest.skip("Platform does not support creating hard links")
+
+        with test_server.app.test_request_context():
+            safe_path = test_server.get_safe_path("escape_link.mp4")
             assert safe_path is None
 
 

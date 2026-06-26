@@ -117,6 +117,169 @@ class _DirectoryListingResult:
     exceeds_cap: bool
 
 
+@dataclass(frozen=True)
+class _ListingContext:
+    safe_path: Path
+    listing: _DirectoryListingResult
+    pagination: _PaginationResult
+    directory_path: str
+    parent_path: str
+    is_root: bool
+
+
+def _directory_navigation_paths(
+    safe_path: Path, video_root: Path
+) -> tuple[str, str, bool]:
+    """Return directory_path, parent_path, and is_root for a safe listing path."""
+    is_root = safe_path == video_root
+    parent_path = "/"
+    directory_path = ""
+    if not is_root:
+        try:
+            directory_path = str(safe_path.relative_to(video_root)).replace("\\", "/")
+            parent_path = "/" + str(safe_path.parent.relative_to(video_root)).replace(
+                "\\", "/"
+            )
+        except ValueError:
+            parent_path = "/"
+    return directory_path, parent_path, is_root
+
+
+def _directory_cap_error_message(max_entries: int) -> str:
+    return f"Directory contains too many entries (maximum {max_entries})"
+
+
+def _load_directory_listing(
+    server: MediaRelayServer,
+    safe_path: Path,
+) -> _DirectoryListingResult | tuple[str, int]:
+    """Collect directory entries or return an HTTP error tuple."""
+    video_root = Path(server.config.video_directory)
+    client_ip = server.get_client_ip()
+    try:
+        listing = _collect_directory_items(
+            safe_path,
+            video_root,
+            server.config.allowed_extensions,
+            server.config.max_directory_entries,
+            log_warning=server.app.logger.warning,
+        )
+        if listing.exceeds_cap:
+            if server.security_logger:
+                server.security_logger.log_security_violation(
+                    "directory_listing_truncated",
+                    (
+                        f"Directory {safe_path} exceeds maximum listing size "
+                        f"({server.config.max_directory_entries})"
+                    ),
+                    client_ip,
+                )
+            return (
+                _directory_cap_error_message(server.config.max_directory_entries),
+                413,
+            )
+        return listing
+    except PermissionError:
+        if server.security_logger:
+            server.security_logger.log_security_violation(
+                "access_denied",
+                f"Permission denied reading directory: {safe_path}",
+                client_ip,
+            )
+        return "Access denied to directory", 403
+    except OSError as error:
+        server.app.logger.error(f"Error reading directory {safe_path}: {str(error)}")
+        return "Error reading directory", 500
+
+
+def _resolve_directory_listing(
+    server: MediaRelayServer,
+    safe_path: Path,
+    page: int,
+    *,
+    item_builder: Callable[[_DirectoryEntry], dict[str, object]],
+    sort_key: Callable[[dict[str, object]], tuple[object, ...]],
+) -> _ListingContext | tuple[str, int]:
+    """Load, sort, and paginate a directory listing."""
+    listing_result = _load_directory_listing(server, safe_path)
+    if isinstance(listing_result, tuple):
+        return listing_result
+
+    items = [item_builder(entry) for entry in listing_result.items]
+    sorted_items = sorted(items, key=sort_key)  # type: ignore[misc]
+    pagination = _paginate_listing(sorted_items, page, server.config.page_size)
+    video_root = Path(server.config.video_directory)
+    directory_path, parent_path, is_root = _directory_navigation_paths(
+        safe_path, video_root
+    )
+    return _ListingContext(
+        safe_path=safe_path,
+        listing=listing_result,
+        pagination=pagination,
+        directory_path=directory_path,
+        parent_path=parent_path,
+        is_root=is_root,
+    )
+
+
+def _index_listing_item(entry: _DirectoryEntry) -> dict[str, object]:
+    return {
+        "name": entry["name"],
+        "path": "/" + entry["relative_path"],
+        "is_dir": entry["is_dir"],
+        "size": entry["size"],
+        "modified": entry["modified"],
+        "is_audio": not entry["is_dir"] and is_audio_file(entry["name"]),
+    }
+
+
+def _api_listing_item(entry: _DirectoryEntry) -> dict[str, object]:
+    return {
+        "name": entry["name"],
+        "path": entry["relative_path"],
+        "is_directory": entry["is_dir"],
+        "size": entry["size"],
+        "modified": entry["modified"],
+    }
+
+
+def _render_media_player(
+    server: MediaRelayServer,
+    safe_path: Path,
+    video_root: Path,
+    client_ip: str,
+) -> str:
+    """Render the media player page for a single file."""
+    relative_path = safe_path.relative_to(video_root)
+    parent_path = (
+        "/" + str(relative_path.parent) if str(relative_path.parent) != "." else "/"
+    )
+
+    if server.security_logger:
+        server.security_logger.log_file_access(
+            str(relative_path),
+            client_ip,
+            True,
+            _session_username(),
+        )
+
+    subtitle_path: str | None = None
+    srt_file = safe_path.with_suffix(".srt")
+    if srt_file.is_file():
+        subtitle_path = str(srt_file.relative_to(video_root)).replace("\\", "/")
+
+    media_kind = "audio" if is_audio_file(safe_path.name) else "video"
+
+    return render_index_template(
+        video_file=safe_path.name,
+        video_path=str(relative_path).replace("\\", "/"),
+        video_mime_type=guess_media_mime_type(safe_path.name),
+        media_kind=media_kind,
+        parent_path=parent_path,
+        subtitle_path=subtitle_path,
+    )
+
+
 def _collect_directory_items(
     directory: Path,
     video_root: Path,
@@ -202,103 +365,24 @@ def handle_index_request(
 
     if safe_path.is_file():
         if safe_path.suffix.lower() in server.config.allowed_extensions:
-            relative_path = safe_path.relative_to(video_root)
-            parent_path = (
-                "/" + str(relative_path.parent)
-                if str(relative_path.parent) != "."
-                else "/"
-            )
-
-            if server.security_logger:
-                server.security_logger.log_file_access(
-                    str(relative_path),
-                    client_ip,
-                    True,
-                    _session_username(),
-                )
-
-            subtitle_path: str | None = None
-            srt_file = safe_path.with_suffix(".srt")
-            if srt_file.is_file():
-                subtitle_path = str(srt_file.relative_to(video_root)).replace("\\", "/")
-
-            media_kind = "audio" if is_audio_file(safe_path.name) else "video"
-
-            return render_index_template(
-                video_file=safe_path.name,
-                video_path=str(relative_path).replace("\\", "/"),
-                video_mime_type=guess_media_mime_type(safe_path.name),
-                media_kind=media_kind,
-                parent_path=parent_path,
-                subtitle_path=subtitle_path,
-            )
+            return _render_media_player(server, safe_path, video_root, client_ip)
         return "Not a video file", 400
 
-    try:
-        listing = _collect_directory_items(
-            safe_path,
-            video_root,
-            server.config.allowed_extensions,
-            server.config.max_directory_entries,
-            log_warning=server.app.logger.warning,
-        )
-        if listing.exceeds_cap:
-            if server.security_logger:
-                server.security_logger.log_security_violation(
-                    "directory_listing_truncated",
-                    (
-                        f"Directory {safe_path} exceeds maximum listing size "
-                        f"({server.config.max_directory_entries})"
-                    ),
-                    client_ip,
-                )
-            return (
-                f"Directory contains too many entries "
-                f"(maximum {server.config.max_directory_entries})",
-                413,
-            )
-        items = [
-            {
-                "name": entry["name"],
-                "path": "/" + entry["relative_path"],
-                "is_dir": entry["is_dir"],
-                "size": entry["size"],
-                "modified": entry["modified"],
-                "is_audio": not entry["is_dir"] and is_audio_file(entry["name"]),
-            }
-            for entry in listing.items
-        ]
-    except PermissionError:
-        if server.security_logger:
-            server.security_logger.log_security_violation(
-                "access_denied",
-                f"Permission denied reading directory: {safe_path}",
-                client_ip,
-            )
-        return "Access denied to directory", 403
-    except OSError as error:
-        server.app.logger.error(f"Error reading directory {safe_path}: {str(error)}")
-        return "Error reading directory", 500
+    listing_context = _resolve_directory_listing(
+        server,
+        safe_path,
+        page,
+        item_builder=_index_listing_item,
+        sort_key=lambda item: (not item["is_dir"], str(item["name"]).lower()),  # type: ignore[misc]
+    )
+    if isinstance(listing_context, tuple):
+        return listing_context
 
-    sorted_items = sorted(items, key=lambda x: (not x["is_dir"], str(x["name"]).lower()))  # type: ignore[misc]
-    pagination = _paginate_listing(sorted_items, page, server.config.page_size)
-
-    is_root = safe_path == video_root
-    parent_path = "/"
-    directory_path = ""
-    if not is_root:
-        try:
-            directory_path = str(safe_path.relative_to(video_root)).replace("\\", "/")
-            parent_path = "/" + str(safe_path.parent.relative_to(video_root)).replace(
-                "\\", "/"
-            )
-        except ValueError:
-            parent_path = "/"
-
+    pagination = listing_context.pagination
     return render_index_template(
         items=pagination.items,
-        is_root=is_root,
-        parent_path=parent_path,
+        is_root=listing_context.is_root,
+        parent_path=listing_context.parent_path,
         breadcrumbs=get_breadcrumbs(server.config, safe_path),
         page=pagination.page,
         total_pages=pagination.total_pages,
@@ -307,8 +391,12 @@ def handle_index_request(
         has_next=pagination.has_next,
         range_start=pagination.range_start,
         range_end=pagination.range_end,
-        prev_page_url=_listing_page_url(directory_path, pagination.page - 1),
-        next_page_url=_listing_page_url(directory_path, pagination.page + 1),
+        prev_page_url=_listing_page_url(
+            listing_context.directory_path, pagination.page - 1
+        ),
+        next_page_url=_listing_page_url(
+            listing_context.directory_path, pagination.page + 1
+        ),
     )
 
 
@@ -404,54 +492,18 @@ def handle_api_files_request(
         if not safe_path.is_dir():
             return jsonify({"error": "Path is not a directory"}), 400  # type: ignore[misc]
 
-        video_root = Path(server.config.video_directory)
-        listing = _collect_directory_items(
+        listing_context = _resolve_directory_listing(
+            server,
             safe_path,
-            video_root,
-            server.config.allowed_extensions,
-            server.config.max_directory_entries,
-            log_warning=server.app.logger.warning,
+            page,
+            item_builder=_api_listing_item,
+            sort_key=lambda item: (not item["is_directory"], str(item["name"]).lower()),  # type: ignore[misc]
         )
-        if listing.exceeds_cap:
-            if server.security_logger:
-                server.security_logger.log_security_violation(
-                    "directory_listing_truncated",
-                    (
-                        f"Directory {safe_path} exceeds maximum listing size "
-                        f"({server.config.max_directory_entries})"
-                    ),
-                    client_ip,
-                )
-            return (
-                jsonify(
-                    {
-                        "error": (
-                            f"Directory contains too many entries "
-                            f"(maximum {server.config.max_directory_entries})"
-                        )
-                    }
-                ),
-                413,
-            )
-        files = [
-            {
-                "name": entry["name"],
-                "path": entry["relative_path"],
-                "is_directory": entry["is_dir"],
-                "size": entry["size"],
-                "modified": entry["modified"],
-            }
-            for entry in listing.items
-        ]
+        if isinstance(listing_context, tuple):
+            error_message, status_code = listing_context
+            return jsonify({"error": error_message}), status_code  # type: ignore[misc]
 
-        sorted_files = sorted(  # type: ignore[misc]
-            files,
-            key=lambda x: (not x["is_directory"], x["name"].lower()),  # type: ignore[misc]
-        )
-        pagination = _paginate_listing(
-            sorted_files, page, server.config.page_size  # type: ignore[arg-type]
-        )
-
+        pagination = listing_context.pagination
         return jsonify(
             {  # type: ignore[misc]
                 "files": pagination.items,

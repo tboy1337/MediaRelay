@@ -147,21 +147,6 @@ def check_authentication(
     if not auth or not auth.username or not auth.password:
         return False
 
-    ip_address = server.get_client_ip()
-
-    if server.lockout_manager.is_locked_out(ip_address, auth.username):
-        remaining = server.lockout_manager.get_remaining_lockout_seconds(
-            ip_address, auth.username
-        )
-        if server.security_logger:
-            server.security_logger.log_security_violation(
-                "account_lockout",
-                f"Login attempt while locked out for user '{auth.username}' "
-                f"({remaining}s remaining)",
-                ip_address,
-            )
-        return False
-
     if check_auth(server, auth.username, auth.password):
         if establish_session:
             session.clear()

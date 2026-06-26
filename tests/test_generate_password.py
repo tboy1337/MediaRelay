@@ -638,6 +638,19 @@ class TestNonInteractiveGeneration:
         assert "VIDEO_SERVER_SECRET_KEY=" in result.output
         assert "VIDEO_SERVER_USERNAME=tboy1337" in result.output
         assert "VIDEO_SERVER_PASSWORD_HASH=" in result.output
+        assert "WARNING: output contains credentials" in result.stderr
+
+    def test_non_interactive_cli_skips_plaintext_password_when_not_tty(self):
+        from click.testing import CliRunner
+
+        from mediarelay.generate_password import cli as genpass_cli
+
+        runner = CliRunner()
+        result = runner.invoke(
+            genpass_cli, ["--non-interactive", "--username", "tboy1337"]
+        )
+        assert result.exit_code == 0
+        assert "Generated password:" not in result.output
 
 
 class TestInteractiveInterrupt:

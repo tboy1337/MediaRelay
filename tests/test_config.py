@@ -1104,6 +1104,41 @@ class TestLoadConfigFile:
             load_config(missing)
 
 
+class TestEnvFilePermissions:
+    """Tests for insecure .env file permission warnings."""
+
+    def test_world_readable_env_file_logs_warning(self, tmp_path, monkeypatch):
+        """Warn when .env is readable by group or others on POSIX."""
+        if os.name == "nt":
+            pytest.skip("POSIX permission bits are not checked on Windows")
+
+        env_file = tmp_path / ".env"
+        env_file.write_text("VIDEO_SERVER_PASSWORD_HASH=test_hash\n", encoding="utf-8")
+        env_file.chmod(0o644)
+        monkeypatch.chdir(tmp_path)
+
+        with patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning:
+            load_config()
+
+        mock_warning.assert_called_once()
+        assert "readable by group or others" in mock_warning.call_args[0][0]
+
+    def test_owner_only_env_file_no_warning(self, tmp_path, monkeypatch):
+        """No warning when .env is owner-readable only on POSIX."""
+        if os.name == "nt":
+            pytest.skip("POSIX permission bits are not checked on Windows")
+
+        env_file = tmp_path / ".env"
+        env_file.write_text("VIDEO_SERVER_PASSWORD_HASH=test_hash\n", encoding="utf-8")
+        env_file.chmod(0o600)
+        monkeypatch.chdir(tmp_path)
+
+        with patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning:
+            load_config()
+
+        mock_warning.assert_not_called()
+
+
 class TestDeploymentConfigValidation:
     """Test deployment pre-flight configuration checks"""
 

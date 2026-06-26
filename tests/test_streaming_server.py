@@ -114,8 +114,8 @@ class TestMediaRelayServerComprehensive:
             server = MediaRelayServer(config)
             assert server.limiter is None
 
-    def test_get_html_template_method(self, test_server):
-        """Test _get_html_template method"""
+    def test_index_html_template_structure(self, test_server):
+        """Test INDEX_HTML_TEMPLATE contains required UI structure."""
         template = INDEX_HTML_TEMPLATE
 
         assert "<!DOCTYPE html>" in template
@@ -123,6 +123,22 @@ class TestMediaRelayServerComprehensive:
         assert "<video controls" in template
         assert "<audio controls" in template
         assert "breadcrumb" in template
+
+    def test_render_index_template_escapes_unsafe_filenames(self) -> None:
+        """User-controlled filenames must be HTML-escaped in rendered output."""
+        from mediarelay.templates import render_index_template
+
+        unsafe_name = '<script>alert("xss")</script>'
+        rendered = render_index_template(
+            video_file=unsafe_name,
+            video_path=f"movies/{unsafe_name}.mp4",
+            video_mime_type="video/mp4",
+            media_kind="video",
+            parent_path="/",
+            subtitle_path=None,
+        )
+        assert unsafe_name not in rendered
+        assert "&lt;script&gt;" in rendered
 
     def test_handle_index_request_comprehensive(self, test_server, temp_video_dir):
         """Test _handle_index_request method comprehensively"""
@@ -1197,6 +1213,21 @@ class TestServerWarnings:
             test_server._warn_behind_proxy()
         mock_warning.assert_called_once()
         assert "VIDEO_SERVER_BEHIND_PROXY is enabled" in mock_warning.call_args[0][0]
+
+    def test_warn_non_production_logs_warning(self, test_server, monkeypatch):
+        """Warn when FLASK_ENV is not production."""
+        monkeypatch.setenv("FLASK_ENV", "development")
+        with patch.object(test_server.app.logger, "warning") as mock_warning:
+            test_server._warn_non_production()
+        mock_warning.assert_called_once()
+        assert "FLASK_ENV is not 'production'" in mock_warning.call_args[0][0]
+
+    def test_warn_non_production_silent_in_production(self, test_server, monkeypatch):
+        """No warning when FLASK_ENV is production."""
+        monkeypatch.setenv("FLASK_ENV", "production")
+        with patch.object(test_server.app.logger, "warning") as mock_warning:
+            test_server._warn_non_production()
+        mock_warning.assert_not_called()
 
 
 class TestMainCliOptions:

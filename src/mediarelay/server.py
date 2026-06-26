@@ -36,6 +36,13 @@ from .path_utils import get_breadcrumbs, get_safe_path
 from .routes import register_routes
 
 
+def _client_address_from_request(behind_proxy: bool) -> str:
+    """Return the client IP, honoring reverse-proxy headers when configured."""
+    if behind_proxy and request.access_route:
+        return request.access_route[0]
+    return request.remote_addr or "unknown"
+
+
 class MediaRelayServer:
     """Main video streaming server class with comprehensive features."""
 
@@ -54,6 +61,7 @@ class MediaRelayServer:
         self._setup_logging()
         self._warn_ephemeral_secret_key()
         self._warn_behind_proxy()
+        self._warn_non_production()
         self._setup_rate_limiting()
         register_routes(self)
         register_error_handlers(self)
@@ -73,6 +81,14 @@ class MediaRelayServer:
                 "VIDEO_SERVER_BEHIND_PROXY is enabled: client IP and rate limits use "
                 "X-Forwarded-For. Only enable this when MediaRelay is behind a "
                 "trusted reverse proxy. Direct exposure allows IP spoofing."
+            )
+
+    def _warn_non_production(self) -> None:
+        """Warn when production-only validation rules are not active."""
+        if not self.config.is_production():
+            self.app.logger.warning(
+                "FLASK_ENV is not 'production'; production credential and cookie "
+                "checks are disabled. Set FLASK_ENV=production before going live."
             )
 
     def _schedule_next_lockout_cleanup(self) -> None:
@@ -104,14 +120,12 @@ class MediaRelayServer:
 
     def get_client_ip(self) -> str:
         """Return the client IP, honoring reverse-proxy headers when configured."""
-        if self.config.behind_proxy and request.access_route:
-            return request.access_route[0]
-        return request.remote_addr or "unknown"
+        return _client_address_from_request(self.config.behind_proxy)
 
     def _rate_limit_key(self) -> str:
         """Rate limiter key function respecting reverse-proxy configuration."""
-        if self.config.behind_proxy and request.access_route:
-            return request.access_route[0]
+        if self.config.behind_proxy:
+            return _client_address_from_request(True)
         return get_remote_address()
 
     def auth_required_response(self) -> Response:

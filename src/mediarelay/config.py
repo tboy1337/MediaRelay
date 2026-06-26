@@ -8,6 +8,7 @@ for production deployment.
 import logging
 import os
 import secrets
+import stat
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,6 +36,8 @@ _PLACEHOLDER_SECRET_KEYS = frozenset(
 _PLACEHOLDER_PASSWORD_HASHES = frozenset({"", "your-password-hash-here"})
 _VALID_SAMESITE_VALUES = frozenset({"Strict", "Lax", "None"})
 _VALID_LOG_LEVELS = frozenset(logging.getLevelNamesMapping().keys())
+
+_CONFIG_LOGGER = logging.getLogger(__name__)
 
 
 def _get_default_video_directory() -> str:
@@ -477,15 +480,36 @@ class ServerConfig:
         }
 
 
+def _warn_insecure_env_file_permissions(env_path: Path) -> None:
+    """Warn when a .env file may be readable by users other than the owner."""
+    try:
+        mode = env_path.stat().st_mode
+    except OSError:
+        return
+
+    if os.name == "nt":
+        return
+
+    if mode & (stat.S_IRGRP | stat.S_IROTH):
+        _CONFIG_LOGGER.warning(
+            ".env file %s is readable by group or others (mode %o). "
+            "Restrict permissions (e.g. chmod 600).",
+            env_path,
+            mode & 0o777,
+        )
+
+
 def load_config(config_file: Path | None = None) -> ServerConfig:
     """Load configuration from environment variables and return ServerConfig instance."""
     if config_file is not None:
         if not config_file.exists():
             raise ValueError(f"Configuration file not found: {config_file}")
+        _warn_insecure_env_file_permissions(config_file)
         load_dotenv(config_file, override=True)
     else:
         env_file = Path(".env")
         if env_file.exists():
+            _warn_insecure_env_file_permissions(env_file)
             load_dotenv(env_file)
 
     return ServerConfig()

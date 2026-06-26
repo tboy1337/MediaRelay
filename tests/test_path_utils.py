@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import tempfile
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -210,6 +210,7 @@ class TestGetSafePath:
 
     def test_os_error_logged_via_callback(self, video_config: ServerConfig) -> None:
         log_error = MagicMock()
+        security_logger = MagicMock()
         with patch(
             "mediarelay.path_utils.resolve_path",
             MagicMock(side_effect=OSError("resolve failed")),
@@ -218,10 +219,69 @@ class TestGetSafePath:
                 video_config,
                 "test.mp4",
                 client_ip="127.0.0.1",
+                security_logger=security_logger,
                 log_error=log_error,
             )
         assert result is None
         log_error.assert_called_once()
+        security_logger.log_security_violation.assert_called_once()
+        assert (
+            security_logger.log_security_violation.call_args[0][0]
+            == "path_resolution_error"
+        )
+
+    def test_hardlink_outside_jail_rejected(self, tmp_path: Path) -> None:
+        """Hard links to files outside the video directory must be blocked."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        outside_dir = tmp_path / "outside"
+        outside_dir.mkdir()
+        secret_file = outside_dir / "secret.mp4"
+        secret_file.write_text("secret", encoding="utf-8")
+        link_path = video_dir / "stolen.mp4"
+        try:
+            os.link(secret_file, link_path)
+        except (OSError, NotImplementedError):
+            pytest.skip("Platform does not support creating hard links")
+
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash="test_hash",
+            log_directory=str(tmp_path / "logs"),
+        )
+        security_logger = MagicMock()
+        result = get_safe_path(
+            config,
+            "stolen.mp4",
+            client_ip="127.0.0.1",
+            security_logger=security_logger,
+        )
+        assert result is None
+        security_logger.log_security_violation.assert_called_once()
+        assert (
+            security_logger.log_security_violation.call_args[0][0] == "hardlink_escape"
+        )
+
+    def test_hardlink_within_jail_allowed(self, tmp_path: Path) -> None:
+        """Hard links wholly inside the video directory remain accessible."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        original = video_dir / "movie.mp4"
+        original.write_text("content", encoding="utf-8")
+        alias = video_dir / "alias.mp4"
+        try:
+            os.link(original, alias)
+        except (OSError, NotImplementedError):
+            pytest.skip("Platform does not support creating hard links")
+
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash="test_hash",
+            log_directory=str(tmp_path / "logs"),
+        )
+        result = get_safe_path(config, "alias.mp4", client_ip="127.0.0.1")
+        assert result is not None
+        assert result.name == "alias.mp4"
 
 
 class TestGetBreadcrumbs:

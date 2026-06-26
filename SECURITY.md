@@ -42,6 +42,7 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 
 - All file access is constrained to the configured video directory jail
 - Symlinks are resolved before containment checks
+- Hard links whose inode is also linked outside the jail are rejected at request time
 - Path traversal payloads (including multi-pass URL decoding, NFKC normalization, and control characters) are rejected and logged
 - Dotfiles (path segments starting with `.`) are hidden from listings and blocked on direct access
 - Custom `VIDEO_SERVER_ALLOWED_EXTENSIONS` must be a subset of the built-in media allowlist
@@ -89,6 +90,8 @@ Run `python scripts/verify.py` locally before release; it enforces black, isort,
 | CSP inline styles | Embedded UI template requires `style-src 'unsafe-inline'` |
 | Extension-only file filter | No magic-byte content validation; only extension allowlist (custom extensions must match built-in set) |
 | Large directories | Listings above `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES` return HTTP 413 |
+| Hard links in video directory | Runtime check blocks files whose inode is also linked outside the jail; keep the video directory non-writable by untrusted users |
+| `mediarelay-genpass` output | Emits secrets to stdout; redirect to a secure file and avoid logging stdout/stderr |
 
 ## Responsible Disclosure
 

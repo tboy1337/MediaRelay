@@ -35,8 +35,17 @@ def generate_flask_secret_key(length: int = 32) -> str:
     return secrets.token_hex(length)
 
 
+def _print_credential_warning() -> None:
+    """Warn that emitted output contains secrets."""
+    print(
+        "WARNING: output contains credentials; redirect stdout/stderr to a secure file.",
+        file=sys.stderr,
+    )
+
+
 def _print_env_values(username: str, password_hash: str, secret_key: str) -> None:
     """Print environment variable lines for .env configuration."""
+    _print_credential_warning()
     print(f"VIDEO_SERVER_SECRET_KEY={secret_key}")
     print(f"VIDEO_SERVER_USERNAME={username}")
     print(f"VIDEO_SERVER_PASSWORD_HASH={password_hash}")

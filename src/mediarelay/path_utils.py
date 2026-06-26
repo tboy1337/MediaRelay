@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 import unicodedata
 from collections.abc import Callable
 from pathlib import Path
@@ -64,6 +65,174 @@ def _contains_unsafe_path_chars(path: str) -> bool:
     return False
 
 
+def _decode_url_path(requested_path: str) -> str:
+    """Apply multi-pass URL decoding (capped) to a requested path."""
+    for _ in range(10):
+        decoded_path = unquote(requested_path)
+        if decoded_path == requested_path:
+            break
+        requested_path = decoded_path
+    return unicodedata.normalize("NFKC", requested_path)
+
+
+def _log_path_violation(
+    security_logger: SecurityEventLogger | None,
+    violation_type: str,
+    detail: str,
+    client_ip: str,
+) -> None:
+    """Emit a structured security violation when a logger is available."""
+    if security_logger:
+        security_logger.log_security_violation(violation_type, detail, client_ip)
+
+
+def _validate_path_segments(
+    requested_path: str,
+    *,
+    client_ip: str,
+    security_logger: SecurityEventLogger | None,
+) -> bool:
+    """Return False when the path string fails segment-level safety checks."""
+    if _contains_unsafe_path_chars(requested_path):
+        _log_path_violation(
+            security_logger,
+            "path_traversal",
+            f"Unsafe characters in path: {requested_path!r}",
+            client_ip,
+        )
+        return False
+
+    if requested_path.startswith(("/", "\\")):
+        _log_path_violation(
+            security_logger,
+            "path_traversal",
+            f"Absolute path attempt: {requested_path}",
+            client_ip,
+        )
+        return False
+
+    if "\\" in requested_path:
+        _log_path_violation(
+            security_logger,
+            "path_traversal",
+            f"Path traversal attempt: {requested_path}",
+            client_ip,
+        )
+        return False
+
+    normalized_path = requested_path.replace("\\", "/")
+    path_segments = normalized_path.split("/")
+    if any(
+        segment.startswith(".") and segment not in {".", ".."}
+        for segment in path_segments
+        if segment
+    ):
+        _log_path_violation(
+            security_logger,
+            "dotfile_access",
+            f"Dotfile access attempt: {requested_path}",
+            client_ip,
+        )
+        return False
+
+    if "//" in normalized_path or ".." in path_segments:
+        _log_path_violation(
+            security_logger,
+            "path_traversal",
+            f"Path traversal attempt: {requested_path}",
+            client_ip,
+        )
+        return False
+
+    return True
+
+
+def _count_inode_links_under_jail(ino: int, dev: int, jail_root: Path) -> int:
+    """Count directory entries under jail_root that reference the given inode."""
+    count = 0
+    try:
+        jail_stat = jail_root.stat()
+        if jail_stat.st_ino == ino and jail_stat.st_dev == dev:
+            count += 1
+    except OSError:
+        pass
+
+    for path in jail_root.rglob("*"):
+        try:
+            stat_result = path.lstat() if path.is_symlink() else path.stat()
+        except OSError:
+            continue
+        if stat_result.st_ino == ino and stat_result.st_dev == dev:
+            count += 1
+    return count
+
+
+def _is_hardlink_outside_jail(resolved_path: Path, jail_root: Path) -> bool:
+    """Return True when a file hard link references content also linked outside jail."""
+    if not resolved_path.is_file():
+        return False
+
+    try:
+        stat_result = resolved_path.stat()
+    except OSError:
+        return False
+
+    if stat_result.st_nlink <= 1:
+        return False
+
+    jail_resolved = jail_root.resolve()
+    links_in_jail = _count_inode_links_under_jail(
+        stat_result.st_ino, stat_result.st_dev, jail_resolved
+    )
+    return links_in_jail < stat_result.st_nlink
+
+
+def _resolve_within_jail(
+    video_directory: str,
+    requested_path: str,
+    *,
+    client_ip: str,
+    security_logger: SecurityEventLogger | None,
+    log_error: Callable[[str], None] | None,
+) -> Path | None:
+    """Resolve a relative path and verify jail containment including hard links."""
+    full_path = Path(video_directory) / requested_path
+
+    try:
+        resolved_path = resolve_path(full_path)
+        resolved_video_dir = resolve_path(Path(video_directory))
+        resolved_path.relative_to(resolved_video_dir)
+    except ValueError:
+        _log_path_violation(
+            security_logger,
+            "path_traversal",
+            f"Path traversal attempt: {requested_path}",
+            client_ip,
+        )
+        return None
+    except (RuntimeError, OSError) as error:
+        if log_error is not None:
+            log_error(f"Path error: {str(error)} for path: {requested_path}")
+        _log_path_violation(
+            security_logger,
+            "path_resolution_error",
+            f"Path resolution failed for {requested_path!r}: {error}",
+            client_ip,
+        )
+        return None
+
+    if _is_hardlink_outside_jail(resolved_path, resolved_video_dir):
+        _log_path_violation(
+            security_logger,
+            "hardlink_escape",
+            f"Hard link escape attempt: {requested_path}",
+            client_ip,
+        )
+        return None
+
+    return resolved_path
+
+
 def get_breadcrumbs(config: ServerConfig, path: Path) -> list[dict[str, str]]:
     """Generate breadcrumb navigation for a path within the video directory."""
     video_dir = Path(config.video_directory)
@@ -93,81 +262,19 @@ def get_safe_path(
     if not requested_path:
         return Path(config.video_directory)
 
-    for _ in range(10):
-        decoded_path = unquote(requested_path)
-        if decoded_path == requested_path:
-            break
-        requested_path = decoded_path
+    requested_path = _decode_url_path(requested_path)
 
-    requested_path = unicodedata.normalize("NFKC", requested_path)
-
-    if _contains_unsafe_path_chars(requested_path):
-        if security_logger:
-            security_logger.log_security_violation(
-                "path_traversal",
-                f"Unsafe characters in path: {requested_path!r}",
-                client_ip,
-            )
-        return None
-
-    if requested_path.startswith(("/", "\\")):
-        if security_logger:
-            security_logger.log_security_violation(
-                "path_traversal",
-                f"Absolute path attempt: {requested_path}",
-                client_ip,
-            )
-        return None
-
-    if "\\" in requested_path:
-        if security_logger:
-            security_logger.log_security_violation(
-                "path_traversal",
-                f"Path traversal attempt: {requested_path}",
-                client_ip,
-            )
-        return None
-
-    normalized_path = requested_path.replace("\\", "/")
-    path_segments = normalized_path.split("/")
-    if any(
-        segment.startswith(".") and segment not in {".", ".."}
-        for segment in path_segments
-        if segment
+    if not _validate_path_segments(
+        requested_path,
+        client_ip=client_ip,
+        security_logger=security_logger,
     ):
-        if security_logger:
-            security_logger.log_security_violation(
-                "dotfile_access",
-                f"Dotfile access attempt: {requested_path}",
-                client_ip,
-            )
         return None
 
-    if "//" in normalized_path or ".." in path_segments:
-        if security_logger:
-            security_logger.log_security_violation(
-                "path_traversal",
-                f"Path traversal attempt: {requested_path}",
-                client_ip,
-            )
-        return None
-
-    full_path = Path(config.video_directory) / requested_path
-
-    try:
-        resolved_path = resolve_path(full_path)
-        resolved_video_dir = resolve_path(Path(config.video_directory))
-        resolved_path.relative_to(resolved_video_dir)
-        return resolved_path
-    except ValueError:
-        if security_logger:
-            security_logger.log_security_violation(
-                "path_traversal",
-                f"Path traversal attempt: {requested_path}",
-                client_ip,
-            )
-    except (RuntimeError, OSError) as error:
-        if log_error is not None and callable(log_error):
-            log_error(f"Path error: {str(error)} for path: {requested_path}")
-
-    return None
+    return _resolve_within_jail(
+        config.video_directory,
+        requested_path,
+        client_ip=client_ip,
+        security_logger=security_logger,
+        log_error=log_error,
+    )
