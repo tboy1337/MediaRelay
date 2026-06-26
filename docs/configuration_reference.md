@@ -25,7 +25,7 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 | `VIDEO_SERVER_SESSION_TIMEOUT` | `3600` | Session idle timeout in seconds. |
 | `VIDEO_SERVER_SESSION_MAX_LIFETIME` | `86400` | Absolute session lifetime in seconds from login (default 24 hours). Must be greater than or equal to `VIDEO_SERVER_SESSION_TIMEOUT`. |
 | `VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS` | `5` | Failed logins before lockout. |
-| `VIDEO_SERVER_LOCKOUT_DURATION` | `900` | Lockout duration in seconds (minimum 60). |
+| `VIDEO_SERVER_LOCKOUT_DURATION` | `900` | Lockout duration in seconds (minimum 60). Up to 10,000 unique `IP:username` trackers are retained; when full, new failed attempts are dropped and `lockout_tracker_capacity_exceeded` is logged. |
 | `VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED` | `true` | When enabled, failed logins are tracked per username across all client IPs. |
 | `VIDEO_SERVER_SESSION_BIND_IP` | `true` | When enabled, sessions are invalidated when the client IP changes after login. Set `false` for mobile or CGNAT clients if you accept the reduced binding. |
 | `VIDEO_SERVER_SESSION_COOKIE_SECURE` | `true` | Send session cookies only over HTTPS. **Required `true` when `VIDEO_SERVER_PRODUCTION=true`.** |
@@ -44,7 +44,7 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 | `VIDEO_SERVER_LOG_DIR` | `./logs` | Log file directory (created if missing; must be writable). |
 | `VIDEO_SERVER_ALLOWED_EXTENSIONS` | *(built-in set)* | Comma-separated extensions. Must be a subset of the built-in media allowlist (video, audio, `.srt`, `.vtt`). Invalid values are rejected at startup. |
 | `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES` | `10000` | Maximum listable entries per directory request. Exceeding this returns HTTP 413. |
-| `VIDEO_SERVER_MAX_FILE_SIZE` | `21474836480` | Maximum file size in bytes for uploads and streaming (`0` disables). Values above `21474836480` (20 GiB) are rejected at startup. Oversized streams return HTTP 413. |
+| `VIDEO_SERVER_MAX_FILE_SIZE` | `21474836480` | Maximum file size in bytes for media streaming (`0` disables). Values above `21474836480` (20 GiB) are rejected at startup. Oversized streams return HTTP 413. Subtitle files (`.srt`, `.vtt`) are always capped at **10 MiB** regardless of this setting. |
 
 ## Logging
 

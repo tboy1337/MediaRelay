@@ -95,8 +95,8 @@ def check_auth(
             if tracker_exhausted:
                 if server.security_logger:
                     server.security_logger.log_security_violation(
-                        "lockout_tracker_exhausted",
-                        "Lockout tracker at capacity; emergency lockout applied",
+                        "lockout_tracker_capacity_exceeded",
+                        ("Lockout tracker at capacity; failed attempt not " "recorded"),
                         ip_address,
                     )
             if now_locked and server.security_logger:
@@ -135,30 +135,11 @@ def _session_invalid_reason(
     if server.config.session_bind_ip:
         client_ip = server.get_client_ip()
         if auth_state.login_ip != client_ip:
-            if server.security_logger:
-                server.security_logger.log_security_violation(
-                    "session_ip_mismatch",
-                    (
-                        f"Session invalidated due to IP change from "
-                        f"{auth_state.login_ip} to {client_ip}"
-                    ),
-                    client_ip,
-                )
             return "session_ip_mismatch"
 
     username = auth_state.username
     client_ip = server.get_client_ip()
     if username and server.lockout_manager.is_locked_out(client_ip, str(username)):
-        remaining = server.lockout_manager.get_remaining_lockout_seconds(
-            client_ip, str(username)
-        )
-        if server.security_logger:
-            server.security_logger.log_security_violation(
-                "account_lockout",
-                f"Active session terminated for locked-out user '{username}' "
-                f"({remaining}s remaining)",
-                client_ip,
-            )
         return "account_lockout"
 
     return None
@@ -173,9 +154,16 @@ def check_authentication(
     """Check if the current request is authenticated with lockout protection."""
     current_time = time.time()
     if is_session_authenticated():
-        if _session_invalid_reason(server, current_time) is None:
+        invalid_reason = _session_invalid_reason(server, current_time)
+        if invalid_reason is None:
             touch_session_activity(current_time)
             return True
+        if server.security_logger:
+            server.security_logger.log_security_violation(
+                "session_invalidated",
+                f"Session invalidated: {invalid_reason}",
+                server.get_client_ip(),
+            )
         clear_session()
 
     auth = request.authorization

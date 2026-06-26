@@ -1,5 +1,7 @@
 """Account lockout tracking for failed authentication attempts."""
 
+from __future__ import annotations
+
 import threading
 import time
 from dataclasses import dataclass, field
@@ -18,6 +20,39 @@ class LoginAttemptTracker:
     failed_attempts: int = 0
     lockout_until: float = 0.0
     last_attempt: float = field(default_factory=time.time)
+
+
+def _is_tracker_expired(
+    tracker: LoginAttemptTracker,
+    current_time: float,
+    lockout_duration: int,
+) -> bool:
+    """Return True when a tracker entry should be removed during cleanup."""
+    if tracker.lockout_until > 0 and tracker.lockout_until <= current_time:
+        return True
+    if (
+        tracker.lockout_until <= current_time
+        and current_time - tracker.last_attempt > lockout_duration
+    ):
+        return True
+    return (
+        tracker.failed_attempts == 0
+        and tracker.lockout_until <= 0
+        and current_time - tracker.last_attempt > lockout_duration
+    )
+
+
+def _collect_expired_tracker_keys(
+    trackers: dict[str, LoginAttemptTracker],
+    current_time: float,
+    lockout_duration: int,
+) -> list[str]:
+    """Return keys for tracker entries that have expired."""
+    return [
+        key
+        for key, tracker in trackers.items()
+        if _is_tracker_expired(tracker, current_time, lockout_duration)
+    ]
 
 
 class AccountLockoutManager:
@@ -99,37 +134,15 @@ class AccountLockoutManager:
 
     def _cleanup_expired_locked(self, current_time: float) -> int:
         """Remove expired lockout entries. Caller must hold ``_lock``."""
-        keys_to_remove = [
-            key
-            for key, tracker in self._trackers.items()
-            if (tracker.lockout_until > 0 and tracker.lockout_until <= current_time)
-            or (
-                tracker.lockout_until <= current_time
-                and current_time - tracker.last_attempt > self.lockout_duration
-            )
-            or (
-                tracker.failed_attempts == 0
-                and tracker.lockout_until <= 0
-                and current_time - tracker.last_attempt > self.lockout_duration
-            )
-        ]
+        keys_to_remove = _collect_expired_tracker_keys(
+            self._trackers, current_time, self.lockout_duration
+        )
         for key in keys_to_remove:
             del self._trackers[key]
 
-        username_keys_to_remove = [
-            key
-            for key, tracker in self._username_trackers.items()
-            if (tracker.lockout_until > 0 and tracker.lockout_until <= current_time)
-            or (
-                tracker.lockout_until <= current_time
-                and current_time - tracker.last_attempt > self.lockout_duration
-            )
-            or (
-                tracker.failed_attempts == 0
-                and tracker.lockout_until <= 0
-                and current_time - tracker.last_attempt > self.lockout_duration
-            )
-        ]
+        username_keys_to_remove = _collect_expired_tracker_keys(
+            self._username_trackers, current_time, self.lockout_duration
+        )
         for key in username_keys_to_remove:
             del self._username_trackers[key]
 
@@ -169,15 +182,14 @@ class AccountLockoutManager:
         key: str,
         current_time: float,
     ) -> tuple[bool, bool]:
-        """Record a failed attempt on a single tracker map."""
+        """Record a failed attempt on a single tracker map.
+
+        Returns:
+            A tuple of (now_locked, tracker_exhausted).
+        """
         if key not in trackers:
             if not self._evict_oldest_tracker_if_needed(trackers, current_time):
-                emergency = LoginAttemptTracker()
-                emergency.failed_attempts = self.max_attempts
-                emergency.lockout_until = current_time + self.lockout_duration
-                emergency.last_attempt = current_time
-                trackers[key] = emergency
-                return True, True
+                return False, True
             trackers[key] = LoginAttemptTracker()
 
         tracker = trackers[key]
@@ -211,7 +223,7 @@ class AccountLockoutManager:
                 self._trackers, key, current_time
             )
             if ip_exhausted:
-                return True, True
+                return False, True
 
             username_locked = False
             if self.username_lockout_enabled:
@@ -219,7 +231,7 @@ class AccountLockoutManager:
                     self._username_trackers, username, current_time
                 )
                 if username_exhausted:
-                    return True, True
+                    return False, True
 
             return ip_locked or username_locked, False
 

@@ -17,6 +17,7 @@ from .handlers import (
     handle_index_request,
     handle_stream_request,
 )
+from .logging_config import get_request_logger
 from .session_store import (
     clear_session,
     get_csrf_token,
@@ -74,7 +75,8 @@ def register_routes(server: MediaRelayServer) -> None:
             abort(414)
 
         request_id = get_request_id()
-        server.app.logger.debug(
+        request_logger = get_request_logger("mediarelay.request")
+        request_logger.debug(
             "request_id=%s method=%s path=%s client_ip=%s",
             request_id,
             request.method,
@@ -115,6 +117,13 @@ def register_routes(server: MediaRelayServer) -> None:
                         request.endpoint or request.path,
                         duration,
                         response.status_code,
+                    )
+                    request_logger = get_request_logger("mediarelay.request")
+                    request_logger.debug(
+                        "request_id=%s status=%s duration=%.4fs",
+                        request_id,
+                        response.status_code,
+                        duration,
                     )
 
         return response

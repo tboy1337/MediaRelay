@@ -26,10 +26,7 @@ class TestConfigMainEntryPoint:
     @patch("mediarelay.config.create_sample_env_file")
     def test_config_main_creates_sample_env(self, mock_create_env):
         """Test config module main entry point"""
-        if hasattr(config_module, "__name__"):
-            with patch("mediarelay.config.__name__", "__main__"):
-                config_module.create_sample_env_file()
-
+        config_main()
         mock_create_env.assert_called_once()
 
     def test_config_main_cli(self):
@@ -114,10 +111,10 @@ class TestProductionServerRun:
                 mock_logger.info.assert_any_call("Starting server with configuration:")
 
     def test_server_directory_validation(self, media_relay_server):
-        """Test server validates video directory exists"""
-        with patch("pathlib.Path.exists", return_value=False):
-            with pytest.raises(ValueError, match="does not exist"):
-                media_relay_server.run()
+        """Test configuration validation rejects missing video directory."""
+        media_relay_server.config.video_directory = "/nonexistent/directory"
+        with pytest.raises(ValueError, match="does not exist"):
+            media_relay_server.config.validate_config()
 
 
 class TestServerCliValidation:

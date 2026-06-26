@@ -166,7 +166,55 @@ When `VIDEO_SERVER_PRODUCTION=true`, the same deployment checks also run automat
 
 The validator checks password hash format, secret key presence, video/log directory permissions, rate limiting, and port range. Fix any reported errors before deployment.
 
-Unauthenticated `GET /health` returns minimal readiness (`{"status":"ok"}` when healthy, `{"status":"degraded"}` with HTTP 503 when the video directory is inaccessible). Use authenticated `/health` for full readiness (disk access, version, uptime).
+**Pre-deploy checklist:**
+
+1. Set `VIDEO_SERVER_PRODUCTION=true`
+2. Run `mediarelay-validate` and fix all reported errors
+3. Terminate TLS at a reverse proxy (never send Basic Auth over plain HTTP)
+4. Set `VIDEO_SERVER_PROXY_TRUSTED=true` only when MediaRelay is exclusively behind your trusted reverse proxy
+5. Confirm the video directory is readable and the inode hardlink index builds successfully (production startup fails fast if index build fails)
+6. Restrict media directory to read-only for the service account (see below)
+
+Unauthenticated `GET /health` returns minimal readiness (`{"status":"ok"}` when healthy, `{"status":"degraded"}` with HTTP 503 when the video directory is inaccessible or the inode index is unavailable). Use authenticated `/health` for full readiness (disk access, version, uptime).
+
+#### Read-only media directory
+
+Production validation expects the video directory to be read-only for the service account.
+
+**Linux/macOS:**
+
+```bash
+chmod -R a-w /path/to/videos
+```
+
+**Windows (icacls):**
+
+```cmd
+icacls "C:\path\to\videos" /inheritance:r
+icacls "C:\path\to\videos" /grant:r "%USERNAME%:(OI)(CI)R"
+icacls "C:\path\to\videos" /grant:r "NT SERVICE\MediaRelay:(OI)(CI)R"
+```
+
+Adjust the service account name to match your installation.
+
+#### Subtitle streaming limits
+
+Subtitle files (`.srt`, `.vtt`) are capped at **10 MiB** regardless of `VIDEO_SERVER_MAX_FILE_SIZE`. Content is sanitized before serving (HTML tags, dangerous URI schemes, and WEBVTT `STYLE`/`NOTE` blocks are stripped). Oversized subtitles return HTTP 413.
+
+#### Inode hardlink index failure
+
+In production mode, MediaRelay refuses to start if the inode hardlink index cannot be built. This protects against hardlink escape attacks. If startup fails with an inode index error:
+
+1. Verify the service account can read the entire video directory tree
+2. Check for permission errors on nested folders
+3. Run `mediarelay-validate` with `VIDEO_SERVER_PRODUCTION=true`
+4. Review application logs for the underlying `OSError`
+
+Non-production mode continues with degraded health when the index fails to build.
+
+#### Lockout tracker capacity
+
+Account lockout tracks up to **10,000** unique `IP:username` combinations. When the tracker is full, new failed login attempts are not recorded and a `lockout_tracker_capacity_exceeded` event is written to `security.log`. Monitor this event to detect tracker flooding attacks.
 
 ### 3. Directory Structure
 
@@ -378,6 +426,15 @@ When the video directory is inaccessible, unauthenticated `/health` returns HTTP
 ```
 
 Authenticated response includes readiness (`healthy`/`unhealthy`), version, uptime, and configuration details. See [API Documentation](api_documentation.md#1-health-check).
+
+**Probe guidance:**
+
+| Probe type | Endpoint | Auth | Use case |
+|------------|----------|------|----------|
+| Liveness | `GET /health` | None | Process is up; directory readable |
+| Readiness | `GET /health` | Basic Auth | Full status including version and uptime |
+
+Alert when unauthenticated `/health` returns HTTP 503 (`degraded`) or when authenticated `/health` returns `unhealthy`. Ship `security.log` to your SIEM and alert on `lockout_tracker_capacity_exceeded` and repeated `session_invalidated` events.
 
 `/health` is exempt from rate limiting so monitoring probes are not throttled.
 

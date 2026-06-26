@@ -22,6 +22,7 @@ from mediarelay.path_utils import (
     get_safe_path,
     guess_media_mime_type,
     is_audio_file,
+    open_validated_file,
     resolve_path,
     revalidate_before_serve,
 )
@@ -544,9 +545,8 @@ class TestInodeLinkIndex:
         index.refresh()
 
         (video_dir / "new_clip.mp4").write_text("more", encoding="utf-8")
-        # Parent directory mtime must change for the mtime-only fast path to rebuild.
         os.utime(video_dir, None)
-        index.refresh()
+        index.refresh(force=True)
 
         new_stat = (video_dir / "new_clip.mp4").stat()
         assert index.count_links(new_stat.st_ino, new_stat.st_dev) == 1
@@ -634,6 +634,28 @@ class TestRevalidateBeforeServe:
             )
             is False
         )
+
+
+class TestOpenValidatedFile:
+    """Tests for TOCTOU-mitigated file opening."""
+
+    def test_open_validated_file_reads_subtitle_content(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        subtitle = video_dir / "clip.vtt"
+        subtitle.write_text("WEBVTT\n\nSafe cue\n", encoding="utf-8")
+
+        handle = open_validated_file(subtitle.resolve(), str(video_dir))
+        assert handle is not None
+        with os.fdopen(handle.fd, "r", encoding="utf-8") as opened:
+            assert "Safe cue" in opened.read()
+
+    def test_open_validated_file_rejects_missing_file(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        missing = video_dir / "missing.vtt"
+
+        assert open_validated_file(missing, str(video_dir)) is None
 
 
 class TestLogDetailTruncation:

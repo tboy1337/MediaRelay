@@ -83,6 +83,12 @@ class MediaRelayServer:
             self.app.logger.warning(
                 "Inode index initial build failed: %s", error, exc_info=True
             )
+            if self.config.is_production():
+                raise RuntimeError(
+                    "Inode hardlink index failed to build in production mode. "
+                    "Verify the video directory is readable and run "
+                    "'mediarelay-validate' before starting the server."
+                ) from error
 
     def check_runtime_health(self) -> bool:
         """Verify runtime-critical paths and inode index are ready."""
@@ -269,13 +275,6 @@ class MediaRelayServer:
         """Start the production server."""
         self._start_time = time.time()
         self._start_lockout_cleanup()
-
-        video_dir = Path(self.config.video_directory)
-        if not video_dir.exists():
-            self.app.logger.error(
-                f"Video directory does not exist: {self.config.video_directory}"
-            )
-            raise ValueError(f"Directory {self.config.video_directory} does not exist!")
 
         self.app.logger.info("Starting server with configuration:")
         self.app.logger.info(f"  Video directory: {self.config.video_directory}")

@@ -45,11 +45,6 @@ def truncate_logged_path(file_path: str) -> str:
     return f"{file_path[:MAX_LOGGED_PATH_LENGTH]}...(truncated)"
 
 
-def _truncate_logged_path(file_path: str) -> str:
-    """Backward-compatible alias for truncate_logged_path."""
-    return truncate_logged_path(file_path)
-
-
 def _truncate_logged_user_agent(user_agent: str) -> str:
     """Truncate attacker-controlled User-Agent strings before security logging."""
     if len(user_agent) <= MAX_LOGGED_USER_AGENT_LENGTH:
@@ -136,7 +131,7 @@ class SecurityEventLogger:
         event_data = self._build_event_data(
             {
                 "event_type": "file_access",
-                "file_path": _truncate_logged_path(file_path),
+                "file_path": truncate_logged_path(file_path),
                 "ip_address": ip_address,
                 "success": success,
                 "user": user,
@@ -236,7 +231,7 @@ class PerformanceLogger:
         """Log file serving performance"""
         metric_data = {
             "type": "file_serve",
-            "file_path": _truncate_logged_path(file_path),
+            "file_path": truncate_logged_path(file_path),
             "file_size_bytes": file_size,
             "duration_ms": round(duration * 1000, 2),
             "throughput_mbps": (

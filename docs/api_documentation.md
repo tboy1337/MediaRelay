@@ -274,7 +274,6 @@ Accept: application/json
         }
     ],
     "path": "movies",
-    "total_files": 42,
     "page": 1,
     "page_size": 100,
     "total_items": 42,
@@ -292,10 +291,9 @@ Accept: application/json
 | files[].size | number | File size in bytes (0 for directories) |
 | files[].modified | string | ISO 8601 modified timestamp |
 | path | string | Current directory path |
-| total_files | number | Total items in the directory (all pages) |
 | page | integer | Current page number |
 | page_size | integer | Configured page size (`VIDEO_SERVER_PAGE_SIZE`) |
-| total_items | number | Total items in the directory (same as `total_files`) |
+| total_items | number | Total items in the directory (all pages) |
 | total_pages | integer | Total number of pages |
 
 #### Status Codes
@@ -453,7 +451,7 @@ curl -u username:password http://localhost:5000/api/files
         }
     ],
     "path": "",
-    "total_files": 2
+    "total_items": 2
 }
 ```
 

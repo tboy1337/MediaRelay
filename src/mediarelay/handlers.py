@@ -11,16 +11,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
-from flask import Response, jsonify, request, send_from_directory
+from flask import Response, jsonify, request, send_file
 
-from .constants import SUBTITLE_EXTENSIONS
+from .constants import MAX_SUBTITLE_FILE_SIZE, SUBTITLE_EXTENSIONS
 from .logging_config import truncate_logged_path
 from .path_utils import (
     get_breadcrumbs,
     get_safe_path,
     guess_media_mime_type,
     is_audio_file,
-    revalidate_before_serve,
+    open_validated_file,
 )
 from .session_store import get_session_username
 from .subtitle_sanitize import sanitize_subtitle_content
@@ -194,7 +194,11 @@ def _load_directory_listing(
             )
         return "Access denied to directory", 403
     except OSError as error:
-        server.app.logger.error(f"Error reading directory {safe_path}: {str(error)}")
+        server.app.logger.error(
+            "Error reading directory %s: %s",
+            truncate_logged_path(str(safe_path)),
+            error,
+        )
         return "Error reading directory", 500
 
 
@@ -464,6 +468,23 @@ def handle_stream_request(
         return "File type not allowed", 403
 
     file_size = safe_path.stat().st_size
+    is_subtitle = safe_path.suffix.lower() in SUBTITLE_EXTENSIONS
+    if is_subtitle:
+        subtitle_limit = MAX_SUBTITLE_FILE_SIZE
+        if server.config.max_file_size > 0:
+            subtitle_limit = min(subtitle_limit, server.config.max_file_size)
+        if file_size > subtitle_limit:
+            if server.security_logger:
+                server.security_logger.log_security_violation(
+                    "subtitle_too_large",
+                    (
+                        f"Stream rejected for oversized subtitle {video_path}: "
+                        f"{file_size} bytes exceeds limit {subtitle_limit}"
+                    ),
+                    client_ip,
+                )
+            return "Subtitle file exceeds maximum allowed size", 413
+
     if server.config.max_file_size > 0 and file_size > server.config.max_file_size:
         if server.security_logger:
             server.security_logger.log_security_violation(
@@ -484,11 +505,12 @@ def handle_stream_request(
             _session_username(),
         )
 
-    if not revalidate_before_serve(
+    validated_file = open_validated_file(
         safe_path,
         server.config.video_directory,
         inode_index=server.inode_link_index,
-    ):
+    )
+    if validated_file is None:
         if server.security_logger:
             server.security_logger.log_file_access(
                 video_path,
@@ -499,17 +521,23 @@ def handle_stream_request(
         return "Video not found", 404
 
     try:
-        if safe_path.suffix.lower() in SUBTITLE_EXTENSIONS:
-            raw_content = safe_path.read_text(encoding="utf-8", errors="replace")
+        if is_subtitle:
+            with os.fdopen(
+                validated_file.fd, "r", encoding="utf-8", errors="replace"
+            ) as subtitle_file:
+                raw_content = subtitle_file.read()
             sanitized = sanitize_subtitle_content(raw_content)
             response = Response(sanitized, mimetype="text/plain")
             response.charset = "utf-8"
             response.headers["X-Content-Type-Options"] = "nosniff"
         else:
-            directory = safe_path.parent
             filename = safe_path.name
-            response = send_from_directory(directory, filename)
-            response.headers["Content-Type"] = guess_media_mime_type(filename)
+            os.close(validated_file.fd)
+            response = send_file(
+                validated_file.path,
+                mimetype=guess_media_mime_type(filename),
+                conditional=True,
+            )
 
         perf_logger = server.performance_logger
         if perf_logger is not None:
@@ -524,7 +552,11 @@ def handle_stream_request(
         return response
 
     except (OSError, PermissionError, FileNotFoundError) as error:
-        server.app.logger.error(f"Error streaming file {video_path}: {str(error)}")
+        server.app.logger.error(
+            "Error streaming file %s: %s",
+            truncate_logged_path(video_path),
+            error,
+        )
         return "Error streaming file", 500
 
 
@@ -574,7 +606,6 @@ def handle_api_files_request(
             {  # type: ignore[misc]
                 "files": pagination.items,
                 "path": path_param,
-                "total_files": pagination.total_items,
                 "page": pagination.page,
                 "page_size": pagination.page_size,
                 "total_items": pagination.total_items,
@@ -582,14 +613,6 @@ def handle_api_files_request(
             }
         )
 
-    except PermissionError:
-        if server.security_logger:
-            server.security_logger.log_security_violation(
-                "access_denied",
-                f"Permission denied reading directory: {truncate_logged_path(path_param)!r}",
-                server.get_client_ip(),
-            )
-        return jsonify({"error": "Access denied to directory"}), 403  # type: ignore[misc]
     except (OSError, ValueError) as error:
         server.app.logger.error(f"API files error: {str(error)}")
         return jsonify({"error": "Internal server error"}), 500  # type: ignore[misc]

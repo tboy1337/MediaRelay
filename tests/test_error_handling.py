@@ -30,12 +30,11 @@ class TestServerErrorHandling:
     """Test cases for server error handling"""
 
     def test_server_missing_video_directory(self, server_config):
-        """Test server behavior when video directory is missing"""
+        """Test configuration validation when video directory is missing."""
         server_config.video_directory = "/nonexistent/directory"
 
         with pytest.raises(ValueError, match="does not exist"):
-            server = MediaRelayServer(server_config)
-            server.run()
+            server_config.validate_config()
 
     def test_server_permission_denied_directory(self, server_config, tmp_path):
         """Test server behavior when directory listing raises PermissionError"""
@@ -266,7 +265,9 @@ class TestHandlerErrorPaths:
     """Tests for handler 500 error responses."""
 
     def test_stream_handler_os_error_returns_500(self, media_relay_server):
-        """Stream handler returns 500 when send_from_directory fails."""
+        """Stream handler returns 500 when send_file fails."""
+        from mediarelay.path_utils import ValidatedFileHandle
+
         auth = base64.b64encode(b"testuser:testpass").decode()
         with media_relay_server.app.test_request_context(
             "/stream/test_video.mp4",
@@ -277,10 +278,16 @@ class TestHandlerErrorPaths:
                 media_relay_server, "check_authentication", return_value=True
             ):
                 with patch(
-                    "mediarelay.handlers.send_from_directory",
-                    side_effect=OSError("disk error"),
+                    "mediarelay.handlers.open_validated_file",
+                    return_value=ValidatedFileHandle(fd=0, path=Path("test_video.mp4")),
                 ):
-                    result = handle_stream_request(media_relay_server, "test_video.mp4")
+                    with patch(
+                        "mediarelay.handlers.send_file",
+                        side_effect=OSError("disk error"),
+                    ):
+                        result = handle_stream_request(
+                            media_relay_server, "test_video.mp4"
+                        )
         assert result == ("Error streaming file", 500)
 
     def test_api_files_handler_os_error_returns_500(self, media_relay_server):

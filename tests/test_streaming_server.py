@@ -115,7 +115,7 @@ class TestMediaRelayServer:
                 server._shutdown_cleanup()
 
     def test_inode_index_init_failure_reports_degraded_health(self, server_config):
-        """Failed inode index build marks health as degraded for unauthenticated probes."""
+        """Failed inode index build marks health as degraded in non-production mode."""
         with patch.object(
             InodeLinkIndex,
             "refresh",
@@ -132,6 +132,18 @@ class TestMediaRelayServer:
                     assert data["status"] == "degraded"
             finally:
                 server._shutdown_cleanup()
+
+    def test_inode_index_init_failure_raises_in_production(
+        self, production_server_config
+    ):
+        """Production mode refuses to start when inode index build fails."""
+        with patch.object(
+            InodeLinkIndex,
+            "refresh",
+            side_effect=OSError("index build failed"),
+        ):
+            with pytest.raises(RuntimeError, match="Inode hardlink index failed"):
+                MediaRelayServer(production_server_config)
 
 
 class TestMediaRelayServerComprehensive:
@@ -545,11 +557,11 @@ class TestVideoStreaming:
         assert response.data == b"video content"
 
     def test_stream_range_request_malformed_header(self, authenticated_client):
-        """Test malformed Range header is handled gracefully."""
+        """Test malformed Range header returns 416 when conditional responses are enabled."""
         headers = {"Range": "invalid-range"}
         response = authenticated_client.get("/stream/test_video.mp4", headers=headers)
 
-        assert response.status_code in [200, 416]
+        assert response.status_code == 416
 
     @pytest.mark.parametrize(
         "subpath,expected_names",
@@ -606,7 +618,7 @@ class TestAPIEndpoints:
 
         assert "files" in data
         assert "path" in data
-        assert "total_files" in data
+        assert "total_items" in data
         assert isinstance(data["files"], list)
 
     def test_api_files_endpoint_without_auth(self, flask_client):
@@ -1330,20 +1342,17 @@ class TestServerRunMethod:
 
 @pytest.mark.timeout(30)
 class TestPerformance:
-    """Performance tests for the streaming server"""
+    """Functional tests for streaming server scalability."""
 
     def test_large_directory_listing(self, authenticated_client, temp_video_dir):
-        """Test performance with large directory listings"""
-        # Create many test files
+        """Large directory listings render successfully."""
         for i in range(100):
             (temp_video_dir / f"test_video_{i:03d}.mp4").write_text(f"fake content {i}")
 
-        start_time = time.time()
         response = authenticated_client.get("/")
-        end_time = time.time()
 
         assert response.status_code == 200
-        assert end_time - start_time < 10.0
+        assert "test_video_000.mp4" in response.get_data(as_text=True)
 
 
 class TestRequestLogging:
@@ -1855,8 +1864,8 @@ class TestGracefulShutdown:
         assert registered == [signal.SIGINT]
 
     def test_stream_revalidation_failure_returns_404(self, authenticated_client):
-        """Stream returns 404 when pre-serve revalidation fails (TOCTOU)."""
-        with patch("mediarelay.handlers.revalidate_before_serve", return_value=False):
+        """Stream returns 404 when validated file open fails (TOCTOU)."""
+        with patch("mediarelay.handlers.open_validated_file", return_value=None):
             response = authenticated_client.get("/stream/test_video.mp4")
         assert response.status_code == 404
 

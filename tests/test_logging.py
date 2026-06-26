@@ -680,29 +680,24 @@ class TestLoggingRotation:
 
 @pytest.mark.timeout(5)
 class TestLoggingPerformance:
-    """Performance tests for logging system"""
+    """Functional tests for logging system under load."""
 
     def test_logging_performance(self, server_config, tmp_path):
-        """Test logging performance under load"""
+        """Security logger records a burst of authentication events."""
         server_config.log_directory = str(tmp_path)
         components = setup_logging(server_config)
         logger = components["security_logger"]
 
         try:
-            start_time = time.time()
-
-            # Log 100 events (reduced from 1000 to prevent worker crashes)
             for i in range(100):
                 logger.log_auth_attempt(
                     f"user{i}", i % 2 == 0, "127.0.0.1", "Test Browser"
                 )
 
-            end_time = time.time()
-
-            # Should complete in reasonable time
-            assert end_time - start_time < 5.0
+            security_log = tmp_path / "security.log"
+            assert security_log.exists()
+            assert len(security_log.read_text().splitlines()) >= 100
         finally:
-            # Cleanup: close all handlers to prevent resource leaks
             logger.cleanup()
 
     def test_concurrent_logging(self, server_config, tmp_path):

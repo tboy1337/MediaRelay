@@ -5,9 +5,11 @@ from __future__ import annotations
 import logging
 import mimetypes
 import os
+import stat
 import threading
 import unicodedata
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import unquote
@@ -397,6 +399,62 @@ def revalidate_before_serve(
     return not _is_hardlink_outside_jail(
         current_path, jail_root, inode_index=inode_index
     )
+
+
+@dataclass(frozen=True)
+class ValidatedFileHandle:
+    """An open file descriptor validated against the video directory jail."""
+
+    fd: int
+    path: Path
+
+
+def open_validated_file(
+    resolved_path: Path,
+    video_directory: str,
+    *,
+    inode_index: InodeLinkIndex | None = None,
+) -> ValidatedFileHandle | None:
+    """Open a file after re-validating jail containment and inode identity.
+
+    On POSIX, ``O_NOFOLLOW`` is used to avoid following symlinks at open time.
+    Windows does not support ``O_NOFOLLOW``; re-stat after open compares inode
+    identity to mitigate TOCTOU races within platform limits.
+    """
+    if not revalidate_before_serve(
+        resolved_path, video_directory, inode_index=inode_index
+    ):
+        return None
+
+    try:
+        pre_stat = resolved_path.stat()
+    except OSError:
+        return None
+
+    open_flags = os.O_RDONLY
+    no_follow = getattr(os, "O_NOFOLLOW", 0)
+    open_flags |= no_follow
+
+    try:
+        fd = os.open(resolved_path, open_flags)
+    except OSError:
+        return None
+
+    try:
+        post_stat = os.fstat(fd)
+    except OSError:
+        os.close(fd)
+        return None
+
+    if (pre_stat.st_ino, pre_stat.st_dev) != (post_stat.st_ino, post_stat.st_dev):
+        os.close(fd)
+        return None
+
+    if not stat.S_ISREG(post_stat.st_mode):
+        os.close(fd)
+        return None
+
+    return ValidatedFileHandle(fd=fd, path=resolved_path)
 
 
 def get_breadcrumbs(config: ServerConfig, path: Path) -> list[dict[str, str]]:

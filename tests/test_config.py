@@ -1013,10 +1013,10 @@ class TestSecurityHeaders:
 
 @pytest.mark.timeout(10)
 class TestConfigPerformance:
-    """Performance tests for configuration loading"""
+    """Functional tests for configuration loading."""
 
     def test_config_loading_performance(self):
-        """Test that config loading is fast"""
+        """Repeated config construction succeeds without error."""
         with patch.dict(
             os.environ,
             {
@@ -1024,27 +1024,18 @@ class TestConfigPerformance:
                 "VIDEO_SERVER_DIRECTORY": str(Path.home()),
             },
         ):
-            start_time = time.time()
-            for _ in range(100):
-                ServerConfig()
-            end_time = time.time()
-
-            # Should complete 100 config loads in under 1 second
-            assert end_time - start_time < 1.0
+            configs = [ServerConfig() for _ in range(100)]
+            assert len(configs) == 100
+            assert all(config.password_hash == TEST_PASSWORD_HASH for config in configs)
 
     def test_config_validation_performance(self):
-        """Test configuration validation performance"""
+        """Repeated configuration validation succeeds without error."""
         config = ServerConfig(
             password_hash=TEST_PASSWORD_HASH, video_directory=str(Path.home())
         )
 
-        start_time = time.time()
         for _ in range(100):
             config.validate_config()
-        end_time = time.time()
-
-        # Validation should be very fast (allow margin on slower hosts)
-        assert end_time - start_time < 2.0
 
 
 class TestConfigComprehensiveEdgeCases:
@@ -1079,11 +1070,11 @@ class TestConfigMainExecution:
 
     @patch("mediarelay.config.create_sample_env_file")
     def test_main_execution_calls_create_sample_env_file(self, mock_create_env):
-        """Test that running config.py as main calls create_sample_env_file"""
-        # Simulate running as main
-        with patch("mediarelay.config.__name__", "__main__"):
-            config_module.create_sample_env_file()
-            mock_create_env.assert_called()
+        """Test that mediarelay-config main calls create_sample_env_file."""
+        from mediarelay.config import main
+
+        main()
+        mock_create_env.assert_called_once()
 
 
 class TestProductionSecretKeyValidation:

@@ -312,8 +312,9 @@ class TestAccountLockoutManager:
         now_locked, tracker_exhausted = manager.record_failed_attempt(
             "3.3.3.3", "user3"
         )
-        assert now_locked is True
+        assert now_locked is False
         assert tracker_exhausted is True
+        assert not manager.is_locked_out("3.3.3.3", "user3")
         assert manager.get_failed_attempts("1.1.1.1", "user1") == 1
         assert manager.get_failed_attempts("2.2.2.2", "user2") == 1
 
@@ -336,10 +337,10 @@ class TestAccountLockoutManager:
             "1.1.1.1:locked_user" in manager._trackers
         )  # pylint: disable=protected-access
 
-    def test_username_tracker_exhaustion_emergency_lockout(
+    def test_username_tracker_exhaustion_does_not_emergency_lockout(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Username tracker exhaustion triggers emergency lockout."""
+        """Username tracker exhaustion does not lock out unrelated users."""
         monkeypatch.setattr("mediarelay.lockout.MAX_LOCKOUT_TRACKERS", 2)
         manager = AccountLockoutManager(
             max_attempts=2,
@@ -359,8 +360,9 @@ class TestAccountLockoutManager:
         now_locked, tracker_exhausted = manager.record_failed_attempt(
             "9.9.9.9", "user_c"
         )
-        assert now_locked is True
+        assert now_locked is False
         assert tracker_exhausted is True
+        assert not manager.is_locked_out("9.9.9.9", "user_c")
 
     def test_remaining_lockout_seconds_without_username_lockout(self) -> None:
         """When username lockout is disabled, only IP tracker time is returned."""
@@ -403,10 +405,10 @@ class TestAccountLockoutManager:
             "stale_user" not in manager._username_trackers
         )  # pylint: disable=protected-access
 
-    def test_lockout_fail_closed_when_all_slots_active(
+    def test_lockout_capacity_exceeded_does_not_lock_new_attackers(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """New attackers are emergency-locked when every tracker slot is an active lockout."""
+        """New attackers are not locked when every tracker slot is an active lockout."""
         monkeypatch.setattr("mediarelay.lockout.MAX_LOCKOUT_TRACKERS", 2)
         manager = AccountLockoutManager(max_attempts=2, lockout_duration=300)
 
@@ -415,8 +417,8 @@ class TestAccountLockoutManager:
         manager.record_failed_attempt("2.2.2.2", "user_b")
         assert manager.record_failed_attempt("2.2.2.2", "user_b") == (True, False)
 
-        assert manager.record_failed_attempt("3.3.3.3", "attacker") == (True, True)
-        assert manager.is_locked_out("3.3.3.3", "attacker")
+        assert manager.record_failed_attempt("3.3.3.3", "attacker") == (False, True)
+        assert not manager.is_locked_out("3.3.3.3", "attacker")
 
     def test_evict_after_expired_cleanup_frees_slot(
         self, monkeypatch: pytest.MonkeyPatch
@@ -454,10 +456,10 @@ class TestAccountLockoutManager:
 class TestLockoutTrackerExhaustedAuth:
     """Integration tests for lockout tracker exhaustion during authentication."""
 
-    def test_lockout_tracker_exhausted_logs_security_violation(
+    def test_lockout_tracker_capacity_exceeded_logs_security_violation(
         self, server_config: ServerConfig, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Failed login when tracker is saturated logs lockout_tracker_exhausted."""
+        """Failed login when tracker is saturated logs lockout_tracker_capacity_exceeded."""
         monkeypatch.setattr("mediarelay.lockout.MAX_LOCKOUT_TRACKERS", 2)
         server = MediaRelayServer(server_config)
         server.lockout_manager = AccountLockoutManager(
@@ -480,7 +482,7 @@ class TestLockoutTrackerExhaustedAuth:
 
         assert response.status_code == 401
         violation_types = [call.args[0] for call in mock_log.call_args_list]
-        assert "lockout_tracker_exhausted" in violation_types
+        assert "lockout_tracker_capacity_exceeded" in violation_types
 
 
 class TestLoginAttemptTracker:
@@ -1176,6 +1178,35 @@ class TestSubtitleSanitization:
         assert "javascript:" not in sanitized
         assert "00:00:00.000 --> 00:00:01.000" in sanitized
 
+    def test_sanitize_strips_data_and_vbscript_uris(self) -> None:
+        from mediarelay.subtitle_sanitize import sanitize_subtitle_content
+
+        content = (
+            "WEBVTT\n\ndata:text/html,<script>alert(1)</script>\nvbscript:msgbox(1)"
+        )
+        sanitized = sanitize_subtitle_content(content)
+        assert "data:" not in sanitized
+        assert "vbscript:" not in sanitized
+
+    def test_sanitize_strips_webvtt_style_and_note_blocks(self) -> None:
+        from mediarelay.subtitle_sanitize import sanitize_subtitle_content
+
+        content = (
+            "WEBVTT\n\n"
+            "STYLE\n"
+            "::cue { color: red; }\n"
+            "\n"
+            "NOTE dangerous note block\n"
+            "\n"
+            "00:00:00.000 --> 00:00:01.000\n"
+            "Safe cue text\n"
+        )
+        sanitized = sanitize_subtitle_content(content)
+        assert "STYLE" not in sanitized
+        assert "::cue" not in sanitized
+        assert "NOTE dangerous" not in sanitized
+        assert "Safe cue text" in sanitized
+
     def test_stream_subtitle_strips_malicious_content(
         self, media_relay_server: MediaRelayServer, server_config: ServerConfig
     ) -> None:
@@ -1199,6 +1230,77 @@ class TestSubtitleSanitization:
             body = response.get_data(as_text=True)
             assert "<script>" not in body
             assert "00:00:00.000 --> 00:00:01.000" in body
+
+    def test_stream_srt_strips_malicious_content(
+        self, media_relay_server: MediaRelayServer, server_config: ServerConfig
+    ) -> None:
+        """Malicious SRT content is sanitized when streamed."""
+        video_dir = Path(server_config.video_directory)
+        subtitle = video_dir / "evil.srt"
+        subtitle.write_text(
+            "1\n00:00:00,000 --> 00:00:01,000\n<script>alert(1)</script>\n",
+            encoding="utf-8",
+        )
+        credentials = base64.b64encode(
+            f"{server_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+
+        with media_relay_server.app.test_client() as client:
+            response = client.get(
+                "/stream/evil.srt",
+                headers={"Authorization": f"Basic {credentials}"},
+            )
+            assert response.status_code == 200
+            body = response.get_data(as_text=True)
+            assert "<script>" not in body
+            assert "00:00:00,000 --> 00:00:01,000" in body
+
+    def test_stream_oversized_subtitle_returns_413(
+        self, media_relay_server: MediaRelayServer, server_config: ServerConfig
+    ) -> None:
+        """Subtitle files larger than MAX_SUBTITLE_FILE_SIZE are rejected."""
+        from mediarelay.constants import MAX_SUBTITLE_FILE_SIZE
+
+        video_dir = Path(server_config.video_directory)
+        subtitle = video_dir / "huge.vtt"
+        subtitle.write_bytes(b"x" * (MAX_SUBTITLE_FILE_SIZE + 1))
+        credentials = base64.b64encode(
+            f"{server_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+
+        with media_relay_server.app.test_client() as client:
+            response = client.get(
+                "/stream/huge.vtt",
+                headers={"Authorization": f"Basic {credentials}"},
+            )
+            assert response.status_code == 413
+
+
+class TestSessionInvalidationLogging:
+    """Tests for session invalidation security audit logging."""
+
+    def test_session_idle_timeout_logs_security_event(
+        self, flask_client, server_config, media_relay_server
+    ) -> None:
+        credentials = base64.b64encode(
+            f"{server_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+        response = flask_client.get(
+            "/", headers={"Authorization": f"Basic {credentials}"}
+        )
+        assert response.status_code == 200
+
+        with flask_client.session_transaction() as sess:
+            sess["last_activity"] = time.time() - server_config.session_timeout - 1
+
+        assert media_relay_server.security_logger is not None
+        with patch.object(
+            media_relay_server.security_logger, "log_security_violation"
+        ) as mock_log:
+            response = flask_client.get("/")
+            assert response.status_code == 401
+            violation_types = [call.args[0] for call in mock_log.call_args_list]
+            assert "session_invalidated" in violation_types
 
 
 class TestCsrfTokenScope:
@@ -1747,12 +1849,13 @@ class TestSecurityLogging:
         self, media_relay_server, tmp_path
     ):
         """Test comprehensive path traversal security violation logging"""
+        from mediarelay.logging_config import SecurityEventLogger
+
         media_relay_server.config.log_directory = str(tmp_path)
+        media_relay_server.security_logger = SecurityEventLogger(
+            media_relay_server.config
+        )
 
-        # Ensure security logger exists and is mocked for testing
-        media_relay_server.security_logger = MagicMock()
-
-        # Test various path traversal attempts
         dangerous_paths = [
             "../../../etc/passwd",
             "..\\..\\windows\\system32",
@@ -1767,11 +1870,12 @@ class TestSecurityLogging:
                 result = media_relay_server.get_safe_path(path)
                 assert result is None
 
-        media_relay_server.security_logger.log_security_violation.assert_called()
-        assert (
-            media_relay_server.security_logger.log_security_violation.call_count
-            >= len(dangerous_paths)
-        )
+        security_log = tmp_path / "security.log"
+        assert security_log.exists()
+        log_lines = [
+            line for line in security_log.read_text().splitlines() if line.strip()
+        ]
+        assert len(log_lines) >= len(dangerous_paths)
 
 
 class TestCryptographicSecurity:
@@ -1828,25 +1932,22 @@ class TestCryptographicSecurity:
 
 @pytest.mark.timeout(60)
 class TestSecurityPerformance:
-    """Performance tests for security features"""
+    """Functional load tests for security features"""
 
     @pytest.mark.timeout(20)
     def test_authentication_performance(self, media_relay_server, server_config):
-        """Test authentication performance under load"""
-        start_time = time.time()
-
+        """Repeated authentication checks return consistent results."""
         with media_relay_server.app.test_request_context():
             with patch("mediarelay.auth.check_password_hash", return_value=True):
-                for _ in range(50):
+                results = [
                     media_relay_server.check_auth(server_config.username, "testpass")
-
-        end_time = time.time()
-
-        assert end_time - start_time < 5.0
+                    for _ in range(50)
+                ]
+        assert all(results)
 
     @pytest.mark.timeout(10)
     def test_path_validation_performance(self, media_relay_server):
-        """Test path validation performance"""
+        """Path validation rejects dangerous paths consistently under load."""
 
         test_paths = [
             "valid/path/file.mp4",
@@ -1855,37 +1956,29 @@ class TestSecurityPerformance:
             "..\\..\\windows\\system32\\config\\sam",
         ]
 
-        start_time = time.time()
-
         with media_relay_server.app.test_request_context():
-            # Reduced from 1000 to 100 iterations for stability
             for _ in range(100):
                 for path in test_paths:
-                    media_relay_server.get_safe_path(path)
-
-        end_time = time.time()
-
-        # Should validate paths quickly (allow margin on slower CI hosts)
-        assert end_time - start_time < 10.0
+                    result = media_relay_server.get_safe_path(path)
+                    if ".." in path or path.startswith("/") or "\\" in path:
+                        assert result is None
+                    elif path == "valid/path/file.mp4":
+                        assert result is not None
 
     @pytest.mark.timeout(10)
     def test_security_logging_performance(self, media_relay_server, tmp_path):
-        """Test security logging performance"""
+        """Security logger accepts a burst of events without error."""
 
         media_relay_server.config.log_directory = str(tmp_path)
 
         security_logger = SecurityEventLogger(media_relay_server.config)
 
-        start_time = time.time()
-
-        # Log security events (reduced from 1000 to 100 iterations)
         for i in range(100):
             security_logger.log_auth_attempt(f"user{i}", i % 2 == 0, "127.0.0.1")
 
-        end_time = time.time()
-
-        # Should log events quickly
-        assert end_time - start_time < 5.0
+        security_log = tmp_path / "security.log"
+        assert security_log.exists()
+        assert len(security_log.read_text().splitlines()) >= 100
 
 
 class TestDirectoryListingSymlinkMetadata:

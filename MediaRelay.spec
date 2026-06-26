@@ -26,6 +26,8 @@ a = Analysis(
         "mediarelay.path_utils",
         "mediarelay.templates",
         "mediarelay.generate_password",
+        "mediarelay.session_store",
+        "mediarelay.subtitle_sanitize",
         "flask",
         "werkzeug",
         "waitress",
