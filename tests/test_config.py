@@ -1262,6 +1262,23 @@ class TestEnvFilePermissions:
         mock_warning.assert_called_once()
         assert "readable by group or others" in mock_warning.call_args[0][0]
 
+    def test_world_readable_env_file_logs_warning_posix_mock(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """POSIX permission warning runs when os.name is posix (mocked on Windows)."""
+        from mediarelay.config import _warn_insecure_env_file_permissions
+
+        env_file = tmp_path / ".env"
+        env_file.write_text("VIDEO_SERVER_SECRET_KEY=test\n", encoding="utf-8")
+        env_file.chmod(0o644)
+
+        with patch.object(os, "name", "posix"):
+            with patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning:
+                _warn_insecure_env_file_permissions(env_file)
+
+        mock_warning.assert_called_once()
+        assert "readable by group or others" in mock_warning.call_args[0][0]
+
     def test_owner_only_env_file_no_warning(self, tmp_path, monkeypatch):
         """No warning when .env is owner-readable only on POSIX."""
         if os.name == "nt":
@@ -1626,6 +1643,18 @@ class TestConfigProductionAuditEdgeCases:
                 video_directory=str(video_dir),
                 password_hash=TEST_PASSWORD_HASH,
                 max_file_size=-1,
+            )
+
+    def test_excessive_max_file_size_rejected(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        from mediarelay.constants import MAX_FILE_SIZE
+
+        with pytest.raises(ValueError, match="max_file_size cannot exceed"):
+            ServerConfig(
+                video_directory=str(video_dir),
+                password_hash=TEST_PASSWORD_HASH,
+                max_file_size=MAX_FILE_SIZE + 1,
             )
 
     def test_invalid_session_cookie_samesite(self, tmp_path: Path) -> None:

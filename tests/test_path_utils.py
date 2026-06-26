@@ -13,6 +13,7 @@ from mediarelay.path_utils import (
     InodeLinkIndex,
     _build_inode_counts,
     _compute_jail_fingerprint,
+    _count_inode_links_under_jail,
     _inode_key_for_path,
     _is_hardlink_outside_jail,
     _log_path_violation,
@@ -421,6 +422,26 @@ class TestInodeLinkIndex:
         count = index.count_links(stat_result.st_ino, stat_result.st_dev)
         assert count == 1
 
+    def test_refresh_skips_when_fingerprint_unchanged_after_mtime_bump(
+        self, tmp_path: Path
+    ) -> None:
+        """Refresh skips rebuild when mtime changes but jail fingerprint is unchanged."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        (video_dir / "clip.mp4").write_text("content", encoding="utf-8")
+
+        index = InodeLinkIndex(video_dir)
+        index.refresh()
+        fingerprint = index._fingerprint  # pylint: disable=protected-access
+        os.utime(video_dir, None)
+        with patch(
+            "mediarelay.path_utils._compute_jail_fingerprint",
+            return_value=fingerprint,
+        ):
+            with patch("mediarelay.path_utils._build_inode_counts") as mock_build:
+                index.refresh()
+                mock_build.assert_not_called()
+
     def test_refresh_skips_when_fingerprint_unchanged(self, tmp_path: Path) -> None:
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
@@ -494,6 +515,16 @@ class TestInodeLinkIndex:
             side_effect=OSError("permission denied"),
         ):
             assert _compute_jail_fingerprint(video_dir) == (0, 0)
+
+    def test_count_inode_links_matches_jail_root_inode(self, tmp_path: Path) -> None:
+        """Jail root inode is counted when it matches the queried inode."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        jail_key = _inode_key_for_path(video_dir.resolve())
+        assert jail_key is not None
+        dev, ino = jail_key
+        count = _count_inode_links_under_jail(ino, dev, video_dir.resolve())
+        assert count >= 1
 
     def test_refresh_runs_after_directory_change(self, tmp_path: Path) -> None:
         video_dir = tmp_path / "videos"

@@ -104,13 +104,14 @@ class TestMediaRelayServer:
         finally:
             server._shutdown_cleanup()
 
-    def test_inode_index_starts_in_background_thread(self, server_config):
-        """Inode index initialization runs on a background thread at startup."""
+    def test_inode_index_initializes_synchronously_at_startup(self, server_config):
+        """Inode index initialization runs synchronously at startup."""
         with patch.object(InodeLinkIndex, "refresh") as mock_refresh:
             server = MediaRelayServer(server_config)
             try:
-                server._inode_index_thread.join(timeout=5)
-                mock_refresh.assert_called_once()
+                assert server._inode_index_thread is None
+                assert server.inode_index_ready is True
+                mock_refresh.assert_called_once_with(force=True)
             finally:
                 server._shutdown_cleanup()
 

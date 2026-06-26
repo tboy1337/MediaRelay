@@ -31,6 +31,7 @@ MAX_LOG_MAX_BYTES: int = 1_073_741_824  # 1 GiB
 MAX_LOG_BACKUP_COUNT: int = 100
 MIN_PRODUCTION_SECRET_KEY_LENGTH: int = 32
 MAX_USERNAME_LENGTH: int = 128
+MAX_FILE_SIZE: int = 21_474_836_480  # 20 GiB
 
 AUDIO_EXTENSIONS: frozenset[str] = frozenset({".mp3", ".aac", ".ogg", ".wav"})
 VIDEO_EXTENSIONS: frozenset[str] = frozenset(

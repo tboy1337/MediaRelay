@@ -109,21 +109,30 @@ VIDEO_SERVER_DIRECTORY=/path/to/your/videos
 VIDEO_SERVER_LOG_DIR=./logs
 
 # Performance Settings
-VIDEO_SERVER_MAX_FILE_SIZE=21474836480  # 20GB default (set to 0 to disable limit)
+VIDEO_SERVER_MAX_FILE_SIZE=21474836480  # 20GB default (max 21474836480; set to 0 to disable limit)
 VIDEO_SERVER_MAX_DIRECTORY_ENTRIES=10000
+VIDEO_SERVER_PAGE_SIZE=100
+VIDEO_SERVER_CHANNEL_TIMEOUT=120
+VIDEO_SERVER_CONNECTION_LIMIT=1000
+VIDEO_SERVER_CLEANUP_INTERVAL=30
 
 # Logging
 VIDEO_SERVER_LOG_LEVEL=INFO
 VIDEO_SERVER_LOG_MAX_BYTES=10485760
 VIDEO_SERVER_LOG_BACKUP_COUNT=5
+VIDEO_SERVER_LOG_CONSOLE=true
 
 # Rate Limiting
 VIDEO_SERVER_RATE_LIMIT=true
 VIDEO_SERVER_RATE_LIMIT_PER_MIN=60
+VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE=600
 
 # Security
 VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS=5
 VIDEO_SERVER_LOCKOUT_DURATION=900
+VIDEO_SERVER_SESSION_BIND_IP=true
+VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED=true
+VIDEO_SERVER_HSTS=false
 
 # Reverse Proxy (set true when behind nginx; set PROXY_TRUSTED=true in production)
 VIDEO_SERVER_BEHIND_PROXY=false
@@ -396,7 +405,7 @@ VIDEO_SERVER_LOG_LEVEL=WARNING
 
 #### Graceful Shutdown
 
-MediaRelay runs on Waitress, which stops accepting new connections when it receives `SIGINT` or `SIGTERM` (for example, Ctrl+C or a process manager stop). Waitress does not provide a long connection-drain window; in-flight streams may be interrupted when the process exits.
+MediaRelay runs on Waitress, which stops accepting new connections when it receives `SIGINT` or `SIGTERM` (for example, Ctrl+C or a process manager stop). Waitress does not provide a long connection-drain window; in-flight streams may be interrupted when the process exits. On shutdown, MediaRelay runs cleanup (log handler flush, lockout timer cancellation) before the process exits.
 
 For production, configure your reverse proxy (for example, nginx or Caddy) with reasonable upstream timeouts so clients disconnect cleanly before the MediaRelay process is restarted.
 

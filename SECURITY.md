@@ -31,7 +31,7 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 - HTTP Basic Authentication with Werkzeug password hashes (scrypt via `mediarelay-genpass`)
 - Session cookies after successful login (HttpOnly, Secure, SameSite configurable)
 - Constant-time username comparison (`hmac.compare_digest`)
-- Password verification on every login attempt, including when already locked out (mitigates username timing enumeration)
+- Password verification on every login attempt, including when already locked out (mitigates username timing enumeration); `/health` probes with `record_lockout=false` skip lockout accounting and expensive hash work during lockout
 - Account lockout after repeated failed attempts (per IP + username, and per username across all IPs when `VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED=true`); lockout also terminates active sessions
 - Active lockout entries are never evicted from the lockout tracker when at capacity; trackers with in-progress failed-attempt counters are also preserved (only zero-failure inactive trackers are evicted)
 - New attackers receive an emergency lockout when all slots hold active lockouts or in-progress attempt counters
@@ -59,7 +59,7 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 - HSTS when `VIDEO_SERVER_BEHIND_PROXY=true` or `VIDEO_SERVER_HSTS=true`
 - HTML UI output uses Jinja2 autoescape for filenames and paths rendered in templates
 - Directory listings capped at `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES` (default 10000) using lazy iteration to prevent memory exhaustion
-- `VIDEO_SERVER_MAX_FILE_SIZE` enforced on streaming responses (HTTP 413 when exceeded; `0` disables)
+- `VIDEO_SERVER_MAX_FILE_SIZE` enforced on streaming responses (HTTP 413 when exceeded; `0` disables; upper bound 20 GiB at startup validation)
 - Lockout tracker bounded at 10000 IP:username entries (only inactive trackers with zero failed attempts evicted when full; fail-closed emergency lockout when saturated)
 
 ### Audit Logging
@@ -79,8 +79,9 @@ Run `python scripts/verify.py` locally before release; it enforces black, isort,
 7. Set `VIDEO_SERVER_SECRET_KEY` to at least 32 characters in production (use `mediarelay-genpass`).
 8. Set `VIDEO_SERVER_BEHIND_PROXY=true` and `VIDEO_SERVER_PROXY_TRUSTED=true` when MediaRelay is unreachable except through your trusted proxy. Production startup **fails** if `BEHIND_PROXY` is enabled without `PROXY_TRUSTED`.
 9. Ensure the video directory is not writable by the server process (enforced at startup in production).
-10. Unauthenticated `/health` returns `{"status":"ok"}` (HTTP 200) when healthy or `{"status":"degraded"}` (HTTP 503) when the video directory is inaccessible; use authenticated `/health` for full readiness details.
+10. Unauthenticated `/health` returns `{"status":"ok"}` (HTTP 200) when healthy or `{"status":"degraded"}` (HTTP 503) when the video directory is inaccessible; use authenticated `/health` for full readiness details. Failed Basic Auth on `/health` does not increment account lockout counters.
 11. Restrict access with firewall rules or VPN where possible.
+12. If `VIDEO_SERVER_DIRECTORY` is a symlink, production startup logs a warning with the resolved target path; verify it remains within your intended media storage.
 
 ## Known Limitations
 
@@ -91,9 +92,9 @@ Run `python scripts/verify.py` locally before release; it enforces black, isort,
 | Shared-IP lockout | Lockout is keyed by IP + username; users behind the same NAT may affect each other |
 | Single-user model | One username/password pair; no role-based access control |
 | Session IP binding | When `VIDEO_SERVER_SESSION_BIND_IP=true` (default), sessions invalidate when the client IP changes (VPN/mobile networks may require re-login or disabling the setting) |
-| GET logout disabled | Logout requires `POST /logout` with a valid `X-CSRF-Token` header (token issued at login and returned on authenticated responses) |
+| GET logout disabled | Logout requires `POST /logout` with a valid `X-CSRF-Token` header (token issued at login and returned on authenticated HTML directory responses) |
 | Basic Auth credential caching | Browsers may re-send cached credentials after `POST /logout`; close the browser or use private browsing |
-| Subtitle files (`.srt`, `.vtt`) | Served with `Content-Type: text/plain` and `X-Content-Type-Options: nosniff`; subtitle content is rendered by the browser and is not sanitized server-side |
+| Subtitle files (`.srt`, `.vtt`) | Served as `text/plain` with HTML tags and `javascript:`/`data:` URI patterns stripped before delivery; trust only subtitle files you control |
 | Distributed brute force | Username-wide lockout (`VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED`) limits cross-IP attacks; use a strong password |
 | Stream rate limit | `/stream/` has a dedicated high limit; tune `VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE` or restrict network access |
 | CSP inline styles | Embedded UI template requires `style-src 'unsafe-inline'` |

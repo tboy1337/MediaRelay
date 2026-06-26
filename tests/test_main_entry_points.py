@@ -17,6 +17,7 @@ from mediarelay.config import create_sample_env_file
 from mediarelay.config import main as config_main
 from mediarelay.config import validate_main
 from mediarelay.server import main
+from tests.constants import TEST_PASSWORD_HASH
 
 
 class TestConfigMainEntryPoint:
@@ -117,3 +118,22 @@ class TestProductionServerRun:
         with patch("pathlib.Path.exists", return_value=False):
             with pytest.raises(ValueError, match="does not exist"):
                 media_relay_server.run()
+
+
+class TestServerCliValidation:
+    """CLI argument validation for mediarelay entry point."""
+
+    def test_main_rejects_invalid_port(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Invalid --port values are rejected after CLI override validation."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(video_dir))
+        monkeypatch.setenv("VIDEO_SERVER_PASSWORD_HASH", TEST_PASSWORD_HASH)
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["--port", "0"])
+
+        assert result.exit_code == 1
+        assert "Port must be between" in result.output

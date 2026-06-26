@@ -47,7 +47,7 @@ Session lifetime is governed by:
 - `VIDEO_SERVER_SESSION_TIMEOUT`: Idle timeout (default 1 hour)
 - `VIDEO_SERVER_SESSION_MAX_LIFETIME`: Absolute maximum session age from login (default 24 hours)
 
-Authenticated responses include an `X-CSRF-Token` header containing the current session CSRF token for use with `POST /logout`.
+Authenticated HTML directory responses include an `X-CSRF-Token` header containing the current session CSRF token for use with `POST /logout`. Stream and API responses do not include this header.
 
 ## Endpoints
 
@@ -58,6 +58,7 @@ Check server health and status.
 **Endpoint**: `GET /health`
 **Authentication**: Optional — unauthenticated callers receive minimal information
 **Rate Limit**: Exempt from global rate limiting (monitoring probes are not throttled)
+**Lockout**: Failed Basic Auth on `/health` does not increment account lockout counters (monitoring misconfiguration cannot trigger lockout)
 
 #### Request
 ```http

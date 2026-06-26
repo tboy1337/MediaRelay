@@ -44,7 +44,7 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 | `VIDEO_SERVER_LOG_DIR` | `./logs` | Log file directory (created if missing; must be writable). |
 | `VIDEO_SERVER_ALLOWED_EXTENSIONS` | *(built-in set)* | Comma-separated extensions. Must be a subset of the built-in media allowlist (video, audio, `.srt`, `.vtt`). Invalid values are rejected at startup. |
 | `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES` | `10000` | Maximum listable entries per directory request. Exceeding this returns HTTP 413. |
-| `VIDEO_SERVER_MAX_FILE_SIZE` | `21474836480` | Maximum file size in bytes for uploads and streaming (`0` disables). Oversized streams return HTTP 413. |
+| `VIDEO_SERVER_MAX_FILE_SIZE` | `21474836480` | Maximum file size in bytes for uploads and streaming (`0` disables). Values above `21474836480` (20 GiB) are rejected at startup. Oversized streams return HTTP 413. |
 
 ## Logging
 

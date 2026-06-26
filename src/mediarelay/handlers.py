@@ -23,6 +23,7 @@ from .path_utils import (
     revalidate_before_serve,
 )
 from .session_store import get_session_username
+from .subtitle_sanitize import sanitize_subtitle_content
 from .templates import render_index_template
 
 if TYPE_CHECKING:
@@ -498,14 +499,16 @@ def handle_stream_request(
         return "Video not found", 404
 
     try:
-        directory = safe_path.parent
-        filename = safe_path.name
-        response = send_from_directory(directory, filename)
-
         if safe_path.suffix.lower() in SUBTITLE_EXTENSIONS:
-            response.headers["Content-Type"] = "text/plain; charset=utf-8"
+            raw_content = safe_path.read_text(encoding="utf-8", errors="replace")
+            sanitized = sanitize_subtitle_content(raw_content)
+            response = Response(sanitized, mimetype="text/plain")
+            response.charset = "utf-8"
             response.headers["X-Content-Type-Options"] = "nosniff"
         else:
+            directory = safe_path.parent
+            filename = safe_path.name
+            response = send_from_directory(directory, filename)
             response.headers["Content-Type"] = guess_media_mime_type(filename)
 
         perf_logger = server.performance_logger

@@ -29,6 +29,7 @@ from .constants import (
     MAX_CLEANUP_INTERVAL,
     MAX_CONNECTION_LIMIT,
     MAX_DIRECTORY_ENTRIES,
+    MAX_FILE_SIZE,
     MAX_LOCKOUT_DURATION_SECONDS,
     MAX_LOCKOUT_MAX_ATTEMPTS,
     MAX_LOG_BACKUP_COUNT,
@@ -153,6 +154,22 @@ def _validate_video_directory(video_directory: str) -> None:
         raise ValueError(f"Video directory is not readable: {video_directory}")
 
 
+def _warn_video_directory_symlink(video_directory: str) -> None:
+    """Warn when the video directory is a symlink (production only)."""
+    video_path = Path(video_directory)
+    if not video_path.is_symlink():
+        return
+    try:
+        resolved = video_path.resolve()
+    except OSError:
+        return
+    _CONFIG_LOGGER.warning(
+        "VIDEO_SERVER_DIRECTORY is a symlink resolving to %s. "
+        "Ensure the target stays within your intended media storage.",
+        resolved,
+    )
+
+
 def _validate_log_directory(log_directory: str) -> None:
     """Ensure the log directory exists and is writable."""
     log_path = Path(log_directory)
@@ -222,6 +239,11 @@ def _validate_server_settings(config: "ServerConfig") -> None:
     if config.max_file_size < 0:
         raise ValueError(
             f"max_file_size cannot be negative, got: {config.max_file_size}"
+        )
+
+    if config.max_file_size > MAX_FILE_SIZE:
+        raise ValueError(
+            f"max_file_size cannot exceed {MAX_FILE_SIZE}, got: {config.max_file_size}"
         )
 
     if not (1 <= config.port <= 65535):
@@ -550,6 +572,7 @@ class ServerConfig:
         _validate_production_settings(self)
         _validate_log_directory(self.log_directory)
         if self.is_production():
+            _warn_video_directory_symlink(self.video_directory)
             _validate_deployment_settings(self)
 
     def is_production(self) -> bool:

@@ -62,13 +62,10 @@ class MediaRelayServer:
         self._logging_components: LoggingComponents | None = None
         self._start_time: float = time.time()
         self.inode_link_index = InodeLinkIndex(Path(config.video_directory))
-        self._inode_index_thread = threading.Thread(
-            target=self.inode_link_index.refresh,
-            name="inode-index-init",
-            daemon=True,
-        )
-        self._inode_index_thread.start()
+        self.inode_index_ready = False
+        self._inode_index_thread: threading.Thread | None = None
         self._setup_logging()
+        self._initialize_inode_index()
         self._warn_ephemeral_secret_key()
         self._warn_legacy_flask_env()
         self._warn_behind_proxy()
@@ -76,6 +73,23 @@ class MediaRelayServer:
         self._setup_rate_limiting()
         register_routes(self)
         register_error_handlers(self)
+
+    def _initialize_inode_index(self) -> None:
+        """Build the inode link index synchronously at startup."""
+        try:
+            self.inode_link_index.refresh(force=True)
+            self.inode_index_ready = True
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            self.inode_index_ready = False
+            self.app.logger.warning(
+                "Inode index initial build failed: %s", error, exc_info=True
+            )
+
+    def check_runtime_health(self) -> bool:
+        """Verify runtime-critical paths and inode index are ready."""
+        if not self.config.check_runtime_health():
+            return False
+        return self.inode_index_ready
 
     def _warn_ephemeral_secret_key(self) -> None:
         """Warn when the secret key is auto-generated instead of set in the environment."""
@@ -198,6 +212,9 @@ class MediaRelayServer:
     def _shutdown_cleanup(self) -> None:
         """Release background resources and flush log handlers on shutdown."""
         self._stop_lockout_cleanup()
+        if self._inode_index_thread is not None and self._inode_index_thread.is_alive():
+            self._inode_index_thread.join(timeout=5.0)
+            self._inode_index_thread = None
         if self._logging_components is not None:
             cleanup_logging(self._logging_components)
             self._logging_components = None
@@ -244,9 +261,13 @@ class MediaRelayServer:
         """Generate breadcrumb navigation."""
         return get_breadcrumbs(self.config, path)
 
-    def check_authentication(self, *, establish_session: bool = True) -> bool:
+    def check_authentication(
+        self, *, establish_session: bool = True, record_lockout: bool = True
+    ) -> bool:
         """Check if the current request is authenticated with lockout protection."""
-        return _check_authentication(self, establish_session=establish_session)
+        return _check_authentication(
+            self, establish_session=establish_session, record_lockout=record_lockout
+        )
 
     def run(self) -> None:
         """Start the production server."""
@@ -298,7 +319,7 @@ class MediaRelayServer:
             self.app.logger.error(f"Server error: {str(error)}", exc_info=True)
             raise
         finally:
-            self.app.logger.info("Draining connections before shutdown")
+            self.app.logger.info("Running shutdown cleanup")
             self._shutdown_cleanup()
 
 
@@ -328,7 +349,7 @@ def main(
 
         if host:
             config.host = host
-        if port:
+        if port is not None:
             config.port = port
         if debug:
             if config.is_production():
@@ -337,6 +358,8 @@ def main(
                     "Debug mode must not be used in production."
                 )
             config.debug = True
+
+        config.validate_config()
 
         server = MediaRelayServer(config)
         if debug:

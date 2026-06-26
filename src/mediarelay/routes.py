@@ -17,7 +17,6 @@ from .handlers import (
     handle_index_request,
     handle_stream_request,
 )
-from .logging_config import get_request_logger
 from .session_store import (
     clear_session,
     get_csrf_token,
@@ -34,6 +33,19 @@ from .session_store import (
 
 if TYPE_CHECKING:
     from .server import MediaRelayServer
+
+
+def _should_send_csrf_token() -> bool:
+    """Return True when the response should include a CSRF token header."""
+    if request.path.startswith("/stream/"):
+        return False
+    if request.path == "/health":
+        return False
+    if request.path.startswith("/api/"):
+        return False
+    if request.path == "/logout":
+        return False
+    return True
 
 
 def register_routes(server: MediaRelayServer) -> None:
@@ -62,8 +74,8 @@ def register_routes(server: MediaRelayServer) -> None:
             abort(414)
 
         request_id = get_request_id()
-        get_request_logger("mediarelay").debug(
-            "Request %s: %s %s from %s",
+        server.app.logger.debug(
+            "request_id=%s method=%s path=%s client_ip=%s",
             request_id,
             request.method,
             request.path,
@@ -82,7 +94,7 @@ def register_routes(server: MediaRelayServer) -> None:
         if server.config.should_send_hsts():
             response.headers["Strict-Transport-Security"] = HSTS_HEADER_VALUE
 
-        if is_session_authenticated():
+        if is_session_authenticated() and _should_send_csrf_token():
             csrf_token = get_csrf_token()
             if csrf_token is not None:
                 response.headers["X-CSRF-Token"] = csrf_token
@@ -109,10 +121,12 @@ def register_routes(server: MediaRelayServer) -> None:
 
     def _health_handler() -> Response | tuple[Response, int]:
         """Health check endpoint for monitoring."""
-        is_authenticated = check_authentication(server, establish_session=False)
+        is_authenticated = check_authentication(
+            server, establish_session=False, record_lockout=False
+        )
 
         try:
-            is_healthy = server.config.check_runtime_health()
+            is_healthy = server.check_runtime_health()
         except (OSError, PermissionError, RuntimeError):
             is_healthy = False
 

@@ -38,14 +38,18 @@ def auth_required_response(server: MediaRelayServer) -> Response:
 
 
 def check_auth(
-    server: MediaRelayServer, username: str | None, password: str | None
+    server: MediaRelayServer,
+    username: str | None,
+    password: str | None,
+    *,
+    record_lockout: bool = True,
 ) -> bool:
     """Verify username and password with lockout protection."""
     ip_address = server.get_client_ip()
     user_agent = request.headers.get("User-Agent", "")
 
     if not username or not password:
-        if server.security_logger:
+        if record_lockout and server.security_logger:
             server.security_logger.log_auth_attempt(
                 username or "empty",
                 False,
@@ -55,24 +59,25 @@ def check_auth(
         return False
 
     if server.lockout_manager.is_locked_out(ip_address, username):
-        check_password_hash(server.config.password_hash, password)
-        remaining = server.lockout_manager.get_remaining_lockout_seconds(
-            ip_address, username
-        )
-        if server.security_logger:
-            server.security_logger.log_security_violation(
-                "account_lockout",
-                f"Login attempt while locked out for user '{username}' "
-                f"({remaining}s remaining)",
-                ip_address,
+        if record_lockout:
+            check_password_hash(server.config.password_hash, password)
+            remaining = server.lockout_manager.get_remaining_lockout_seconds(
+                ip_address, username
             )
+            if server.security_logger:
+                server.security_logger.log_security_violation(
+                    "account_lockout",
+                    f"Login attempt while locked out for user '{username}' "
+                    f"({remaining}s remaining)",
+                    ip_address,
+                )
         return False
 
     username_ok = hmac.compare_digest(username, server.config.username)
     password_ok = check_password_hash(server.config.password_hash, password)
     valid = username_ok and password_ok
 
-    if server.security_logger:
+    if record_lockout and server.security_logger:
         server.security_logger.log_auth_attempt(
             username,
             valid,
@@ -80,26 +85,27 @@ def check_auth(
             user_agent,
         )
 
-    if valid:
-        server.lockout_manager.record_successful_login(ip_address, username)
-    else:
-        now_locked, tracker_exhausted = server.lockout_manager.record_failed_attempt(
-            ip_address, username
-        )
-        if tracker_exhausted:
-            if server.security_logger:
+    if record_lockout:
+        if valid:
+            server.lockout_manager.record_successful_login(ip_address, username)
+        else:
+            now_locked, tracker_exhausted = (
+                server.lockout_manager.record_failed_attempt(ip_address, username)
+            )
+            if tracker_exhausted:
+                if server.security_logger:
+                    server.security_logger.log_security_violation(
+                        "lockout_tracker_exhausted",
+                        "Lockout tracker at capacity; emergency lockout applied",
+                        ip_address,
+                    )
+            if now_locked and server.security_logger:
                 server.security_logger.log_security_violation(
-                    "lockout_tracker_exhausted",
-                    "Lockout tracker at capacity; emergency lockout applied",
+                    "account_locked",
+                    f"Account locked out after {server.config.lockout_max_attempts} "
+                    f"failed attempts for user '{username}'",
                     ip_address,
                 )
-        if now_locked and server.security_logger:
-            server.security_logger.log_security_violation(
-                "account_locked",
-                f"Account locked out after {server.config.lockout_max_attempts} "
-                f"failed attempts for user '{username}'",
-                ip_address,
-            )
 
     return valid
 
@@ -159,7 +165,10 @@ def _session_invalid_reason(
 
 
 def check_authentication(
-    server: MediaRelayServer, *, establish_session: bool = True
+    server: MediaRelayServer,
+    *,
+    establish_session: bool = True,
+    record_lockout: bool = True,
 ) -> bool:
     """Check if the current request is authenticated with lockout protection."""
     current_time = time.time()
@@ -173,7 +182,7 @@ def check_authentication(
     if not auth or not auth.username or not auth.password:
         return False
 
-    if check_auth(server, auth.username, auth.password):
+    if check_auth(server, auth.username, auth.password, record_lockout=record_lockout):
         if establish_session:
             create_auth_session(
                 username=auth.username,

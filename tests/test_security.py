@@ -336,6 +336,73 @@ class TestAccountLockoutManager:
             "1.1.1.1:locked_user" in manager._trackers
         )  # pylint: disable=protected-access
 
+    def test_username_tracker_exhaustion_emergency_lockout(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Username tracker exhaustion triggers emergency lockout."""
+        monkeypatch.setattr("mediarelay.lockout.MAX_LOCKOUT_TRACKERS", 2)
+        manager = AccountLockoutManager(
+            max_attempts=2,
+            lockout_duration=300,
+            username_lockout_enabled=True,
+        )
+        lockout_until = time.time() + 300
+        for name in ("user_a", "user_b"):
+            tracker = LoginAttemptTracker()
+            tracker.failed_attempts = 2
+            tracker.lockout_until = lockout_until
+            tracker.last_attempt = time.time()
+            manager._username_trackers[name] = (  # pylint: disable=protected-access
+                tracker
+            )
+
+        now_locked, tracker_exhausted = manager.record_failed_attempt(
+            "9.9.9.9", "user_c"
+        )
+        assert now_locked is True
+        assert tracker_exhausted is True
+
+    def test_remaining_lockout_seconds_without_username_lockout(self) -> None:
+        """When username lockout is disabled, only IP tracker time is returned."""
+        manager = AccountLockoutManager(
+            max_attempts=2,
+            lockout_duration=300,
+            username_lockout_enabled=False,
+        )
+        manager.record_failed_attempt("1.1.1.1", "user")
+        manager.record_failed_attempt("1.1.1.1", "user")
+        remaining = manager.get_remaining_lockout_seconds("1.1.1.1", "user")
+        assert remaining > 0
+
+    def test_username_tracker_cleanup_removes_stale_entries(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Expired username tracker entries are removed during cleanup."""
+        current = [1000.0]
+
+        def fake_time() -> float:
+            return current[0]
+
+        monkeypatch.setattr("mediarelay.lockout.time.time", fake_time)
+        manager = AccountLockoutManager(
+            max_attempts=5,
+            lockout_duration=300,
+            username_lockout_enabled=True,
+        )
+        stale = LoginAttemptTracker()
+        stale.last_attempt = 0.0
+        stale.lockout_until = 0.0
+        stale.failed_attempts = 0
+        manager._username_trackers["stale_user"] = (  # pylint: disable=protected-access
+            stale
+        )
+
+        removed = manager.cleanup_expired()
+        assert removed >= 1
+        assert (
+            "stale_user" not in manager._username_trackers
+        )  # pylint: disable=protected-access
+
     def test_lockout_fail_closed_when_all_slots_active(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1050,6 +1117,116 @@ class TestHealthEndpointSecurity:
 
         with flask_client.session_transaction() as sess:
             assert not sess.get("authenticated")
+
+    def test_health_failed_auth_does_not_increment_lockout(
+        self, media_relay_server: MediaRelayServer, server_config: ServerConfig
+    ) -> None:
+        """Failed Basic Auth on /health must not record lockout attempts."""
+        wrong_creds = base64.b64encode(
+            f"{server_config.username}:wrongpassword".encode("utf-8")
+        ).decode("utf-8")
+        auth_header = {"Authorization": f"Basic {wrong_creds}"}
+
+        with media_relay_server.app.test_client() as client:
+            for _ in range(server_config.lockout_max_attempts + 5):
+                response = client.get("/health", headers=auth_header)
+                assert response.status_code in (200, 503)
+
+            assert not media_relay_server.lockout_manager.is_locked_out(
+                "127.0.0.1", server_config.username
+            )
+            assert (
+                media_relay_server.lockout_manager.get_failed_attempts(
+                    "127.0.0.1", server_config.username
+                )
+                == 0
+            )
+
+    def test_health_valid_auth_returns_detailed_info(
+        self, flask_client, server_config: ServerConfig
+    ) -> None:
+        """Valid Basic Auth on /health returns detailed health payload."""
+        credentials = base64.b64encode(
+            f"{server_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+        response = flask_client.get(
+            "/health",
+            headers={"Authorization": f"Basic {credentials}"},
+        )
+        assert response.status_code in (200, 503)
+        data = json.loads(response.data)
+        assert "version" in data
+        assert "uptime_seconds" in data
+
+
+class TestSubtitleSanitization:
+    """Tests for subtitle content sanitization before streaming."""
+
+    def test_sanitize_strips_html_and_dangerous_uris(self) -> None:
+        from mediarelay.subtitle_sanitize import sanitize_subtitle_content
+
+        content = (
+            "WEBVTT\n\n"
+            "00:00:00.000 --> 00:00:01.000\n"
+            "<img src=x onerror=alert(1)>\n"
+            "javascript:alert(1)\n"
+        )
+        sanitized = sanitize_subtitle_content(content)
+        assert "<img" not in sanitized
+        assert "javascript:" not in sanitized
+        assert "00:00:00.000 --> 00:00:01.000" in sanitized
+
+    def test_stream_subtitle_strips_malicious_content(
+        self, media_relay_server: MediaRelayServer, server_config: ServerConfig
+    ) -> None:
+        """Malicious VTT content is sanitized when streamed."""
+        video_dir = Path(server_config.video_directory)
+        subtitle = video_dir / "evil.vtt"
+        subtitle.write_text(
+            "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\n" "<script>alert(1)</script>\n",
+            encoding="utf-8",
+        )
+        credentials = base64.b64encode(
+            f"{server_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+
+        with media_relay_server.app.test_client() as client:
+            response = client.get(
+                "/stream/evil.vtt",
+                headers={"Authorization": f"Basic {credentials}"},
+            )
+            assert response.status_code == 200
+            body = response.get_data(as_text=True)
+            assert "<script>" not in body
+            assert "00:00:00.000 --> 00:00:01.000" in body
+
+
+class TestCsrfTokenScope:
+    """Tests for CSRF token header exposure scope."""
+
+    def test_stream_response_omits_csrf_token(
+        self, media_relay_server: MediaRelayServer, server_config: ServerConfig
+    ) -> None:
+        """Stream responses must not expose X-CSRF-Token."""
+        video_dir = Path(server_config.video_directory)
+        (video_dir / "clip.mp4").write_bytes(b"\x00" * 64)
+        credentials = base64.b64encode(
+            f"{server_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+
+        with media_relay_server.app.test_client() as client:
+            client.get("/", headers={"Authorization": f"Basic {credentials}"})
+            response = client.get("/stream/clip.mp4")
+            assert response.status_code == 200
+            assert "X-CSRF-Token" not in response.headers
+
+    def test_api_response_omits_csrf_token(
+        self, authenticated_client, server_config: ServerConfig
+    ) -> None:
+        """API JSON responses must not expose X-CSRF-Token."""
+        response = authenticated_client.get("/api/files")
+        assert response.status_code == 200
+        assert "X-CSRF-Token" not in response.headers
 
 
 class TestAuthDirect:
