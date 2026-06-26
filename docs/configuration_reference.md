@@ -6,7 +6,7 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VIDEO_SERVER_HOST` | `0.0.0.0` | Bind address. Use `127.0.0.1` when behind a reverse proxy. |
+| `VIDEO_SERVER_HOST` | `0.0.0.0` | Bind address (validated at startup as a valid IP or hostname). Use `127.0.0.1` when behind a reverse proxy. |
 | `VIDEO_SERVER_PORT` | `5000` | TCP port (1–65535). |
 | `VIDEO_SERVER_DEBUG` | `false` | Flask debug mode. Must be `false` when `VIDEO_SERVER_PRODUCTION=true`. |
 | `VIDEO_SERVER_THREADS` | `6` | Waitress worker threads (1–256). |

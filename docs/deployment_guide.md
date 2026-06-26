@@ -164,7 +164,7 @@ mediarelay-validate --config-file /path/to/.env
 
 When `VIDEO_SERVER_PRODUCTION=true`, the same deployment checks also run automatically when you start the server with `mediarelay`. Use `mediarelay-validate` to catch configuration errors before a service restart or container rollout.
 
-The validator checks password hash format, secret key presence, video/log directory permissions, rate limiting, and port range. Fix any reported errors before deployment.
+The validator checks password hash format, secret key presence, video/log directory permissions, rate limiting, bind address format, and port range. Fix any reported errors before deployment.
 
 **Pre-deploy checklist:**
 

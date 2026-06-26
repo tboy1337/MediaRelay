@@ -180,7 +180,14 @@ def _build_verification_steps() -> list[tuple[str, list[str], bool]]:
         ),
         (
             "Mypy type checking",
-            _python_module("mypy", "--package", "mediarelay"),
+            _python_module(
+                "mypy",
+                "--config-file",
+                _path(ROOT / "mypy.ini"),
+                "--no-warn-unused-configs",
+                "--package",
+                "mediarelay",
+            ),
             False,
         ),
         (

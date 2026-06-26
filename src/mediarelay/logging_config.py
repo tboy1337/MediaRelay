@@ -273,6 +273,7 @@ def setup_logging(config: ServerConfig) -> LoggingComponents:
     log_dir.mkdir(parents=True, exist_ok=True)
 
     root_logger = logging.getLogger()
+    # ServerConfig validates log levels at startup; this fallback protects direct calls.
     try:
         log_level = getattr(logging, config.log_level.upper())  # type: ignore[misc]
         root_logger.setLevel(log_level)  # type: ignore[misc]

@@ -26,6 +26,7 @@ from mediarelay.logging_config import (
     PerformanceLogger,
     SecurityEventLogger,
     _collect_system_info,
+    _disk_usage_path,
     cleanup_logging,
     get_request_logger,
     log_system_info,
@@ -504,8 +505,14 @@ class TestLoggingSetupComprehensive:
 
         # Test invalid log level (should fallback to INFO)
         server_config.log_level = "INVALID_LEVEL"
-        components = setup_logging(server_config)
+        with patch.object(
+            logging.getLogger("mediarelay"),
+            "warning",
+        ) as mock_warning:
+            components = setup_logging(server_config)
         assert components["root_logger"].level == logging.INFO
+        mock_warning.assert_called_once()
+        assert "INVALID_LEVEL" in str(mock_warning.call_args)
 
     def test_setup_logging_handler_cleanup(self, server_config, tmp_path):
         """Test that setup_logging cleans up existing handlers"""
@@ -834,6 +841,60 @@ class TestSystemInfoCollection:
 
         mock_disk.assert_called_once_with(str(log_dir))
         assert info["disk_free_gb"] == 5.0
+
+    def test_disk_usage_path_falls_back_to_video_directory(
+        self, server_config: ServerConfig, tmp_path: Path
+    ) -> None:
+        """Empty log directory uses the configured video directory."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        server_config.log_directory = "   "
+        server_config.video_directory = str(video_dir)
+
+        assert _disk_usage_path(server_config) == str(video_dir)
+
+        with patch("mediarelay.logging_config.psutil.disk_usage") as mock_disk:
+            mock_disk.return_value = MagicMock(free=2 * 1024**3)
+            info = _collect_system_info(server_config)
+
+        mock_disk.assert_called_once_with(str(video_dir))
+        assert info["disk_free_gb"] == 2.0
+
+    def test_disk_usage_path_falls_back_to_cwd(
+        self,
+        server_config: ServerConfig,
+    ) -> None:
+        """When log and video directories are empty, disk usage uses cwd."""
+        server_config.log_directory = ""
+        server_config.video_directory = "   "
+        fake_cwd = "/fake/working/directory"
+
+        with patch("mediarelay.logging_config.os.getcwd", return_value=fake_cwd):
+            assert _disk_usage_path(server_config) == fake_cwd
+
+            with patch("mediarelay.logging_config.psutil.disk_usage") as mock_disk:
+                mock_disk.return_value = MagicMock(free=3 * 1024**3)
+                info = _collect_system_info(server_config)
+
+        mock_disk.assert_called_once_with(fake_cwd)
+        assert info["disk_free_gb"] == 3.0
+
+    def test_collect_system_info_import_error_fallback(
+        self, server_config: ServerConfig, tmp_path: Path
+    ) -> None:
+        """ImportError from psutil yields unknown resource metrics."""
+        server_config.log_directory = str(tmp_path)
+        with patch(
+            "mediarelay.logging_config.psutil.cpu_count",
+            side_effect=ImportError("psutil unavailable"),
+        ):
+            info = _collect_system_info(server_config)
+
+        assert info["cpu_count"] == "unknown"
+        assert info["memory_total_gb"] == "unknown"
+        assert info["disk_free_gb"] == "unknown"
+        assert info["platform"]
+        assert info["python_version"]
 
 
 class TestLoggingErrorScenarios:

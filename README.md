@@ -253,6 +253,10 @@ All security events are logged:
 - File access attempts
 - Account lockout events
 
+Logout requires `POST /logout` with a CSRF token via the `X-CSRF-Token` header or `csrf_token` form field (see [API documentation](docs/api_documentation.md)). `GET /logout` is rejected with `405 Method Not Allowed`.
+
+`VIDEO_SERVER_HOST` is validated at startup (must be a valid IP address or hostname).
+
 ## 📈 Performance
 
 ### Performance Features

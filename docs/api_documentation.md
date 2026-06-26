@@ -133,7 +133,18 @@ Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
 X-CSRF-Token: <token-from-authenticated-response>
 ```
 
-Obtain the CSRF token from the `X-CSRF-Token` response header on any authenticated request (for example, after `GET /` with valid credentials).
+Obtain the CSRF token from the `X-CSRF-Token` response header on any authenticated HTML browsing request (for example, after `GET /` with valid credentials). The web UI logout form also submits the token as a hidden `csrf_token` form field.
+
+Alternative form submission (HTML logout button):
+
+```http
+POST /logout HTTP/1.1
+Host: localhost:5000
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+Content-Type: application/x-www-form-urlencoded
+
+csrf_token=<token-from-authenticated-response>
+```
 
 #### Response
 ```http
@@ -147,7 +158,7 @@ Logged out successfully. Close browser to complete logout.
 #### Status Codes
 - `200 OK`: Session cleared
 - `401 Unauthorized`: Not authenticated
-- `403 Forbidden`: Missing or invalid `X-CSRF-Token` header
+- `403 Forbidden`: Missing or invalid CSRF token (`X-CSRF-Token` header or `csrf_token` form field)
 - `405 Method Not Allowed`: GET request rejected
 
 ### 3. Directory Listing
