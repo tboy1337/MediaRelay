@@ -455,6 +455,29 @@ class TestVideoStreaming:
 
         assert response.status_code == 416
 
+    def test_stream_range_request_suffix(self, authenticated_client):
+        """Test suffix Range request returns partial content."""
+        headers = {"Range": "bytes=-5"}
+        response = authenticated_client.get("/stream/test_video.mp4", headers=headers)
+
+        assert response.status_code == 206
+        assert len(response.data) == 5
+
+    def test_stream_range_request_open_ended(self, authenticated_client):
+        """Test open-ended Range request returns partial content."""
+        headers = {"Range": "bytes=5-"}
+        response = authenticated_client.get("/stream/test_video.mp4", headers=headers)
+
+        assert response.status_code == 206
+        assert response.data == b"video content"
+
+    def test_stream_range_request_malformed_header(self, authenticated_client):
+        """Test malformed Range header is handled gracefully."""
+        headers = {"Range": "invalid-range"}
+        response = authenticated_client.get("/stream/test_video.mp4", headers=headers)
+
+        assert response.status_code in [200, 416]
+
     @pytest.mark.parametrize(
         "subpath,expected_names",
         [
@@ -480,14 +503,13 @@ class TestAPIEndpoints:
     """Test cases for API endpoints"""
 
     def test_health_check_endpoint(self, test_client):
-        """Test health check endpoint (unauthenticated - minimal info)"""
+        """Test health check endpoint (unauthenticated - liveness only)"""
         response = test_client.get("/health")
 
-        assert response.status_code in [200, 503]
+        assert response.status_code == 200
         data = json.loads(response.data)
-
-        # Unauthenticated requests should only get status
-        assert data["status"] in ["healthy", "unhealthy"]
+        assert data["status"] == "ok"
+        assert "version" not in data
 
     def test_health_check_endpoint_authenticated(self, authenticated_client):
         """Test health check endpoint with authentication (detailed info)"""
@@ -548,7 +570,7 @@ class TestHealthCheckComprehensive:
     """Comprehensive tests for health check endpoint"""
 
     def test_health_check_healthy_unauthenticated(self, test_server):
-        """Test health check when healthy (unauthenticated - minimal info)"""
+        """Test health check when healthy (unauthenticated - liveness only)"""
         with test_server.app.test_client() as client:
             with patch.object(Path, "exists", return_value=True):
                 with patch("os.access", return_value=True):
@@ -556,36 +578,61 @@ class TestHealthCheckComprehensive:
                     assert response.status_code == 200
 
                     data = json.loads(response.data)
-                    assert data["status"] == "healthy"
-                    # Unauthenticated should not get detailed info
+                    assert data["status"] == "ok"
                     assert "timestamp" not in data
 
-    def test_health_check_unhealthy(self, test_server):
-        """Test health check when video directory is not accessible"""
+    def test_health_check_unhealthy_unauthenticated(self, test_server):
+        """Unauthenticated health always returns liveness ok regardless of disk."""
         with test_server.app.test_client() as client:
             with patch.object(Path, "exists", return_value=False):
                 response = client.get("/health")
+                assert response.status_code == 200
+
+                data = json.loads(response.data)
+                assert data["status"] == "ok"
+
+    def test_health_check_unhealthy_authenticated(self, test_server, server_config):
+        """Authenticated health reports unhealthy when disk is inaccessible."""
+        credentials = base64.b64encode(
+            f"{server_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+        with test_server.app.test_client() as client:
+            with patch.object(Path, "exists", return_value=False):
+                response = client.get(
+                    "/health",
+                    headers={"Authorization": f"Basic {credentials}"},
+                )
                 assert response.status_code == 503
 
                 data = json.loads(response.data)
                 assert data["status"] == "unhealthy"
 
     def test_health_check_exception(self, test_server):
-        """Test health check with exception"""
+        """Test health check with exception (authenticated readiness)"""
+        credentials = base64.b64encode(b"testuser:testpass").decode("utf-8")
         with test_server.app.test_client() as client:
             with patch.object(Path, "exists", side_effect=OSError("Test error")):
-                response = client.get("/health")
+                response = client.get(
+                    "/health",
+                    headers={"Authorization": f"Basic {credentials}"},
+                )
                 assert response.status_code == 503
 
-    def test_health_check_permission_error(self, test_server):
+    def test_health_check_permission_error(self, test_server, server_config):
         """Test health check when runtime health raises PermissionError."""
+        credentials = base64.b64encode(
+            f"{server_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
         with test_server.app.test_client() as client:
             with patch.object(
                 test_server.config,
                 "check_runtime_health",
                 side_effect=PermissionError("denied"),
             ):
-                response = client.get("/health")
+                response = client.get(
+                    "/health",
+                    headers={"Authorization": f"Basic {credentials}"},
+                )
                 assert response.status_code == 503
 
 
@@ -1701,4 +1748,33 @@ class TestProductionAuditFixes:
             response = client.get("/health")
         assert response.status_code == 429
         assert response.headers.get("Retry-After") == "60"
+        server._shutdown_cleanup()
+
+
+class TestProductionServerSmoke:
+    """Smoke tests for production-mode server startup and readiness."""
+
+    def test_production_server_starts_and_reports_readiness(
+        self, production_server_config: ServerConfig
+    ) -> None:
+        server = MediaRelayServer(production_server_config)
+        credentials = base64.b64encode(
+            f"{production_server_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+
+        with server.app.test_client() as client:
+            liveness = client.get("/health")
+            assert liveness.status_code == 200
+            assert json.loads(liveness.data)["status"] == "ok"
+
+            readiness = client.get(
+                "/health",
+                headers={"Authorization": f"Basic {credentials}"},
+            )
+            assert readiness.status_code == 200
+            data = json.loads(readiness.data)
+            assert data["status"] == "healthy"
+            assert "version" in data
+            assert data["video_directory_accessible"] is True
+
         server._shutdown_cleanup()

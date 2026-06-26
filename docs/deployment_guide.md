@@ -152,7 +152,11 @@ mediarelay-validate
 mediarelay-validate --config-file /path/to/.env
 ```
 
-The validator checks password hash format, secret key presence, video/log directory permissions, and port range. Fix any reported errors before deployment.
+When `VIDEO_SERVER_PRODUCTION=true`, the same deployment checks also run automatically when you start the server with `mediarelay`. Use `mediarelay-validate` to catch configuration errors before a service restart or container rollout.
+
+The validator checks password hash format, secret key presence, video/log directory permissions, rate limiting, and port range. Fix any reported errors before deployment.
+
+Unauthenticated `GET /health` returns liveness only (`{"status":"ok"}`). Use authenticated `/health` for readiness (disk access, version, uptime).
 
 ### 3. Directory Structure
 

@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import unquote
 
 from .config import ServerConfig
-from .constants import AUDIO_EXTENSIONS
+from .constants import AUDIO_EXTENSIONS, MAX_LOGGED_PATH_LENGTH
 
 if TYPE_CHECKING:
     from .logging_config import SecurityEventLogger
@@ -79,6 +79,13 @@ def _decode_url_path(requested_path: str) -> str:
     return unicodedata.normalize("NFKC", requested_path)
 
 
+def _truncate_log_detail(detail: str) -> str:
+    """Truncate attacker-controlled detail strings before security logging."""
+    if len(detail) <= MAX_LOGGED_PATH_LENGTH:
+        return detail
+    return f"{detail[:MAX_LOGGED_PATH_LENGTH]}...(truncated)"
+
+
 def _log_path_violation(
     security_logger: SecurityEventLogger | None,
     violation_type: str,
@@ -87,7 +94,9 @@ def _log_path_violation(
 ) -> None:
     """Emit a structured security violation when a logger is available."""
     if security_logger:
-        security_logger.log_security_violation(violation_type, detail, client_ip)
+        security_logger.log_security_violation(
+            violation_type, _truncate_log_detail(detail), client_ip
+        )
 
 
 def _validate_path_segments(
@@ -349,6 +358,21 @@ def _resolve_within_jail(
         return None
 
     return resolved_path
+
+
+def revalidate_before_serve(resolved_path: Path, video_directory: str) -> bool:
+    """Re-check jail containment and hard links immediately before serving a file."""
+    try:
+        current_path = resolve_path(resolved_path)
+        jail_root = resolve_path(Path(video_directory))
+        current_path.relative_to(jail_root)
+    except (ValueError, RuntimeError, OSError):
+        return False
+
+    if not current_path.is_file():
+        return False
+
+    return not _is_hardlink_outside_jail(current_path, jail_root, inode_index=None)
 
 
 def get_breadcrumbs(config: ServerConfig, path: Path) -> list[dict[str, str]]:

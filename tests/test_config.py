@@ -42,6 +42,21 @@ def _patch_video_dir_readonly(monkeypatch: pytest.MonkeyPatch, video_dir: Path) 
     monkeypatch.setattr(os, "access", access)
 
 
+def _setup_production_env(
+    monkeypatch: pytest.MonkeyPatch,
+    video_dir: Path,
+    log_dir: Path,
+) -> None:
+    """Configure environment variables for valid production ServerConfig."""
+    monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "true")
+    monkeypatch.setenv("VIDEO_SERVER_SECRET_KEY", "secure-production-key")
+    monkeypatch.setenv("VIDEO_SERVER_RATE_LIMIT", "true")
+    monkeypatch.setenv("VIDEO_SERVER_DEBUG", "false")
+    monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(video_dir))
+    monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(log_dir))
+    _patch_video_dir_readonly(monkeypatch, video_dir)
+
+
 class TestDefaultVideoDirectoryFunction:
     """Test _get_default_video_directory function comprehensively"""
 
@@ -681,24 +696,24 @@ class TestMaxFileSizeConfiguration:
                 assert log_dir.exists()
                 assert log_dir.is_dir()
 
-    def test_production_detection(self):
+    def test_production_detection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """Test production environment detection"""
-        with patch.dict(
-            os.environ,
-            {
-                "VIDEO_SERVER_PRODUCTION": "true",
-                "VIDEO_SERVER_SECRET_KEY": "secure-test-production-key",
-            },
-        ):
-            config = ServerConfig(
-                password_hash="test_hash", video_directory=str(Path.home())
-            )
-            assert config.is_production() is True
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        _setup_production_env(monkeypatch, video_dir, log_dir)
+
+        config = ServerConfig(
+            password_hash="test_hash",
+            video_directory=str(video_dir),
+            log_directory=str(log_dir),
+        )
+        assert config.is_production() is True
 
         with patch.dict(os.environ, {"VIDEO_SERVER_PRODUCTION": "false"}):
-            config = ServerConfig(
-                password_hash="test_hash", video_directory=str(Path.home())
-            )
             assert config.is_production() is False
 
     def test_to_dict_excludes_sensitive_data(self):
@@ -1053,6 +1068,8 @@ class TestProductionSecretKeyValidation:
         """Production mode rejects debug enabled via environment"""
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
 
         with patch.dict(
             os.environ,
@@ -1060,13 +1077,56 @@ class TestProductionSecretKeyValidation:
                 "VIDEO_SERVER_PRODUCTION": "true",
                 "VIDEO_SERVER_SECRET_KEY": "secure-production-key",
                 "VIDEO_SERVER_DEBUG": "true",
+                "VIDEO_SERVER_RATE_LIMIT": "true",
+                "VIDEO_SERVER_LOG_DIR": str(log_dir),
             },
         ):
             with pytest.raises(ValueError, match="Debug mode cannot be enabled"):
                 ServerConfig(
                     video_directory=str(video_dir),
                     password_hash="test_hash",
+                    log_directory=str(log_dir),
                 )
+
+    def test_production_requires_rate_limiting(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Production mode rejects disabled rate limiting."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        _setup_production_env(monkeypatch, video_dir, log_dir)
+        monkeypatch.setenv("VIDEO_SERVER_RATE_LIMIT", "false")
+
+        with pytest.raises(ValueError, match="VIDEO_SERVER_RATE_LIMIT must be true"):
+            ServerConfig(
+                video_directory=str(video_dir),
+                password_hash="test_hash",
+                log_directory=str(log_dir),
+            )
+
+    def test_validate_config_runs_deployment_checks_in_production(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """validate_config enforces deployment rules when production is enabled."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "true")
+        monkeypatch.setenv("VIDEO_SERVER_SECRET_KEY", "secure-production-key")
+        monkeypatch.setenv("VIDEO_SERVER_RATE_LIMIT", "true")
+        monkeypatch.setenv("VIDEO_SERVER_DEBUG", "false")
+        monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(video_dir))
+        monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(log_dir))
+
+        with pytest.raises(ValueError, match="must not be writable"):
+            ServerConfig(
+                video_directory=str(video_dir),
+                password_hash="test_hash",
+                log_directory=str(log_dir),
+            )
 
 
 class TestParseIntEnv:
@@ -1174,7 +1234,8 @@ class TestDeploymentConfigValidation:
             f"VIDEO_SERVER_SECRET_KEY=secure-production-key\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
-            f"VIDEO_SERVER_PRODUCTION=true\n",
+            f"VIDEO_SERVER_PRODUCTION=true\n"
+            f"VIDEO_SERVER_RATE_LIMIT=true\n",
             encoding="utf-8",
         )
 
@@ -1367,7 +1428,8 @@ class TestConfigProductionAuditEdgeCases:
             f"VIDEO_SERVER_SECRET_KEY=secure-production-key\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
-            f"VIDEO_SERVER_PRODUCTION=true\n",
+            f"VIDEO_SERVER_PRODUCTION=true\n"
+            f"VIDEO_SERVER_RATE_LIMIT=true\n",
             encoding="utf-8",
         )
 
@@ -1398,7 +1460,8 @@ class TestConfigProductionAuditEdgeCases:
             f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
             f"VIDEO_SERVER_HOST=0.0.0.0\n"
             f"VIDEO_SERVER_BEHIND_PROXY=false\n"
-            f"VIDEO_SERVER_PRODUCTION=true\n",
+            f"VIDEO_SERVER_PRODUCTION=true\n"
+            f"VIDEO_SERVER_RATE_LIMIT=true\n",
             encoding="utf-8",
         )
 

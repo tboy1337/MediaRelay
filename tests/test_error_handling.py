@@ -477,14 +477,14 @@ class TestProductionAuditErrorHandlers:
         assert response.status_code == 200
 
     def test_health_unhealthy_when_runtime_health_raises(
-        self, test_client, test_server
+        self, authenticated_client, test_server
     ):
         with patch.object(
             test_server.config,
             "check_runtime_health",
             side_effect=RuntimeError("health probe failed"),
         ):
-            response = test_client.get("/health")
+            response = authenticated_client.get("/health")
 
         assert response.status_code == 503
         data = json.loads(response.data)

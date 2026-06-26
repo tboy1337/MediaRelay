@@ -18,6 +18,7 @@ from .path_utils import (
     get_safe_path,
     guess_media_mime_type,
     is_audio_file,
+    revalidate_before_serve,
 )
 from .session_store import get_session_username
 from .templates import render_index_template
@@ -309,7 +310,7 @@ def _collect_directory_items(
                 continue
             entry_path = Path(entry.path)
             if (
-                not entry.is_dir()
+                not entry.is_dir(follow_symlinks=False)
                 and entry_path.suffix.lower() not in allowed_extensions
             ):
                 continue
@@ -332,8 +333,10 @@ def _collect_directory_items(
                 {
                     "name": entry.name,
                     "relative_path": str(relative_path).replace("\\", "/"),
-                    "is_dir": entry.is_dir(),
-                    "size": item_stat.st_size if entry.is_file() else 0,
+                    "is_dir": entry.is_dir(follow_symlinks=False),
+                    "size": (
+                        item_stat.st_size if entry.is_file(follow_symlinks=False) else 0
+                    ),
                     "modified": datetime.fromtimestamp(item_stat.st_mtime).isoformat(),
                 }
             )
@@ -467,6 +470,16 @@ def handle_stream_request(
             True,
             _session_username(),
         )
+
+    if not revalidate_before_serve(safe_path, server.config.video_directory):
+        if server.security_logger:
+            server.security_logger.log_file_access(
+                video_path,
+                client_ip,
+                False,
+                _session_username(),
+            )
+        return "Video not found", 404
 
     start_time = time.time()
 

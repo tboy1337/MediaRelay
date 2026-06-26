@@ -110,7 +110,7 @@ def register_routes(server: MediaRelayServer) -> None:
         status_code = 200 if is_healthy else 503
 
         if not is_authenticated:
-            return jsonify({"status": status}), status_code  # type: ignore[misc]
+            return jsonify({"status": "ok"}), 200  # type: ignore[misc]
 
         health_data = {  # type: ignore[misc]
             "status": status,

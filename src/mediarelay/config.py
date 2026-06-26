@@ -234,6 +234,15 @@ def _validate_production_settings(config: "ServerConfig") -> None:
             "Run mediarelay-genpass to create one."
         )
 
+    if not config.rate_limit_enabled:
+        raise ValueError("VIDEO_SERVER_RATE_LIMIT must be true in production.")
+
+    if config.max_file_size == 0:
+        _CONFIG_LOGGER.warning(
+            "VIDEO_SERVER_MAX_FILE_SIZE is 0 in production; streaming size "
+            "limits are disabled."
+        )
+
 
 def _default_security_headers() -> dict[str, str]:
     """Return security headers applied to every response (HSTS added conditionally)."""
@@ -447,6 +456,8 @@ class ServerConfig:
         _validate_session_settings(self)
         _validate_production_settings(self)
         _validate_log_directory(self.log_directory)
+        if self.is_production():
+            _validate_deployment_settings(self)
 
     def is_production(self) -> bool:
         """Check if running in production environment"""
@@ -588,8 +599,6 @@ def validate_deployment_config(config_file: Path | None = None) -> ServerConfig:
             "VIDEO_SERVER_PRODUCTION must be true for deployment validation. "
             "Set VIDEO_SERVER_PRODUCTION=true in your environment or .env file."
         )
-
-    _validate_deployment_settings(config)
 
     return config
 

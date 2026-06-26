@@ -173,4 +173,5 @@ class AccountLockoutManager:
 
     def tracker_exhausted_on_last_attempt(self) -> bool:
         """Return True when the last failed attempt hit tracker capacity (fail-closed)."""
-        return self._tracker_exhausted_on_last_attempt
+        with self._lock:
+            return self._tracker_exhausted_on_last_attempt

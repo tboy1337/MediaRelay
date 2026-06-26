@@ -5,6 +5,7 @@ Common test fixtures and configuration for the entire test suite.
 """
 
 import base64
+import os
 import shutil
 import tempfile
 from collections.abc import Generator
@@ -16,6 +17,16 @@ from werkzeug.security import generate_password_hash
 
 from mediarelay.config import ServerConfig
 from mediarelay.server import MediaRelayServer
+
+
+@pytest.fixture(autouse=True)
+def _default_non_production_env(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    """Keep tests in development mode unless they opt into production_server_config."""
+    if "production_server_config" in request.fixturenames:
+        return
+    monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "false")
 
 
 @pytest.fixture(scope="session")
@@ -49,6 +60,44 @@ def temp_log_dir() -> Generator[Path, None, None]:
     temp_dir = Path(tempfile.mkdtemp())
     yield temp_dir
     shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@pytest.fixture
+def production_server_config(
+    monkeypatch: pytest.MonkeyPatch,
+    temp_video_dir: Path,
+    temp_log_dir: Path,
+) -> ServerConfig:
+    """Production-mode configuration with deployment validation satisfied."""
+    monkeypatch.setenv("VIDEO_SERVER_HOST", "127.0.0.1")
+    monkeypatch.setenv("VIDEO_SERVER_PORT", "5001")
+    monkeypatch.setenv("VIDEO_SERVER_USERNAME", "testuser")
+    monkeypatch.setenv("VIDEO_SERVER_PASSWORD_HASH", generate_password_hash("testpass"))
+    monkeypatch.setenv(
+        "VIDEO_SERVER_SECRET_KEY", "test-secret-key-for-unit-tests-32chars"
+    )
+    monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(temp_video_dir))
+    monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(temp_log_dir))
+    monkeypatch.setenv("VIDEO_SERVER_DEBUG", "false")
+    monkeypatch.setenv("VIDEO_SERVER_RATE_LIMIT", "true")
+    monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "true")
+
+    real_access = os.access
+    resolved_video = temp_video_dir.resolve()
+
+    def access(
+        path: os.PathLike[str] | str | int,
+        mode: int,
+        *,
+        follow_symlinks: bool = True,
+    ) -> bool:
+        if mode == os.W_OK and Path(path).resolve() == resolved_video:
+            return False
+        return real_access(path, mode, follow_symlinks=follow_symlinks)
+
+    monkeypatch.setattr(os, "access", access)
+
+    return ServerConfig()
 
 
 @pytest.fixture

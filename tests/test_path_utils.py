@@ -435,3 +435,60 @@ class TestInodeLinkIndex:
                 _is_hardlink_outside_jail(resolved, jail_root, inode_index=index)
                 is False
             )
+
+
+class TestRevalidateBeforeServe:
+    """Tests for serve-time path revalidation."""
+
+    def test_revalidate_before_serve_accepts_valid_file(self, tmp_path: Path) -> None:
+        from mediarelay.path_utils import revalidate_before_serve
+
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        clip = video_dir / "clip.mp4"
+        clip.write_text("content", encoding="utf-8")
+
+        assert revalidate_before_serve(clip.resolve(), str(video_dir)) is True
+
+    def test_revalidate_before_serve_rejects_missing_file(self, tmp_path: Path) -> None:
+        from mediarelay.path_utils import revalidate_before_serve
+
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        missing = video_dir / "gone.mp4"
+
+        assert revalidate_before_serve(missing, str(video_dir)) is False
+
+    def test_revalidate_before_serve_rejects_path_outside_jail(
+        self, tmp_path: Path
+    ) -> None:
+        from mediarelay.path_utils import revalidate_before_serve
+
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        outside = tmp_path / "outside.mp4"
+        outside.write_text("secret", encoding="utf-8")
+
+        assert revalidate_before_serve(outside.resolve(), str(video_dir)) is False
+
+
+class TestLogDetailTruncation:
+    """Security log detail strings are truncated for oversized paths."""
+
+    def test_log_path_violation_truncates_long_detail(self, tmp_path: Path) -> None:
+        from mediarelay.path_utils import _log_path_violation
+
+        class _FakeLogger:
+            def __init__(self) -> None:
+                self.detail: str = ""
+
+            def log_security_violation(
+                self, violation_type: str, detail: str, client_ip: str
+            ) -> None:
+                self.detail = detail
+
+        logger = _FakeLogger()
+        long_path = "a" * 500
+        _log_path_violation(logger, "path_traversal", long_path, "127.0.0.1")
+        assert len(logger.detail) < len(long_path)
+        assert logger.detail.endswith("...(truncated)")

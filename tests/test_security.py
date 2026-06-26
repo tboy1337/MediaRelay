@@ -136,24 +136,42 @@ class TestAccountLockoutManager:
         manager = AccountLockoutManager()
         assert manager.get_remaining_lockout_seconds("192.168.1.1", "testuser") == 0
 
-    def test_expired_lockout_resets_before_new_failed_attempt(self) -> None:
+    def test_expired_lockout_resets_before_new_failed_attempt(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         manager = AccountLockoutManager(max_attempts=3, lockout_duration=1)
+        current = [1000.0]
+
+        def fake_time() -> float:
+            return current[0]
+
+        monkeypatch.setattr("mediarelay.lockout.time.time", fake_time)
+
         for _ in range(3):
             manager.record_failed_attempt("192.168.1.1", "testuser")
         assert manager.is_locked_out("192.168.1.1", "testuser") is True
 
-        time.sleep(1.1)
+        current[0] += 1.1
         assert manager.is_locked_out("192.168.1.1", "testuser") is False
         assert manager.record_failed_attempt("192.168.1.1", "testuser") is False
         assert manager.get_failed_attempts("192.168.1.1", "testuser") == 1
 
-    def test_expired_lockout_resets_inside_record_failed_attempt(self) -> None:
+    def test_expired_lockout_resets_inside_record_failed_attempt(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Expired lockout resets when record_failed_attempt runs without is_locked_out."""
         manager = AccountLockoutManager(max_attempts=2, lockout_duration=1)
+        current = [1000.0]
+
+        def fake_time() -> float:
+            return current[0]
+
+        monkeypatch.setattr("mediarelay.lockout.time.time", fake_time)
+
         manager.record_failed_attempt("10.0.0.1", "user")
         assert manager.record_failed_attempt("10.0.0.1", "user") is True
 
-        time.sleep(1.1)
+        current[0] += 1.1
         assert manager.record_failed_attempt("10.0.0.1", "user") is False
         assert manager.get_failed_attempts("10.0.0.1", "user") == 1
 
@@ -639,12 +657,12 @@ class TestHealthEndpointSecurity:
     """Test cases for secured health endpoint"""
 
     def test_health_unauthenticated_minimal_info(self, test_client):
-        """Test that unauthenticated requests get minimal health info"""
+        """Test that unauthenticated requests get liveness-only health info"""
         response = test_client.get("/health")
         data = json.loads(response.data)
 
-        # Should only have status field for unauthenticated requests
-        assert "status" in data
+        assert response.status_code == 200
+        assert data["status"] == "ok"
         # Should NOT have detailed info without authentication
         assert "uptime_seconds" not in data
         assert "version" not in data
@@ -679,16 +697,12 @@ class TestHealthEndpointSecurity:
         assert second["uptime_seconds"] >= first["uptime_seconds"]
 
     def test_health_returns_correct_status_code(self, test_client):
-        """Test health endpoint returns appropriate status codes"""
+        """Test health endpoint returns liveness 200 when unauthenticated."""
         response = test_client.get("/health")
 
-        # Should return 200 for healthy, 503 for unhealthy
-        assert response.status_code in [200, 503]
+        assert response.status_code == 200
         data = json.loads(response.data)
-        if response.status_code == 200:
-            assert data["status"] == "healthy"
-        else:
-            assert data["status"] in ["healthy", "unhealthy"]
+        assert data["status"] == "ok"
 
     def test_health_basic_auth_does_not_create_session(
         self, test_client, server_config
@@ -1074,9 +1088,9 @@ class TestDenialOfServiceProtection:
         # All requests should complete within reasonable time
         assert end_time - start_time < 10.0
 
-        # Most requests should succeed
+        # All requests should succeed with valid credentials
         successful_requests = [r for r in results if r == 200]
-        assert len(successful_requests) >= 3  # Allow some to fail due to concurrency
+        assert len(successful_requests) == 5
 
     def test_repeated_api_requests_remain_stable(self, authenticated_client):
         """Repeated API listing requests should succeed without server errors."""
