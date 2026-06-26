@@ -97,9 +97,9 @@ class TestValidateMainEntryPoint:
 class TestProductionServerRun:
     """Test cases for production server run method"""
 
-    def test_server_run_method_logging(self, test_server):
+    def test_server_run_method_logging(self, media_relay_server):
         """Test server run method logs startup information"""
-        with patch.object(test_server, "app") as mock_app:
+        with patch.object(media_relay_server, "app") as mock_app:
             mock_logger = MagicMock()
             mock_app.logger = mock_logger
 
@@ -107,14 +107,14 @@ class TestProductionServerRun:
                 mock_serve.side_effect = KeyboardInterrupt()
 
                 try:
-                    test_server.run()
+                    media_relay_server.run()
                 except KeyboardInterrupt:
                     pass
 
                 mock_logger.info.assert_any_call("Starting server with configuration:")
 
-    def test_server_directory_validation(self, test_server):
+    def test_server_directory_validation(self, media_relay_server):
         """Test server validates video directory exists"""
         with patch("pathlib.Path.exists", return_value=False):
             with pytest.raises(ValueError, match="does not exist"):
-                test_server.run()
+                media_relay_server.run()

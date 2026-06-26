@@ -20,7 +20,7 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `VIDEO_SERVER_SECRET_KEY` | *(auto-generated if unset)* | Flask session signing key. **Required in production** (minimum 32 characters). |
-| `VIDEO_SERVER_USERNAME` | `tboy1337` | HTTP Basic Auth username. Must not be empty or whitespace. |
+| `VIDEO_SERVER_USERNAME` | `tboy1337` | HTTP Basic Auth username. Must not be empty, whitespace-only, or longer than 128 characters. |
 | `VIDEO_SERVER_PASSWORD_HASH` | *(empty)* | Werkzeug hash (`scrypt:`, `pbkdf2:`, or `argon2:`). **Required.** Generate with `mediarelay-genpass`. |
 | `VIDEO_SERVER_SESSION_TIMEOUT` | `3600` | Session idle timeout in seconds. |
 | `VIDEO_SERVER_SESSION_MAX_LIFETIME` | `86400` | Absolute session lifetime in seconds from login (default 24 hours). Must be greater than or equal to `VIDEO_SERVER_SESSION_TIMEOUT`. |
@@ -30,7 +30,7 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 | `VIDEO_SERVER_SESSION_COOKIE_HTTPONLY` | `true` | Prevent JavaScript access to session cookies. **Required `true` when `VIDEO_SERVER_PRODUCTION=true`.** |
 | `VIDEO_SERVER_SESSION_COOKIE_SAMESITE` | `Strict` | SameSite policy: `Strict`, `Lax`, or `None` (case-insensitive). `None` requires `VIDEO_SERVER_SESSION_COOKIE_SECURE=true`. |
 | `VIDEO_SERVER_BEHIND_PROXY` | `false` | Trust `X-Forwarded-*` headers. Enable only behind a trusted reverse proxy. |
-| `VIDEO_SERVER_PROXY_TRUSTED` | `false` | Acknowledge that MediaRelay is only reachable through your trusted reverse proxy. Set `true` with `BEHIND_PROXY` in production. |
+| `VIDEO_SERVER_PROXY_TRUSTED` | `false` | Acknowledge that MediaRelay is only reachable through your trusted reverse proxy. **Required `true` when `VIDEO_SERVER_BEHIND_PROXY=true` in production** (startup fails otherwise). |
 | `VIDEO_SERVER_HSTS` | `false` | Send `Strict-Transport-Security` on plain HTTP setups. Also sent automatically when `VIDEO_SERVER_BEHIND_PROXY=true`. |
 | `VIDEO_SERVER_PRODUCTION` | `false` | Set to `true` for deployment validation and stricter startup checks. |
 
@@ -73,7 +73,7 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 
 - Restrict `.env` permissions: `chmod 600 .env` (Linux/macOS).
 - Generate credentials: `mediarelay-genpass --non-interactive --username tboy1337`
-- Validate before deploy: `VIDEO_SERVER_PRODUCTION=true mediarelay-validate` (checks log directory, rejects writable video directory, warns on `0.0.0.0` without proxy)
+- Validate before deploy: `VIDEO_SERVER_PRODUCTION=true mediarelay-validate` (checks log directory, rejects writable video directory, rejects `BEHIND_PROXY` without `PROXY_TRUSTED`, warns on `0.0.0.0` without proxy)
 - Production startup requires: real Werkzeug password hash, `VIDEO_SERVER_SECRET_KEY` (32+ chars), `VIDEO_SERVER_DEBUG=false`, `VIDEO_SERVER_SESSION_COOKIE_SECURE=true`, `VIDEO_SERVER_SESSION_COOKIE_HTTPONLY=true`, and `VIDEO_SERVER_RATE_LIMIT=true`.
 - Numeric settings have documented upper bounds (e.g. threads 256, rate limit 10,000/min) to prevent accidental resource exhaustion.
 - Do not expose plain HTTP to the internet; terminate TLS at a reverse proxy. See [Deployment Guide](deployment_guide.md) and [SECURITY.md](../SECURITY.md).

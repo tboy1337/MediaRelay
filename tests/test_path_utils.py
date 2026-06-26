@@ -11,11 +11,14 @@ import pytest
 from mediarelay.config import ServerConfig
 from mediarelay.path_utils import (
     InodeLinkIndex,
+    _is_hardlink_outside_jail,
+    _log_path_violation,
     get_breadcrumbs,
     get_safe_path,
     guess_media_mime_type,
     is_audio_file,
     resolve_path,
+    revalidate_before_serve,
 )
 from tests.constants import TEST_PASSWORD_HASH
 
@@ -444,8 +447,6 @@ class TestInodeLinkIndex:
         self, tmp_path: Path
     ) -> None:
         """When count_links returns None, hardlink check uses a live directory scan."""
-        from mediarelay.path_utils import _is_hardlink_outside_jail
-
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
         clip = video_dir / "clip.mp4"
@@ -466,8 +467,6 @@ class TestRevalidateBeforeServe:
     """Tests for serve-time path revalidation."""
 
     def test_revalidate_before_serve_accepts_valid_file(self, tmp_path: Path) -> None:
-        from mediarelay.path_utils import revalidate_before_serve
-
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
         clip = video_dir / "clip.mp4"
@@ -476,8 +475,6 @@ class TestRevalidateBeforeServe:
         assert revalidate_before_serve(clip.resolve(), str(video_dir)) is True
 
     def test_revalidate_before_serve_rejects_missing_file(self, tmp_path: Path) -> None:
-        from mediarelay.path_utils import revalidate_before_serve
-
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
         missing = video_dir / "gone.mp4"
@@ -487,8 +484,6 @@ class TestRevalidateBeforeServe:
     def test_revalidate_before_serve_rejects_path_outside_jail(
         self, tmp_path: Path
     ) -> None:
-        from mediarelay.path_utils import revalidate_before_serve
-
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
         outside = tmp_path / "outside.mp4"
@@ -501,8 +496,6 @@ class TestLogDetailTruncation:
     """Security log detail strings are truncated for oversized paths."""
 
     def test_log_path_violation_truncates_long_detail(self, tmp_path: Path) -> None:
-        from mediarelay.path_utils import _log_path_violation
-
         class _FakeLogger:
             def __init__(self) -> None:
                 self.detail: str = ""

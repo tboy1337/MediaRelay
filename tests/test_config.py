@@ -6,6 +6,7 @@ Includes comprehensive configuration validation tests.
 """
 
 import builtins
+import logging
 import os
 import sys
 import tempfile
@@ -1468,8 +1469,6 @@ class TestConfigProductionAuditEdgeCases:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Deployment validation warns when binding to 0.0.0.0 without a proxy."""
-        import logging
-
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
         log_dir = tmp_path / "logs"
@@ -1494,6 +1493,33 @@ class TestConfigProductionAuditEdgeCases:
             validate_deployment_config(env_file)
 
         assert any("0.0.0.0" in record.message for record in caplog.records)
+
+    def test_deployment_config_rejects_proxy_without_trust(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Deployment validation rejects behind_proxy without proxy_trusted."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        _patch_video_dir_readonly(monkeypatch, video_dir)
+
+        env_file = tmp_path / "test.env"
+        env_file.write_text(
+            f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
+            f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
+            f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
+            f"VIDEO_SERVER_BEHIND_PROXY=true\n"
+            f"VIDEO_SERVER_PROXY_TRUSTED=false\n"
+            f"VIDEO_SERVER_PRODUCTION=true\n"
+            f"VIDEO_SERVER_RATE_LIMIT=true\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(ValueError, match="PROXY_TRUSTED"):
+            validate_deployment_config(env_file)
 
     def test_check_runtime_health_true(self, tmp_path: Path) -> None:
         video_dir = tmp_path / "videos"
@@ -1560,6 +1586,17 @@ class TestConfigProductionAuditEdgeCases:
                 password_hash=TEST_PASSWORD_HASH,
                 log_directory=str(tmp_path / "logs"),
                 username="   ",
+            )
+
+    def test_username_too_long_rejected(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with pytest.raises(ValueError, match="USERNAME must be at most"):
+            ServerConfig(
+                video_directory=str(video_dir),
+                password_hash=TEST_PASSWORD_HASH,
+                log_directory=str(tmp_path / "logs"),
+                username="a" * 129,
             )
 
     def test_session_max_lifetime_must_exceed_timeout(self, tmp_path: Path) -> None:

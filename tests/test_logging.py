@@ -8,10 +8,14 @@ Includes comprehensive logging and audit trail tests.
 import json
 import logging
 import tempfile
+import threading
+import time
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
+from flask import g
 
 from mediarelay.config import ServerConfig
 from mediarelay.logging_config import (
@@ -61,15 +65,13 @@ class TestSecurityEventLogger:
         assert event_data["user_agent"] == "Test Browser"
 
     def test_security_log_includes_request_id(
-        self, server_config, tmp_path, test_server
+        self, server_config, tmp_path, media_relay_server
     ):
         """Security events include request_id when inside a request context."""
         server_config.log_directory = str(tmp_path)
         logger = SecurityEventLogger(server_config)
 
-        with test_server.app.test_request_context("/"):
-            from flask import g
-
+        with media_relay_server.app.test_request_context("/"):
             g.request_id = "deadbeef"
             logger.log_auth_attempt("testuser", True, "127.0.0.1", "Test Browser")
 
@@ -110,6 +112,20 @@ class TestSecurityEventLogger:
         assert event_data["file_path"] == "/test/video.mp4"
         assert event_data["success"] is True
         assert event_data["user"] == "testuser"
+
+    def test_log_file_access_truncates_long_paths(self, server_config, tmp_path):
+        """Test that long file paths are truncated before security logging."""
+        server_config.log_directory = str(tmp_path)
+        logger = SecurityEventLogger(server_config)
+
+        long_path = "/" + ("a" * 300) + ".mp4"
+        logger.log_file_access(long_path, "127.0.0.1", True, "testuser")
+
+        security_log = tmp_path / "security.log"
+        log_data = json.loads(security_log.read_text().strip())
+
+        assert log_data["file_path"].endswith("...(truncated)")
+        assert len(log_data["file_path"]) < len(long_path)
 
     def test_log_security_violation(self, server_config, tmp_path):
         """Test logging security violations"""
@@ -166,8 +182,6 @@ class TestSecurityEventLoggerComprehensive:
         assert len(logger.logger.handlers) > 0
 
         # Test handler configuration
-        from logging.handlers import RotatingFileHandler
-
         handler = logger.logger.handlers[0]
         assert isinstance(handler, RotatingFileHandler)
         assert handler.maxBytes == server_config.log_max_bytes
@@ -323,8 +337,6 @@ class TestPerformanceLoggerComprehensive:
         assert len(logger.logger.handlers) > 0
 
         # Test handler configuration
-        from logging.handlers import RotatingFileHandler
-
         handler = logger.logger.handlers[0]
         assert isinstance(handler, RotatingFileHandler)
         assert handler.maxBytes == server_config.log_max_bytes
@@ -634,8 +646,6 @@ class TestLoggingPerformance:
 
     def test_logging_performance(self, server_config, tmp_path):
         """Test logging performance under load"""
-        import time
-
         server_config.log_directory = str(tmp_path)
         components = setup_logging(server_config)
         logger = components["security_logger"]
@@ -659,9 +669,6 @@ class TestLoggingPerformance:
 
     def test_concurrent_logging(self, server_config, tmp_path):
         """Test concurrent logging safety"""
-        import threading
-        import time
-
         server_config.log_directory = str(tmp_path)
         components = setup_logging(server_config)
         security_logger = components["security_logger"]
@@ -721,8 +728,6 @@ class TestLoggingErrorHandling:
     def test_performance_logger_safe_emit_on_os_error(
         self, server_config, tmp_path
     ) -> None:
-        from mediarelay.logging_config import PerformanceLogger
-
         server_config.log_directory = str(tmp_path)
         perf_logger = PerformanceLogger(server_config)
         with patch.object(
@@ -859,8 +864,6 @@ class TestSecurityLoggerSafeEmit:
     """Security logger must not break requests when log I/O fails."""
 
     def test_safe_emit_swallows_oserror(self, server_config, tmp_path, caplog):
-        from mediarelay.logging_config import SecurityEventLogger
-
         server_config.log_directory = str(tmp_path)
         logger = SecurityEventLogger(server_config)
         with patch.object(
@@ -875,8 +878,6 @@ class TestSecurityLoggerSafeEmit:
         )
 
     def test_safe_emit_swallows_permission_error(self, server_config, tmp_path, caplog):
-        from mediarelay.logging_config import SecurityEventLogger
-
         server_config.log_directory = str(tmp_path)
         logger = SecurityEventLogger(server_config)
         with patch.object(
@@ -895,8 +896,6 @@ class TestLogLogout:
     """Tests for logout security logging."""
 
     def test_log_logout_writes_json_event(self, server_config, tmp_path):
-        from mediarelay.logging_config import SecurityEventLogger
-
         server_config.log_directory = str(tmp_path)
         logger = SecurityEventLogger(server_config)
         logger.log_logout("testuser", "127.0.0.1", "Test Browser")

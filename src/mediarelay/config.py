@@ -36,6 +36,7 @@ from .constants import (
     MAX_SESSION_MAX_LIFETIME,
     MAX_SESSION_TIMEOUT,
     MAX_THREADS,
+    MAX_USERNAME_LENGTH,
     MIN_PAGE_SIZE,
     MIN_PRODUCTION_SECRET_KEY_LENGTH,
     VIDEO_EXTENSIONS,
@@ -183,6 +184,12 @@ def _validate_credentials(config: "ServerConfig") -> None:
     """Validate username and password hash settings."""
     if not config.username.strip():
         raise ValueError("VIDEO_SERVER_USERNAME must not be empty or whitespace")
+
+    if len(config.username) > MAX_USERNAME_LENGTH:
+        raise ValueError(
+            f"VIDEO_SERVER_USERNAME must be at most {MAX_USERNAME_LENGTH} "
+            f"characters, got {len(config.username)}"
+        )
 
     if not config.password_hash:
         raise ValueError(
@@ -652,11 +659,10 @@ def _validate_deployment_settings(config: ServerConfig) -> None:
         )
 
     if config.behind_proxy and not config.proxy_trusted:
-        _CONFIG_LOGGER.warning(
+        raise ValueError(
             "VIDEO_SERVER_BEHIND_PROXY is enabled but VIDEO_SERVER_PROXY_TRUSTED "
-            "is false. Set VIDEO_SERVER_PROXY_TRUSTED=true only when MediaRelay is "
-            "reachable exclusively through your trusted reverse proxy. "
-            "Run mediarelay-validate after setting VIDEO_SERVER_PRODUCTION=true."
+            "is false. Set VIDEO_SERVER_PROXY_TRUSTED=true when MediaRelay is "
+            "reachable exclusively through your trusted reverse proxy."
         )
 
     if config.max_file_size == 0:

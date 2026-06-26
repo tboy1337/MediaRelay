@@ -10,6 +10,7 @@ import base64
 import json
 import logging
 import os
+import signal
 import tempfile
 import time
 from pathlib import Path
@@ -17,14 +18,21 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from click.testing import CliRunner
-from flask import session
+from flask import g, session
+from werkzeug.exceptions import (
+    BadRequest,
+    Forbidden,
+    NotFound,
+    RequestEntityTooLarge,
+    Unauthorized,
+)
 from werkzeug.security import generate_password_hash
 
 from mediarelay.config import ServerConfig
 from mediarelay.handlers import handle_index_request
 from mediarelay.lockout import AccountLockoutManager
 from mediarelay.server import MediaRelayServer, main
-from mediarelay.templates import INDEX_HTML_TEMPLATE
+from mediarelay.templates import INDEX_HTML_TEMPLATE, render_index_template
 from tests.constants import TEST_PASSWORD_HASH
 
 
@@ -40,28 +48,28 @@ class TestMediaRelayServer:
         assert server.security_logger is not None
         assert server.performance_logger is not None
 
-    def test_flask_app_configuration(self, test_server):
+    def test_flask_app_configuration(self, media_relay_server):
         """Test Flask app configuration"""
-        app = test_server.app
+        app = media_relay_server.app
 
         assert app.config["TESTING"] is False  # Will be set by test client
         expected_max_length = (
             None
-            if test_server.config.max_file_size <= 0
-            else test_server.config.max_file_size
+            if media_relay_server.config.max_file_size <= 0
+            else media_relay_server.config.max_file_size
         )
         assert app.config["MAX_CONTENT_LENGTH"] == expected_max_length
-        assert app.secret_key == test_server.config.secret_key
+        assert app.secret_key == media_relay_server.config.secret_key
 
-    def test_security_configuration(self, test_server):
+    def test_security_configuration(self, media_relay_server):
         """Test security-related configuration"""
-        app = test_server.app
+        app = media_relay_server.app
 
         assert app.config["SESSION_COOKIE_HTTPONLY"] is True
         assert app.config["SESSION_COOKIE_SAMESITE"] == "Strict"
         assert (
             app.config["PERMANENT_SESSION_LIFETIME"]
-            == test_server.config.session_timeout
+            == media_relay_server.config.session_timeout
         )
 
     def test_rate_limiting_enabled(self, server_config):
@@ -115,7 +123,7 @@ class TestMediaRelayServerComprehensive:
             server = MediaRelayServer(config)
             assert server.limiter is None
 
-    def test_index_html_template_structure(self, test_server):
+    def test_index_html_template_structure(self, media_relay_server):
         """Test INDEX_HTML_TEMPLATE contains required UI structure."""
         template = INDEX_HTML_TEMPLATE
 
@@ -127,8 +135,6 @@ class TestMediaRelayServerComprehensive:
 
     def test_render_index_template_escapes_unsafe_filenames(self) -> None:
         """User-controlled filenames must be HTML-escaped in rendered output."""
-        from mediarelay.templates import render_index_template
-
         unsafe_name = '<script>alert("xss")</script>'
         rendered = render_index_template(
             video_file=unsafe_name,
@@ -141,7 +147,9 @@ class TestMediaRelayServerComprehensive:
         assert unsafe_name not in rendered
         assert "&lt;script&gt;" in rendered
 
-    def test_handle_index_request_comprehensive(self, test_server, temp_video_dir):
+    def test_handle_index_request_comprehensive(
+        self, media_relay_server, temp_video_dir
+    ):
         """Test _handle_index_request method comprehensively"""
         # Create test files
         video_file = temp_video_dir / "test.mp4"
@@ -153,97 +161,99 @@ class TestMediaRelayServerComprehensive:
         non_video_file = temp_video_dir / "document.txt"
         non_video_file.write_text("not a video")
 
-        with test_server.app.test_request_context():
-            with patch.object(test_server, "check_authentication", return_value=True):
+        with media_relay_server.app.test_request_context():
+            with patch.object(
+                media_relay_server, "check_authentication", return_value=True
+            ):
                 # Test directory listing
-                result = handle_index_request(test_server, "")
+                result = handle_index_request(media_relay_server, "")
                 assert isinstance(result, str)
                 assert "test.mp4" in result or "Video Streaming Server" in result
 
                 # Test video file display
-                result = handle_index_request(test_server, "test.mp4")
+                result = handle_index_request(media_relay_server, "test.mp4")
                 assert isinstance(result, str)
                 assert "test.mp4" in result
 
                 # Test non-video file (should return 400)
-                result = handle_index_request(test_server, "document.txt")
+                result = handle_index_request(media_relay_server, "document.txt")
                 assert result == ("Not a video file", 400)
 
                 # Test non-existent path
-                result = handle_index_request(test_server, "nonexistent.mp4")
+                result = handle_index_request(media_relay_server, "nonexistent.mp4")
                 assert result == ("Path not found", 404)
 
-    def test_handle_index_request_without_auth(self, test_server):
+    def test_handle_index_request_without_auth(self, media_relay_server):
         """Test _handle_index_request without authentication"""
-        with test_server.app.test_request_context():
-            with patch.object(test_server, "check_authentication", return_value=False):
-                result = handle_index_request(test_server, "")
+        with media_relay_server.app.test_request_context():
+            with patch.object(
+                media_relay_server, "check_authentication", return_value=False
+            ):
+                result = handle_index_request(media_relay_server, "")
                 assert result.status_code == 401
 
 
 class TestAuthentication:
     """Test cases for authentication functionality"""
 
-    def test_check_auth_valid_credentials(self, test_server, server_config):
+    def test_check_auth_valid_credentials(self, media_relay_server, server_config):
         """Test authentication with valid credentials"""
-        with test_server.app.test_request_context():
-            result = test_server.check_auth(server_config.username, "testpass")
+        with media_relay_server.app.test_request_context():
+            result = media_relay_server.check_auth(server_config.username, "testpass")
             assert result is True
 
-    def test_check_auth_invalid_username(self, test_server):
+    def test_check_auth_invalid_username(self, media_relay_server):
         """Test authentication with invalid username"""
-        with test_server.app.test_request_context():
-            result = test_server.check_auth("wronguser", "testpass")
+        with media_relay_server.app.test_request_context():
+            result = media_relay_server.check_auth("wronguser", "testpass")
             assert result is False
 
-    def test_check_auth_invalid_password(self, test_server, server_config):
+    def test_check_auth_invalid_password(self, media_relay_server, server_config):
         """Test authentication with invalid password"""
-        with test_server.app.test_request_context():
-            result = test_server.check_auth(server_config.username, "wrongpass")
+        with media_relay_server.app.test_request_context():
+            result = media_relay_server.check_auth(server_config.username, "wrongpass")
             assert result is False
 
-    def test_check_auth_empty_credentials(self, test_server):
+    def test_check_auth_empty_credentials(self, media_relay_server):
         """Test authentication with empty credentials"""
-        with test_server.app.test_request_context():
-            result = test_server.check_auth("", "")
+        with media_relay_server.app.test_request_context():
+            result = media_relay_server.check_auth("", "")
             assert result is False
 
-            result = test_server.check_auth("user", "")
+            result = media_relay_server.check_auth("user", "")
             assert result is False
 
-            result = test_server.check_auth("", "pass")
+            result = media_relay_server.check_auth("", "pass")
             assert result is False
 
-    def test_check_authentication_with_session(self, test_server):
+    def test_check_authentication_with_session(self, media_relay_server):
         """Test authentication check with valid session"""
-        with test_server.app.test_request_context(
+        with media_relay_server.app.test_request_context(
             environ_overrides={"REMOTE_ADDR": "127.0.0.1"}
         ):
             session["authenticated"] = True
             session["last_activity"] = time.time()
             session["login_time"] = time.time()
             session["login_ip"] = "127.0.0.1"
-            session["username"] = test_server.config.username
-            session["credential_epoch"] = test_server.config.credential_epoch
-            assert test_server.check_authentication() is True
+            session["username"] = media_relay_server.config.username
+            session["credential_epoch"] = media_relay_server.config.credential_epoch
+            assert media_relay_server.check_authentication() is True
 
-    def test_check_authentication_http_auth(self, test_server, server_config):
+    def test_check_authentication_http_auth(self, media_relay_server, server_config):
         """Test authentication check with HTTP Basic Auth"""
         credentials = base64.b64encode(
             f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
-        with test_server.app.test_request_context(
+        with media_relay_server.app.test_request_context(
             headers={"Authorization": f"Basic {credentials}"}
         ):
-            assert test_server.check_authentication() is True
+            assert media_relay_server.check_authentication() is True
 
     def test_check_auth_method_coverage(self):
         """Test check_auth method with various scenarios"""
         with tempfile.TemporaryDirectory() as temp_dir:
             # Use a real password hash for testing
-            from werkzeug.security import generate_password_hash
-
             password_hash = generate_password_hash("correct_password")
 
             config = ServerConfig(
@@ -271,46 +281,48 @@ class TestAuthentication:
 class TestPathSecurity:
     """Test cases for path traversal protection"""
 
-    def test_get_safe_path_normal(self, test_server, temp_video_dir):
+    def test_get_safe_path_normal(self, media_relay_server, temp_video_dir):
         """Test safe path handling with normal paths"""
-        with test_server.app.test_request_context():
-            safe_path = test_server.get_safe_path("test_video.mp4")
+        with media_relay_server.app.test_request_context():
+            safe_path = media_relay_server.get_safe_path("test_video.mp4")
             expected_path = temp_video_dir / "test_video.mp4"
             assert safe_path == expected_path
 
     def test_get_safe_path_empty(
-        self, test_server, temp_video_dir
+        self, media_relay_server, temp_video_dir
     ):  # pylint: disable=unused-argument
         """Test safe path handling with empty path"""
-        with test_server.app.test_request_context():
-            safe_path = test_server.get_safe_path("")
-            assert safe_path == Path(test_server.config.video_directory)
+        with media_relay_server.app.test_request_context():
+            safe_path = media_relay_server.get_safe_path("")
+            assert safe_path == Path(media_relay_server.config.video_directory)
 
     def test_get_safe_path_none(
-        self, test_server, temp_video_dir
+        self, media_relay_server, temp_video_dir
     ):  # pylint: disable=unused-argument
         """Test safe path handling with None path"""
-        with test_server.app.test_request_context():
-            safe_path = test_server.get_safe_path(None)
-            assert safe_path == Path(test_server.config.video_directory)
+        with media_relay_server.app.test_request_context():
+            safe_path = media_relay_server.get_safe_path(None)
+            assert safe_path == Path(media_relay_server.config.video_directory)
 
-    def test_path_traversal_protection(self, test_server, security_test_payloads):
+    def test_path_traversal_protection(
+        self, media_relay_server, security_test_payloads
+    ):
         """Test protection against path traversal attacks"""
-        with test_server.app.test_request_context():
+        with media_relay_server.app.test_request_context():
             for payload in security_test_payloads["path_traversal"]:
-                safe_path = test_server.get_safe_path(payload)
+                safe_path = media_relay_server.get_safe_path(payload)
                 assert safe_path is None
 
-    def test_get_safe_path_comprehensive_edge_cases(self, test_server):
+    def test_get_safe_path_comprehensive_edge_cases(self, media_relay_server):
         """Test get_safe_path with comprehensive edge cases"""
-        with test_server.app.test_request_context():
+        with media_relay_server.app.test_request_context():
             # Test with None
-            result = test_server.get_safe_path(None)
-            assert result == Path(test_server.config.video_directory)
+            result = media_relay_server.get_safe_path(None)
+            assert result == Path(media_relay_server.config.video_directory)
 
             # Test with empty string
-            result = test_server.get_safe_path("")
-            assert result == Path(test_server.config.video_directory)
+            result = media_relay_server.get_safe_path("")
+            assert result == Path(media_relay_server.config.video_directory)
 
             # Test with various malicious paths
             dangerous_paths = [
@@ -325,17 +337,17 @@ class TestPathSecurity:
             ]
 
             for path in dangerous_paths:
-                result = test_server.get_safe_path(path)
+                result = media_relay_server.get_safe_path(path)
                 assert result is None
 
 
 class TestDirectoryListing:
     """Test cases for directory listing functionality"""
 
-    def test_breadcrumbs_generation(self, test_server, temp_video_dir):
+    def test_breadcrumbs_generation(self, media_relay_server, temp_video_dir):
         """Test breadcrumb navigation generation"""
         subdir_path = temp_video_dir / "subdir"
-        breadcrumbs = test_server.get_breadcrumbs(subdir_path)
+        breadcrumbs = media_relay_server.get_breadcrumbs(subdir_path)
 
         assert len(breadcrumbs) >= 1
         assert breadcrumbs[0]["name"] == "Home"
@@ -344,24 +356,24 @@ class TestDirectoryListing:
         # Should include subdirectory
         assert any(crumb["name"] == "subdir" for crumb in breadcrumbs)
 
-    def test_breadcrumbs_root_directory(self, test_server, temp_video_dir):
+    def test_breadcrumbs_root_directory(self, media_relay_server, temp_video_dir):
         """Test breadcrumbs for root directory"""
-        breadcrumbs = test_server.get_breadcrumbs(temp_video_dir)
+        breadcrumbs = media_relay_server.get_breadcrumbs(temp_video_dir)
 
         assert len(breadcrumbs) == 1
         assert breadcrumbs[0]["name"] == "Home"
 
-    def test_breadcrumbs_comprehensive(self, test_server, temp_video_dir):
+    def test_breadcrumbs_comprehensive(self, media_relay_server, temp_video_dir):
         """Test get_breadcrumbs method comprehensively"""
         # Test root directory
-        crumbs = test_server.get_breadcrumbs(temp_video_dir)
+        crumbs = media_relay_server.get_breadcrumbs(temp_video_dir)
         assert len(crumbs) == 1
         assert crumbs[0]["name"] == "Home"
 
         # Test subdirectory
         subdir = temp_video_dir / "subdir" / "nested"
         subdir.mkdir(parents=True)
-        crumbs = test_server.get_breadcrumbs(subdir)
+        crumbs = media_relay_server.get_breadcrumbs(subdir)
         assert len(crumbs) >= 2
         assert any(c["name"] == "Home" for c in crumbs)
         assert any(c["name"] == "nested" for c in crumbs)
@@ -377,9 +389,9 @@ class TestDirectoryListing:
         assert b"test_video.mkv" in response.data
         assert b"subdir" in response.data
 
-    def test_directory_listing_without_auth(self, test_client):
+    def test_directory_listing_without_auth(self, flask_client):
         """Test directory listing without authentication"""
-        response = test_client.get("/")
+        response = flask_client.get("/")
 
         assert response.status_code == 401
         assert "Basic" in response.headers.get("WWW-Authenticate", "")
@@ -403,9 +415,9 @@ class TestVideoStreaming:
         assert response.data == b"fake video content"
 
     @pytest.mark.timeout(10)  # Add timeout to prevent hanging
-    def test_stream_video_without_auth(self, test_client):
+    def test_stream_video_without_auth(self, flask_client):
         """Test streaming video without authentication"""
-        response = test_client.get("/stream/test_video.mp4")
+        response = flask_client.get("/stream/test_video.mp4")
 
         assert response.status_code == 401
 
@@ -486,16 +498,16 @@ class TestVideoStreaming:
             ("subdir", {"Home", "subdir"}),
         ],
     )
-    def test_breadcrumbs_for_paths(self, test_server, subpath, expected_names):
+    def test_breadcrumbs_for_paths(self, media_relay_server, subpath, expected_names):
         """Test breadcrumb generation stays within the video directory"""
-        with test_server.app.test_request_context():
+        with media_relay_server.app.test_request_context():
             if subpath:
-                safe_path = test_server.get_safe_path(subpath)
+                safe_path = media_relay_server.get_safe_path(subpath)
             else:
-                safe_path = Path(test_server.config.video_directory)
+                safe_path = Path(media_relay_server.config.video_directory)
 
             assert safe_path is not None
-            crumbs = test_server.get_breadcrumbs(safe_path)
+            crumbs = media_relay_server.get_breadcrumbs(safe_path)
             crumb_names = {crumb["name"] for crumb in crumbs}
             assert crumb_names == expected_names
 
@@ -503,9 +515,9 @@ class TestVideoStreaming:
 class TestAPIEndpoints:
     """Test cases for API endpoints"""
 
-    def test_health_check_endpoint(self, test_client):
+    def test_health_check_endpoint(self, flask_client):
         """Test health check endpoint (unauthenticated - liveness only)"""
-        response = test_client.get("/health")
+        response = flask_client.get("/health")
 
         assert response.status_code == 200
         data = json.loads(response.data)
@@ -538,9 +550,9 @@ class TestAPIEndpoints:
         assert "total_files" in data
         assert isinstance(data["files"], list)
 
-    def test_api_files_endpoint_without_auth(self, test_client):
+    def test_api_files_endpoint_without_auth(self, flask_client):
         """Test API files endpoint without authentication"""
-        response = test_client.get("/api/files")
+        response = flask_client.get("/api/files")
 
         assert response.status_code == 401
         data = json.loads(response.data)
@@ -570,9 +582,9 @@ class TestAPIEndpoints:
 class TestHealthCheckComprehensive:
     """Comprehensive tests for health check endpoint"""
 
-    def test_health_check_healthy_unauthenticated(self, test_server):
+    def test_health_check_healthy_unauthenticated(self, media_relay_server):
         """Test health check when healthy (unauthenticated - liveness only)"""
-        with test_server.app.test_client() as client:
+        with media_relay_server.app.test_client() as client:
             with patch.object(Path, "exists", return_value=True):
                 with patch("os.access", return_value=True):
                     response = client.get("/health")
@@ -582,9 +594,9 @@ class TestHealthCheckComprehensive:
                     assert data["status"] == "ok"
                     assert "timestamp" not in data
 
-    def test_health_check_unhealthy_unauthenticated(self, test_server):
+    def test_health_check_unhealthy_unauthenticated(self, media_relay_server):
         """Unauthenticated health always returns liveness ok regardless of disk."""
-        with test_server.app.test_client() as client:
+        with media_relay_server.app.test_client() as client:
             with patch.object(Path, "exists", return_value=False):
                 response = client.get("/health")
                 assert response.status_code == 200
@@ -592,12 +604,14 @@ class TestHealthCheckComprehensive:
                 data = json.loads(response.data)
                 assert data["status"] == "ok"
 
-    def test_health_check_unhealthy_authenticated(self, test_server, server_config):
+    def test_health_check_unhealthy_authenticated(
+        self, media_relay_server, server_config
+    ):
         """Authenticated health reports unhealthy when disk is inaccessible."""
         credentials = base64.b64encode(
             f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
-        with test_server.app.test_client() as client:
+        with media_relay_server.app.test_client() as client:
             with patch.object(Path, "exists", return_value=False):
                 response = client.get(
                     "/health",
@@ -608,10 +622,10 @@ class TestHealthCheckComprehensive:
                 data = json.loads(response.data)
                 assert data["status"] == "unhealthy"
 
-    def test_health_check_exception(self, test_server):
+    def test_health_check_exception(self, media_relay_server):
         """Test health check with exception (authenticated readiness)"""
         credentials = base64.b64encode(b"testuser:testpass").decode("utf-8")
-        with test_server.app.test_client() as client:
+        with media_relay_server.app.test_client() as client:
             with patch.object(Path, "exists", side_effect=OSError("Test error")):
                 response = client.get(
                     "/health",
@@ -619,14 +633,14 @@ class TestHealthCheckComprehensive:
                 )
                 assert response.status_code == 503
 
-    def test_health_check_permission_error(self, test_server, server_config):
+    def test_health_check_permission_error(self, media_relay_server, server_config):
         """Test health check when runtime health raises PermissionError."""
         credentials = base64.b64encode(
             f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
-        with test_server.app.test_client() as client:
+        with media_relay_server.app.test_client() as client:
             with patch.object(
-                test_server.config,
+                media_relay_server.config,
                 "check_runtime_health",
                 side_effect=PermissionError("denied"),
             ):
@@ -663,14 +677,14 @@ class TestErrorHandling:
         assert response.status_code == 400
         assert b"Not a video file" in response.data
 
-    def test_session_timeout_handling(self, test_server):
+    def test_session_timeout_handling(self, media_relay_server):
         """Test session timeout and clearing logic"""
-        with test_server.app.test_client() as client:
+        with media_relay_server.app.test_client() as client:
             with client.session_transaction() as sess:
                 # Set up an expired session
                 sess["authenticated"] = True
                 sess["last_activity"] = time.time() - (
-                    test_server.config.session_timeout + 100
+                    media_relay_server.config.session_timeout + 100
                 )
                 sess["username"] = "testuser"
 
@@ -755,9 +769,9 @@ class TestMaxFileSizeHandling:
 class TestSecurityHeaders:
     """Test cases for security headers"""
 
-    def test_security_headers_applied(self, test_client, server_config):
+    def test_security_headers_applied(self, flask_client, server_config):
         """Test that security headers are applied to all responses"""
-        response = test_client.get("/health")
+        response = flask_client.get("/health")
 
         expected_headers = [
             "X-Content-Type-Options",
@@ -779,9 +793,9 @@ class TestSecurityHeaders:
         else:
             assert "Strict-Transport-Security" not in response.headers
 
-    def test_content_security_policy(self, test_client):
+    def test_content_security_policy(self, flask_client):
         """Test Content Security Policy header"""
-        response = test_client.get("/health")
+        response = flask_client.get("/health")
 
         csp = response.headers.get("Content-Security-Policy")
         assert "default-src 'self'" in csp
@@ -811,13 +825,13 @@ class TestSecurityHeaders:
 class TestSessionManagement:
     """Test cases for session management"""
 
-    def test_session_creation_on_auth(self, test_server, server_config):
+    def test_session_creation_on_auth(self, media_relay_server, server_config):
         """Test session creation on successful authentication"""
         credentials = base64.b64encode(
             f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
-        with test_server.app.test_client() as client:
+        with media_relay_server.app.test_client() as client:
             response = client.get(
                 "/", headers={"Authorization": f"Basic {credentials}"}
             )
@@ -831,9 +845,9 @@ class TestSessionManagement:
                 assert "last_activity" in sess
                 assert sess.get("credential_epoch") == server_config.credential_epoch
 
-    def test_session_invalid_without_login_ip(self, test_server, server_config):
+    def test_session_invalid_without_login_ip(self, media_relay_server, server_config):
         """Sessions missing login_ip must be rejected."""
-        with test_server.app.test_client() as client:
+        with media_relay_server.app.test_client() as client:
             with client.session_transaction() as sess:
                 sess["authenticated"] = True
                 sess["username"] = server_config.username
@@ -845,14 +859,14 @@ class TestSessionManagement:
             assert response.status_code == 401
 
     def test_session_invalid_after_credential_change(
-        self, test_server, server_config
+        self, media_relay_server, server_config
     ) -> None:
         """Sessions must end when username or password hash changes."""
         credentials = base64.b64encode(
             f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
-        with test_server.app.test_client() as client:
+        with media_relay_server.app.test_client() as client:
             client.get("/", headers={"Authorization": f"Basic {credentials}"})
             assert client.get("/").status_code == 200
 
@@ -860,13 +874,13 @@ class TestSessionManagement:
 
             assert client.get("/").status_code == 401
 
-    def test_session_persistence(self, test_server, server_config):
+    def test_session_persistence(self, media_relay_server, server_config):
         """Test session persistence across requests"""
         credentials = base64.b64encode(
             f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
-        with test_server.app.test_client() as client:
+        with media_relay_server.app.test_client() as client:
             # First request with auth
             client.get("/", headers={"Authorization": f"Basic {credentials}"})
 
@@ -874,13 +888,13 @@ class TestSessionManagement:
             response = client.get("/")
             assert response.status_code == 200
 
-    def test_session_timeout(self, test_server):
+    def test_session_timeout(self, media_relay_server):
         """Test session timeout functionality"""
-        with test_server.app.test_client() as client:
+        with media_relay_server.app.test_client() as client:
             with client.session_transaction() as sess:
                 sess["authenticated"] = True
                 sess["last_activity"] = (
-                    time.time() - test_server.config.session_timeout - 1
+                    time.time() - media_relay_server.config.session_timeout - 1
                 )
 
             response = client.get("/")
@@ -1048,6 +1062,23 @@ class TestServerRunMethod:
             with pytest.raises(RuntimeError):
                 server.run()
 
+    @patch("mediarelay.server.serve")
+    def test_run_method_generic_exception_calls_cleanup(self, mock_serve):
+        """finally block runs cleanup after a generic server error."""
+        mock_serve.side_effect = RuntimeError("Server error")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = ServerConfig(
+                video_directory=temp_dir, password_hash=TEST_PASSWORD_HASH
+            )
+            server = MediaRelayServer(config)
+
+            with patch.object(server, "_shutdown_cleanup") as mock_shutdown:
+                with pytest.raises(RuntimeError):
+                    server.run()
+
+            mock_shutdown.assert_called_once()
+
 
 @pytest.mark.timeout(30)
 class TestPerformance:
@@ -1070,10 +1101,10 @@ class TestPerformance:
 class TestRequestLogging:
     """Test cases for request logging and monitoring"""
 
-    def test_request_id_generation(self, test_server):
+    def test_request_id_generation(self, media_relay_server):
         """Test request ID generation"""
-        with test_server.app.test_request_context():
-            with test_server.app.test_client() as client:
+        with media_relay_server.app.test_request_context():
+            with media_relay_server.app.test_client() as client:
                 response = client.get("/health")
                 # Request should complete successfully
                 assert response.status_code == 200
@@ -1086,49 +1117,47 @@ class TestRequestLogging:
         assert response.status_code == 200
         # Performance metrics should be logged (tested in logging tests)
 
-    def test_security_event_logging(self, test_client, security_test_payloads):
+    def test_security_event_logging(self, flask_client, security_test_payloads):
         """Test security event logging"""
         # Try path traversal attack
-        response = test_client.get(
+        response = flask_client.get(
             f'/stream/{security_test_payloads["path_traversal"][0]}'
         )
 
         # Should be blocked and logged
         assert response.status_code == 401  # Unauthorized due to no auth
 
-    def test_after_request_performance_logging(self, test_server):
+    def test_after_request_performance_logging(self, media_relay_server):
         """Test performance logging in after_request handler"""
-        from flask import g
-
         # Mock the performance logger
-        test_server.performance_logger = MagicMock()
+        media_relay_server.performance_logger = MagicMock()
 
-        with test_server.app.test_client() as client:
-            with test_server.app.test_request_context("/test"):
+        with media_relay_server.app.test_client() as client:
+            with media_relay_server.app.test_request_context("/test"):
                 # Set up request context with start_time (this triggers performance logging)
                 g.start_time = time.time() - 0.1  # 100ms ago
                 g.request_id = "test_request_123"
 
                 # Create and process a response
-                response = test_server.app.make_response("test response")
+                response = media_relay_server.app.make_response("test response")
                 response.status_code = 200
 
                 # Process the response (triggers after_request)
-                processed_response = test_server.app.process_response(response)
+                processed_response = media_relay_server.app.process_response(response)
 
                 # Verify performance logging was called
-                test_server.performance_logger.log_request_duration.assert_called_once()
+                media_relay_server.performance_logger.log_request_duration.assert_called_once()
 
 
 class TestErrorHandlers:
     """Test custom HTTP error handlers"""
 
-    def test_request_entity_too_large_handler(self, test_server):
+    def test_request_entity_too_large_handler(self, media_relay_server):
         """Test 413 error handler"""
-        from werkzeug.exceptions import RequestEntityTooLarge
-
-        with test_server.app.test_request_context():
-            result = test_server.app.handle_http_exception(RequestEntityTooLarge())
+        with media_relay_server.app.test_request_context():
+            result = media_relay_server.app.handle_http_exception(
+                RequestEntityTooLarge()
+            )
             if isinstance(result, tuple):
                 message, status = result
                 assert status == 413
@@ -1136,17 +1165,17 @@ class TestErrorHandlers:
             else:
                 assert result.status_code == 413
 
-    def test_internal_error_handler(self, test_server):
+    def test_internal_error_handler(self, media_relay_server):
         """Test 500 error handler via triggered exception"""
 
-        @test_server.app.route("/test-500")  # type: ignore[untyped-decorator]
+        @media_relay_server.app.route("/test-500")  # type: ignore[untyped-decorator]
         def trigger_error() -> None:
             raise RuntimeError("intentional test failure")
 
-        test_server.app.config["TESTING"] = True
-        test_server.app.config["PROPAGATE_EXCEPTIONS"] = False
+        media_relay_server.app.config["TESTING"] = True
+        media_relay_server.app.config["PROPAGATE_EXCEPTIONS"] = False
 
-        with test_server.app.test_client() as client:
+        with media_relay_server.app.test_client() as client:
             response = client.get("/test-500")
             assert response.status_code == 500
             assert b"Internal Server Error" in response.data
@@ -1206,40 +1235,34 @@ class TestErrorHandlers:
             assert client.get("/health").status_code == 200
             assert client.get("/health").status_code == 429
 
-    def test_bad_request_error_handler(self, test_server):
+    def test_bad_request_error_handler(self, media_relay_server):
         """Test 400 error handler"""
-        from werkzeug.exceptions import BadRequest
-
-        with test_server.app.test_request_context():
-            result = test_server.app.handle_http_exception(BadRequest())
+        with media_relay_server.app.test_request_context():
+            result = media_relay_server.app.handle_http_exception(BadRequest())
             if isinstance(result, tuple):
                 message, status = result
                 assert status == 400
                 assert "Bad Request" in message
 
-    def test_unauthorized_error_handler(self, test_server):
+    def test_unauthorized_error_handler(self, media_relay_server):
         """Test 401 error handler"""
-        from werkzeug.exceptions import Unauthorized
-
-        with test_server.app.test_request_context():
-            result = test_server.app.handle_http_exception(Unauthorized())
+        with media_relay_server.app.test_request_context():
+            result = media_relay_server.app.handle_http_exception(Unauthorized())
             if isinstance(result, tuple):
                 response, status = result
                 assert status == 401
                 assert response.status_code == 401
 
-    def test_forbidden_error_handler(self, test_server):
+    def test_forbidden_error_handler(self, media_relay_server):
         """Test 403 error handler"""
-        from werkzeug.exceptions import Forbidden
-
-        test_server.security_logger = MagicMock()
-        with test_server.app.test_request_context("/secret"):
-            result = test_server.app.handle_http_exception(Forbidden())
+        media_relay_server.security_logger = MagicMock()
+        with media_relay_server.app.test_request_context("/secret"):
+            result = media_relay_server.app.handle_http_exception(Forbidden())
             if isinstance(result, tuple):
                 message, status = result
                 assert status == 403
                 assert "Forbidden" in message
-        test_server.security_logger.log_security_violation.assert_called()
+        media_relay_server.security_logger.log_security_violation.assert_called()
 
     def test_rate_limit_key_uses_proxy_ip(self, tmp_path):
         """Rate limiter key honors X-Forwarded-For when behind_proxy is enabled."""
@@ -1321,8 +1344,6 @@ class TestCLIConfigFile:
 
     def test_main_loads_config_file(self, tmp_path):
         """Main passes config file path to load_config"""
-        from click.testing import CliRunner
-
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
         env_file = tmp_path / "custom.env"
@@ -1352,42 +1373,46 @@ class TestCLIConfigFile:
 class TestServerWarnings:
     """Tests for startup warning helpers."""
 
-    def test_warn_ephemeral_secret_key_logs_warning(self, test_server, monkeypatch):
+    def test_warn_ephemeral_secret_key_logs_warning(
+        self, media_relay_server, monkeypatch
+    ):
         """Warn when VIDEO_SERVER_SECRET_KEY is not set in environment."""
         monkeypatch.delenv("VIDEO_SERVER_SECRET_KEY", raising=False)
-        with patch.object(test_server.app.logger, "warning") as mock_warning:
-            test_server._warn_ephemeral_secret_key()
+        with patch.object(media_relay_server.app.logger, "warning") as mock_warning:
+            media_relay_server._warn_ephemeral_secret_key()
         mock_warning.assert_called_once()
         assert "VIDEO_SERVER_SECRET_KEY not set" in mock_warning.call_args[0][0]
 
-    def test_warn_behind_proxy_logs_warning(self, test_server):
+    def test_warn_behind_proxy_logs_warning(self, media_relay_server):
         """Warn when reverse-proxy mode is enabled."""
-        test_server.config.behind_proxy = True
-        with patch.object(test_server.app.logger, "warning") as mock_warning:
-            test_server._warn_behind_proxy()
+        media_relay_server.config.behind_proxy = True
+        with patch.object(media_relay_server.app.logger, "warning") as mock_warning:
+            media_relay_server._warn_behind_proxy()
         mock_warning.assert_called_once()
         assert "VIDEO_SERVER_BEHIND_PROXY is enabled" in mock_warning.call_args[0][0]
 
-    def test_warn_non_production_logs_warning(self, test_server, monkeypatch):
+    def test_warn_non_production_logs_warning(self, media_relay_server, monkeypatch):
         """Warn when VIDEO_SERVER_PRODUCTION is not enabled."""
         monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "false")
-        with patch.object(test_server.app.logger, "warning") as mock_warning:
-            test_server._warn_non_production()
+        with patch.object(media_relay_server.app.logger, "warning") as mock_warning:
+            media_relay_server._warn_non_production()
         mock_warning.assert_called_once()
         assert "VIDEO_SERVER_PRODUCTION is not enabled" in mock_warning.call_args[0][0]
 
-    def test_warn_non_production_silent_in_production(self, test_server, monkeypatch):
+    def test_warn_non_production_silent_in_production(
+        self, media_relay_server, monkeypatch
+    ):
         """No warning when VIDEO_SERVER_PRODUCTION is enabled."""
         monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "true")
-        with patch.object(test_server.app.logger, "warning") as mock_warning:
-            test_server._warn_non_production()
+        with patch.object(media_relay_server.app.logger, "warning") as mock_warning:
+            media_relay_server._warn_non_production()
         mock_warning.assert_not_called()
 
-    def test_warn_legacy_flask_env_logs_warning(self, test_server, monkeypatch):
+    def test_warn_legacy_flask_env_logs_warning(self, media_relay_server, monkeypatch):
         """Warn when deprecated FLASK_ENV is still set."""
         monkeypatch.setenv("FLASK_ENV", "production")
-        with patch.object(test_server.app.logger, "warning") as mock_warning:
-            test_server._warn_legacy_flask_env()
+        with patch.object(media_relay_server.app.logger, "warning") as mock_warning:
+            media_relay_server._warn_legacy_flask_env()
         mock_warning.assert_called_once()
         assert "FLASK_ENV is deprecated" in mock_warning.call_args[0][0]
 
@@ -1402,8 +1427,6 @@ class TestMainCliOptions:
         self, mock_create_env, mock_load_config, mock_server_class
     ):
         """--generate-config writes sample env and exits."""
-        from click.testing import CliRunner
-
         runner = CliRunner()
         result = runner.invoke(main, ["--generate-config"])
         assert result.exit_code == 0
@@ -1417,8 +1440,6 @@ class TestMainCliOptions:
         self, mock_load_config, mock_server_class, monkeypatch
     ):
         """CLI host, port, and debug flags override loaded config."""
-        from click.testing import CliRunner
-
         mock_config = MagicMock()
         mock_config.is_production.return_value = False
         mock_load_config.return_value = mock_config
@@ -1441,8 +1462,6 @@ class TestMainCliOptions:
         self, mock_load_config, mock_server_class
     ):
         """--debug with VIDEO_SERVER_PRODUCTION=true is rejected."""
-        from click.testing import CliRunner
-
         mock_config = MagicMock()
         mock_config.is_production.return_value = True
         mock_load_config.return_value = mock_config
@@ -1489,19 +1508,17 @@ class TestGracefulShutdown:
     @patch("mediarelay.server.serve")
     def test_signal_handler_raises_keyboard_interrupt(self, mock_serve):
         """SIGINT handler should raise KeyboardInterrupt to stop Waitress."""
-        import signal as signal_module
-
         shutdown_handler: object = None
 
         def capture_signal(signum: int, handler: object) -> None:
             nonlocal shutdown_handler
-            if signum == signal_module.SIGINT:
+            if signum == signal.SIGINT:
                 shutdown_handler = handler
 
         def invoke_handler_from_serve(*_args: object, **_kwargs: object) -> None:
             assert shutdown_handler is not None
             with pytest.raises(KeyboardInterrupt):
-                shutdown_handler(signal_module.SIGINT, None)  # type: ignore[operator]
+                shutdown_handler(signal.SIGINT, None)  # type: ignore[operator]
 
         mock_serve.side_effect = invoke_handler_from_serve
 
@@ -1517,19 +1534,17 @@ class TestGracefulShutdown:
     @patch("mediarelay.server.serve")
     def test_sigterm_handler_raises_keyboard_interrupt(self, mock_serve):
         """SIGTERM handler should raise KeyboardInterrupt to stop Waitress."""
-        import signal as signal_module
-
         shutdown_handler: object = None
 
         def capture_signal(signum: int, handler: object) -> None:
             nonlocal shutdown_handler
-            if signum == signal_module.SIGTERM:
+            if signum == signal.SIGTERM:
                 shutdown_handler = handler
 
         def invoke_handler_from_serve(*_args: object, **_kwargs: object) -> None:
             assert shutdown_handler is not None
             with pytest.raises(KeyboardInterrupt):
-                shutdown_handler(signal_module.SIGTERM, None)  # type: ignore[operator]
+                shutdown_handler(signal.SIGTERM, None)  # type: ignore[operator]
 
         mock_serve.side_effect = invoke_handler_from_serve
 
@@ -1605,8 +1620,8 @@ class TestVideoMimeTypeInPlayer:
 class TestProductionAuditFixes:
     """Tests for production audit remediation."""
 
-    def test_response_includes_request_id_header(self, test_client):
-        response = test_client.get("/health")
+    def test_response_includes_request_id_header(self, flask_client):
+        response = flask_client.get("/health")
         assert "X-Request-ID" in response.headers
         assert len(response.headers["X-Request-ID"]) == 16
 
@@ -1624,17 +1639,17 @@ class TestProductionAuditFixes:
         assert response.headers.get("Cache-Control") == "private, no-store"
         assert response.headers.get("Pragma") == "no-cache"
 
-    def test_logout_uses_log_logout(self, test_server, server_config):
+    def test_logout_uses_log_logout(self, media_relay_server, server_config):
         credentials = base64.b64encode(
             f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
-        test_server.security_logger = MagicMock()
+        media_relay_server.security_logger = MagicMock()
 
-        with test_server.app.test_client() as client:
+        with media_relay_server.app.test_client() as client:
             client.get("/", headers={"Authorization": f"Basic {credentials}"})
             client.post("/logout")
 
-        test_server.security_logger.log_logout.assert_called_once()
+        media_relay_server.security_logger.log_logout.assert_called_once()
 
     def test_health_config_valid_reflects_runtime(self, authenticated_client):
         response = authenticated_client.get("/health")
@@ -1643,25 +1658,27 @@ class TestProductionAuditFixes:
         assert data["video_directory_accessible"] is True
 
     def test_check_authentication_lockout_logs_violation(
-        self, test_server, server_config
+        self, media_relay_server, server_config
     ):
-        test_server.security_logger = MagicMock()
-        test_server.lockout_manager = AccountLockoutManager(
+        media_relay_server.security_logger = MagicMock()
+        media_relay_server.lockout_manager = AccountLockoutManager(
             max_attempts=1, lockout_duration=60
         )
-        test_server.lockout_manager.record_failed_attempt("127.0.0.1", "testuser")
+        media_relay_server.lockout_manager.record_failed_attempt(
+            "127.0.0.1", "testuser"
+        )
 
         credentials = base64.b64encode(b"testuser:wrong").decode("utf-8")
-        with test_server.app.test_client() as client:
+        with media_relay_server.app.test_client() as client:
             client.get("/", headers={"Authorization": f"Basic {credentials}"})
 
-        test_server.security_logger.log_security_violation.assert_called()
+        media_relay_server.security_logger.log_security_violation.assert_called()
         assert "account_lockout" in str(
-            test_server.security_logger.log_security_violation.call_args
+            media_relay_server.security_logger.log_security_violation.call_args
         )
 
     def test_subtitle_track_when_srt_exists(
-        self, test_server, server_config, temp_video_dir, authenticated_client
+        self, media_relay_server, server_config, temp_video_dir, authenticated_client
     ):
         video = temp_video_dir / "captioned.mp4"
         video.write_text("video", encoding="utf-8")
@@ -1680,23 +1697,19 @@ class TestProductionAuditFixes:
         data = json.loads(response.data)
         assert data["error"] == "Path is not a directory"
 
-    def test_not_found_handler_logs_warning(self, test_server):
-        from werkzeug.exceptions import NotFound
-
-        with test_server.app.test_request_context("/missing"):
-            from flask import g
-
+    def test_not_found_handler_logs_warning(self, media_relay_server):
+        with media_relay_server.app.test_request_context("/missing"):
             g.request_id = "abcd1234"
-            with patch.object(test_server.app.logger, "warning") as mock_warning:
-                test_server.app.handle_user_exception(NotFound())
+            with patch.object(media_relay_server.app.logger, "warning") as mock_warning:
+                media_relay_server.app.handle_user_exception(NotFound())
                 mock_warning.assert_called_once()
                 assert "missing" in str(mock_warning.call_args)
                 assert "abcd1234" in str(mock_warning.call_args)
 
     def test_directory_pagination_html(
-        self, authenticated_client, test_server, temp_video_dir
+        self, authenticated_client, media_relay_server, temp_video_dir
     ):
-        test_server.config.page_size = 10
+        media_relay_server.config.page_size = 10
         listing_dir = temp_video_dir / "pagination_test"
         listing_dir.mkdir()
         for i in range(25):
@@ -1716,9 +1729,9 @@ class TestProductionAuditFixes:
         assert "page_item_15.mp4" in html_two
 
     def test_directory_pagination_api(
-        self, authenticated_client, test_server, temp_video_dir
+        self, authenticated_client, media_relay_server, temp_video_dir
     ):
-        test_server.config.page_size = 5
+        media_relay_server.config.page_size = 5
         listing_dir = temp_video_dir / "api_pagination"
         listing_dir.mkdir()
         for i in range(12):
@@ -1748,9 +1761,9 @@ class TestProductionAuditFixes:
         assert response.status_code == 400
 
     def test_page_beyond_last_returns_empty_slice(
-        self, authenticated_client, test_server, temp_video_dir
+        self, authenticated_client, media_relay_server, temp_video_dir
     ):
-        test_server.config.page_size = 10
+        media_relay_server.config.page_size = 10
         listing_dir = temp_video_dir / "beyond_last"
         listing_dir.mkdir()
         (listing_dir / "only.mp4").write_text("x")

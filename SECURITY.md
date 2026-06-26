@@ -76,10 +76,10 @@ Run `python scripts/verify.py` locally before release; it enforces black, isort,
 5. Bind to `127.0.0.1` when using a reverse proxy; use firewall rules if binding to `0.0.0.0`. Startup validation warns when `0.0.0.0` is used without `VIDEO_SERVER_BEHIND_PROXY` (LAN binding remains allowed).
 6. Keep `VIDEO_SERVER_SESSION_COOKIE_SECURE=true` and `VIDEO_SERVER_SESSION_COOKIE_HTTPONLY=true` when using HTTPS (both required in production).
 7. Set `VIDEO_SERVER_SECRET_KEY` to at least 32 characters in production (use `mediarelay-genpass`).
-7. Set `VIDEO_SERVER_BEHIND_PROXY=true` and `VIDEO_SERVER_PROXY_TRUSTED=true` **only** when MediaRelay is unreachable except through your trusted proxy. Without `PROXY_TRUSTED`, client IP and rate limits use the direct connection address.
-8. Ensure the video directory is not writable by the server process (enforced at startup in production).
-9. Use authenticated `/health` for readiness monitoring; unauthenticated `/health` returns liveness only (`{"status":"ok"}`).
-10. Restrict access with firewall rules or VPN where possible.
+8. Set `VIDEO_SERVER_BEHIND_PROXY=true` and `VIDEO_SERVER_PROXY_TRUSTED=true` when MediaRelay is unreachable except through your trusted proxy. Production startup **fails** if `BEHIND_PROXY` is enabled without `PROXY_TRUSTED`.
+9. Ensure the video directory is not writable by the server process (enforced at startup in production).
+10. Use authenticated `/health` for readiness monitoring; unauthenticated `/health` returns liveness only (`{"status":"ok"}`).
+11. Restrict access with firewall rules or VPN where possible.
 
 ## Known Limitations
 

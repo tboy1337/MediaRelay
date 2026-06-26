@@ -58,17 +58,17 @@ Host: localhost:5000
 
 #### Response (unauthenticated)
 
-Returns only whether the server can access the video directory:
+Returns liveness only (always HTTP 200, regardless of video directory health):
 
 ```json
 {
-    "status": "healthy"
+    "status": "ok"
 }
 ```
 
 #### Response (authenticated)
 
-When authenticated (HTTP Basic Auth or session cookie), returns full details:
+When authenticated (HTTP Basic Auth or session cookie), returns full readiness details:
 
 ```json
 {
@@ -83,8 +83,9 @@ When authenticated (HTTP Basic Auth or session cookie), returns full details:
 ```
 
 #### Status Codes
-- `200 OK`: Server is healthy
-- `503 Service Unavailable`: Video directory is inaccessible
+- Unauthenticated: always `200 OK` with `{"status":"ok"}` (liveness probe)
+- Authenticated `200 OK`: Server is healthy (video directory accessible)
+- Authenticated `503 Service Unavailable`: Video directory is inaccessible
 
 #### Response Fields (authenticated only)
 | Field | Type | Description |
@@ -460,11 +461,11 @@ Accept-Ranges: bytes
 
 #### Check Server Health
 
-Unauthenticated callers receive minimal status only (`{"status": "healthy"}`). Full details require HTTP Basic Auth or a valid session cookie.
+Unauthenticated callers receive liveness only (`{"status": "ok"}`), always HTTP 200. Full readiness details require HTTP Basic Auth or a valid session cookie.
 
 ```bash
 curl http://localhost:5000/health
-# Authenticated details:
+# Authenticated readiness details:
 curl -u username:password http://localhost:5000/health
 ```
 

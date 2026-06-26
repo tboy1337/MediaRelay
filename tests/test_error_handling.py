@@ -14,7 +14,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mediarelay.config import ServerConfig
-from mediarelay.handlers import handle_index_request
+from mediarelay.handlers import (
+    handle_api_files_request,
+    handle_index_request,
+    handle_stream_request,
+)
 from mediarelay.server import MediaRelayServer
 from tests.constants import TEST_PASSWORD_HASH
 
@@ -47,7 +51,7 @@ class TestServerErrorHandling:
                     assert response == ("Access denied to directory", 403)
 
     def test_directory_listing_skips_dotfiles(
-        self, test_server, server_config, temp_video_dir, authenticated_client
+        self, media_relay_server, server_config, temp_video_dir, authenticated_client
     ):
         """Hidden dotfiles must not appear in directory listings."""
         (temp_video_dir / ".hidden.mp4").write_text("secret", encoding="utf-8")
@@ -70,7 +74,7 @@ class TestServerErrorHandling:
         assert index_response.status_code == 404
 
     def test_directory_listing_skips_unreadable_entries(
-        self, test_server, server_config, temp_video_dir, authenticated_client
+        self, media_relay_server, server_config, temp_video_dir, authenticated_client
     ):
         """Unreadable directory entries must not crash the listing."""
         readable = temp_video_dir / "readable.mp4"
@@ -109,9 +113,9 @@ class TestServerErrorHandling:
 class TestRequestErrorHandling:
     """Test cases for request error handling"""
 
-    def test_malformed_authorization_header(self, test_server):
+    def test_malformed_authorization_header(self, media_relay_server):
         """Test handling of malformed authorization headers"""
-        with test_server.app.test_client() as client:
+        with media_relay_server.app.test_client() as client:
             # Test completely malformed header
             response = client.get("/", headers={"Authorization": "Malformed"})
             assert response.status_code == 401
@@ -162,11 +166,11 @@ class TestMemoryErrorHandling:
         assert response.status_code == 200
 
     def test_directory_listing_exceeds_max_entries(
-        self, monkeypatch, authenticated_client, test_server, temp_video_dir
+        self, monkeypatch, authenticated_client, media_relay_server, temp_video_dir
     ):
         """Directories above max_directory_entries return HTTP 413."""
         monkeypatch.setenv("VIDEO_SERVER_MAX_DIRECTORY_ENTRIES", "5")
-        test_server.config.max_directory_entries = 5
+        media_relay_server.config.max_directory_entries = 5
         listing_dir = temp_video_dir / "huge_dir"
         listing_dir.mkdir()
         for i in range(6):
@@ -202,19 +206,19 @@ class TestMemoryErrorHandling:
 class TestFileSystemErrorHandling:
     """Test cases for file system error handling"""
 
-    def test_index_handler_os_error_returns_500(self, test_server, server_config):
+    def test_index_handler_os_error_returns_500(
+        self, media_relay_server, server_config
+    ):
         """Index handler returns 500 when directory listing fails."""
-        import base64
-
-        from mediarelay.handlers import handle_index_request
-
         auth = base64.b64encode(b"testuser:testpass").decode()
-        with test_server.app.test_request_context(
+        with media_relay_server.app.test_request_context(
             "/",
             method="GET",
             headers={"Authorization": f"Basic {auth}"},
         ):
-            with patch.object(test_server, "check_authentication", return_value=True):
+            with patch.object(
+                media_relay_server, "check_authentication", return_value=True
+            ):
                 with patch(
                     "mediarelay.handlers.get_safe_path",
                     return_value=Path(server_config.video_directory),
@@ -223,33 +227,33 @@ class TestFileSystemErrorHandling:
                         "mediarelay.handlers.os.scandir",
                         side_effect=OSError("read error"),
                     ):
-                        result = handle_index_request(test_server, "")
+                        result = handle_index_request(media_relay_server, "")
         assert result == ("Error reading directory", 500)
 
     def test_index_handler_parent_path_value_error_fallback(
-        self, test_server, server_config
+        self, media_relay_server, server_config
     ):
         """Index handler falls back to root parent path when relative_to fails."""
-        import base64
-
         auth = base64.b64encode(b"testuser:testpass").decode()
         safe_path = Path(server_config.video_directory) / "subdir"
         safe_path.mkdir(exist_ok=True)
         video_root = Path(server_config.video_directory)
 
-        with test_server.app.test_request_context(
+        with media_relay_server.app.test_request_context(
             "/subdir",
             method="GET",
             headers={"Authorization": f"Basic {auth}"},
         ):
-            with patch.object(test_server, "check_authentication", return_value=True):
+            with patch.object(
+                media_relay_server, "check_authentication", return_value=True
+            ):
                 with patch("mediarelay.handlers.get_safe_path", return_value=safe_path):
                     with patch.object(
                         Path,
                         "relative_to",
                         side_effect=ValueError("outside jail"),
                     ):
-                        result = handle_index_request(test_server, "subdir")
+                        result = handle_index_request(media_relay_server, "subdir")
 
         assert isinstance(result, str)
         assert 'href="/"' in result
@@ -258,90 +262,84 @@ class TestFileSystemErrorHandling:
 class TestHandlerErrorPaths:
     """Tests for handler 500 error responses."""
 
-    def test_stream_handler_os_error_returns_500(self, test_server):
+    def test_stream_handler_os_error_returns_500(self, media_relay_server):
         """Stream handler returns 500 when send_from_directory fails."""
-        import base64
-
-        from mediarelay.handlers import handle_stream_request
-
         auth = base64.b64encode(b"testuser:testpass").decode()
-        with test_server.app.test_request_context(
+        with media_relay_server.app.test_request_context(
             "/stream/test_video.mp4",
             method="GET",
             headers={"Authorization": f"Basic {auth}"},
         ):
-            with patch.object(test_server, "check_authentication", return_value=True):
+            with patch.object(
+                media_relay_server, "check_authentication", return_value=True
+            ):
                 with patch(
                     "mediarelay.handlers.send_from_directory",
                     side_effect=OSError("disk error"),
                 ):
-                    result = handle_stream_request(test_server, "test_video.mp4")
+                    result = handle_stream_request(media_relay_server, "test_video.mp4")
         assert result == ("Error streaming file", 500)
 
-    def test_api_files_handler_os_error_returns_500(self, test_server):
+    def test_api_files_handler_os_error_returns_500(self, media_relay_server):
         """API files handler returns 500 on filesystem errors."""
-        import base64
-
-        from mediarelay.handlers import handle_api_files_request
-
         mock_dir = MagicMock()
         mock_dir.exists.return_value = True
         mock_dir.is_dir.return_value = True
 
         auth = base64.b64encode(b"testuser:testpass").decode()
-        with test_server.app.test_request_context(
+        with media_relay_server.app.test_request_context(
             "/api/files",
             method="GET",
             headers={"Authorization": f"Basic {auth}"},
         ):
-            with patch.object(test_server, "check_authentication", return_value=True):
+            with patch.object(
+                media_relay_server, "check_authentication", return_value=True
+            ):
                 with patch("mediarelay.handlers.get_safe_path", return_value=mock_dir):
                     with patch(
                         "mediarelay.handlers.os.scandir",
                         side_effect=OSError("read error"),
                     ):
-                        result = handle_api_files_request(test_server)
+                        result = handle_api_files_request(media_relay_server)
         assert result[1] == 500
 
-    def test_api_files_handler_permission_error_returns_403(self, test_server):
+    def test_api_files_handler_permission_error_returns_403(self, media_relay_server):
         """API files handler returns 403 on permission denied."""
-        import base64
-
-        from mediarelay.handlers import handle_api_files_request
-
         mock_dir = MagicMock()
         mock_dir.exists.return_value = True
         mock_dir.is_dir.return_value = True
 
         auth = base64.b64encode(b"testuser:testpass").decode()
-        test_server.security_logger = MagicMock()
-        with test_server.app.test_request_context(
+        media_relay_server.security_logger = MagicMock()
+        with media_relay_server.app.test_request_context(
             "/api/files",
             method="GET",
             headers={"Authorization": f"Basic {auth}"},
         ):
-            with patch.object(test_server, "check_authentication", return_value=True):
+            with patch.object(
+                media_relay_server, "check_authentication", return_value=True
+            ):
                 with patch("mediarelay.handlers.get_safe_path", return_value=mock_dir):
                     with patch(
                         "mediarelay.handlers.os.scandir",
                         side_effect=PermissionError("denied"),
                     ):
-                        result = handle_api_files_request(test_server)
+                        result = handle_api_files_request(media_relay_server)
         assert result[1] == 403
-        test_server.security_logger.log_security_violation.assert_called_once()
+        media_relay_server.security_logger.log_security_violation.assert_called_once()
 
 
 class TestProductionAuditErrorHandlers:
     """Tests for centralized error handlers added during production audit."""
 
     def test_get_logout_uses_method_not_allowed_handler(
-        self, test_server, server_config
+        self, media_relay_server, server_config
     ):
         credentials = base64.b64encode(
             f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
-        with test_server.app.test_client() as client:
+        with media_relay_server.app.test_client() as client:
             client.get("/", headers={"Authorization": f"Basic {credentials}"})
             response = client.get("/logout")
 
@@ -349,10 +347,10 @@ class TestProductionAuditErrorHandlers:
         assert response.get_data(as_text=True) == "Method Not Allowed"
 
     def test_performance_logger_failure_does_not_break_response(
-        self, authenticated_client, test_server
+        self, authenticated_client, media_relay_server
     ):
         with patch.object(
-            test_server.performance_logger.logger,
+            media_relay_server.performance_logger.logger,
             "log",
             side_effect=OSError("disk full"),
         ):
@@ -361,10 +359,10 @@ class TestProductionAuditErrorHandlers:
         assert response.status_code == 200
 
     def test_health_unhealthy_when_runtime_health_raises(
-        self, authenticated_client, test_server
+        self, authenticated_client, media_relay_server
     ):
         with patch.object(
-            test_server.config,
+            media_relay_server.config,
             "check_runtime_health",
             side_effect=RuntimeError("health probe failed"),
         ):

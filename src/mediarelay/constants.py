@@ -28,6 +28,7 @@ MAX_DIRECTORY_ENTRIES: int = 1_000_000
 MAX_LOG_MAX_BYTES: int = 1_073_741_824  # 1 GiB
 MAX_LOG_BACKUP_COUNT: int = 100
 MIN_PRODUCTION_SECRET_KEY_LENGTH: int = 32
+MAX_USERNAME_LENGTH: int = 128
 
 AUDIO_EXTENSIONS: frozenset[str] = frozenset({".mp3", ".aac", ".ogg", ".wav"})
 VIDEO_EXTENSIONS: frozenset[str] = frozenset(

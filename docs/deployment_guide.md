@@ -355,13 +355,13 @@ The server provides a health check endpoint:
 curl http://localhost:5000/health
 ```
 
-Unauthenticated response (minimal):
+Unauthenticated response (liveness only, always HTTP 200):
 
 ```json
-{"status": "healthy"}
+{"status": "ok"}
 ```
 
-Authenticated response includes version, uptime, and configuration details. See [API Documentation](api_documentation.md#1-health-check).
+Authenticated response includes readiness (`healthy`/`unhealthy`), version, uptime, and configuration details. See [API Documentation](api_documentation.md#1-health-check).
 
 `/health` is subject to the same per-IP rate limit as other endpoints when rate limiting is enabled. Use a dedicated monitoring source or adjust `VIDEO_SERVER_RATE_LIMIT_PER_MIN` if probes share an IP with heavy traffic.
 
@@ -608,6 +608,14 @@ import requests
 response = requests.get('http://localhost:5000/health')
 print('Health:', response.json()['status'])
 "
+```
+
+### Platform-specific tests (developers)
+
+Symlink/hardlink jail tests and POSIX `.env` permission checks are skipped on Windows. Run them in WSL or Linux before release:
+
+```bash
+wsl -u test -- bash -lc "cd /mnt/c/Users/Laptop/Documents/Git/MediaRelay && py -m pytest tests/test_path_utils.py tests/test_security.py tests/test_config.py -k 'symlink or hardlink or permission'"
 ```
 
 For additional support, consult the API documentation and user manual in the docs directory.

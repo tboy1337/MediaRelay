@@ -19,6 +19,7 @@ import colorlog
 import psutil
 
 from .config import ServerConfig
+from .constants import MAX_LOGGED_PATH_LENGTH
 from .session_store import get_request_id
 
 
@@ -35,6 +36,13 @@ class _JsonLineFormatter(logging.Formatter):
 
 
 _MAX_LOGGED_USERNAME_LENGTH = 64
+
+
+def _truncate_logged_path(file_path: str) -> str:
+    """Truncate attacker-controlled path strings before security logging."""
+    if len(file_path) <= MAX_LOGGED_PATH_LENGTH:
+        return file_path
+    return f"{file_path[:MAX_LOGGED_PATH_LENGTH]}...(truncated)"
 
 
 class SecurityEventLogger:
@@ -116,7 +124,7 @@ class SecurityEventLogger:
         event_data = self._build_event_data(
             {
                 "event_type": "file_access",
-                "file_path": file_path,
+                "file_path": _truncate_logged_path(file_path),
                 "ip_address": ip_address,
                 "success": success,
                 "user": user,

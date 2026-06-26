@@ -81,6 +81,8 @@ def production_server_config(
     monkeypatch.setenv("VIDEO_SERVER_DEBUG", "false")
     monkeypatch.setenv("VIDEO_SERVER_RATE_LIMIT", "true")
     monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "true")
+    monkeypatch.setenv("VIDEO_SERVER_BEHIND_PROXY", "false")
+    monkeypatch.setenv("VIDEO_SERVER_PROXY_TRUSTED", "false")
 
     real_access = os.access
     resolved_video = temp_video_dir.resolve()
@@ -124,31 +126,33 @@ def server_config(
 
 
 @pytest.fixture
-def test_server(server_config: ServerConfig) -> MediaRelayServer:
+def media_relay_server(server_config: ServerConfig) -> MediaRelayServer:
     """Create a test server instance"""
     server = MediaRelayServer(server_config)
     return server
 
 
 @pytest.fixture
-def test_client(test_server: MediaRelayServer) -> Generator[FlaskClient, None, None]:
+def flask_client(
+    media_relay_server: MediaRelayServer,
+) -> Generator[FlaskClient, None, None]:
     """Create a test client for the Flask app"""
-    test_server.app.config["TESTING"] = True
-    with test_server.app.test_client() as client:
+    media_relay_server.app.config["TESTING"] = True
+    with media_relay_server.app.test_client() as client:
         yield client
 
 
 @pytest.fixture
 def authenticated_client(
-    test_client: FlaskClient, server_config: ServerConfig
+    flask_client: FlaskClient, server_config: ServerConfig
 ) -> Generator[FlaskClient, None, None]:
     """Create an authenticated test client"""
     credentials = base64.b64encode(
         f"{server_config.username}:testpass".encode("utf-8")
     ).decode("utf-8")
 
-    test_client.environ_base["HTTP_AUTHORIZATION"] = f"Basic {credentials}"
-    yield test_client
+    flask_client.environ_base["HTTP_AUTHORIZATION"] = f"Basic {credentials}"
+    yield flask_client
 
 
 @pytest.fixture
