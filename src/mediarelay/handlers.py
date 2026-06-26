@@ -18,6 +18,7 @@ from werkzeug.wsgi import wrap_file
 from .constants import MAX_SUBTITLE_FILE_SIZE, SUBTITLE_EXTENSIONS
 from .logging_config import truncate_logged_path
 from .path_utils import (
+    ValidatedFileHandle,
     get_breadcrumbs,
     get_safe_path,
     guess_media_mime_type,
@@ -51,10 +52,6 @@ class _PaginationResult:
     has_next: bool
     range_start: int
     range_end: int
-
-
-def _session_username() -> str:
-    return get_session_username()
 
 
 def _parse_page_arg() -> int | tuple[str, int]:
@@ -272,7 +269,7 @@ def _render_media_player(
             str(relative_path),
             client_ip,
             True,
-            _session_username(),
+            get_session_username(),
         )
 
     subtitle_path: str | None = None
@@ -386,7 +383,7 @@ def handle_index_request(
                 subpath,
                 client_ip,
                 False,
-                _session_username(),
+                get_session_username(),
             )
         return "Path not found", 404
 
@@ -436,10 +433,10 @@ def handle_index_request(
     )
 
 
-def handle_stream_request(
+def _check_stream_auth_and_path(
     server: MediaRelayServer, video_path: str
-) -> Response | tuple[str, int]:
-    """Handle video streaming requests with range support."""
+) -> tuple[Path, str] | Response | tuple[str, int]:
+    """Validate authentication and resolve a safe stream path."""
     if not server.check_authentication():
         return server.auth_required_response()
 
@@ -458,7 +455,7 @@ def handle_stream_request(
                 video_path,
                 client_ip,
                 False,
-                _session_username(),
+                get_session_username(),
             )
         return "Video not found", 404
 
@@ -471,6 +468,16 @@ def handle_stream_request(
             )
         return "File type not allowed", 403
 
+    return safe_path, client_ip
+
+
+def _check_stream_size_limits(
+    server: MediaRelayServer,
+    video_path: str,
+    safe_path: Path,
+    client_ip: str,
+) -> tuple[str, int] | None:
+    """Return an HTTP error tuple when the file exceeds configured size limits."""
     file_size = safe_path.stat().st_size
     is_subtitle = safe_path.suffix.lower() in SUBTITLE_EXTENSIONS
     if is_subtitle:
@@ -501,12 +508,99 @@ def handle_stream_request(
             )
         return "File exceeds maximum allowed size", 413
 
+    return None
+
+
+def _build_subtitle_response(fd: int) -> Response:
+    """Build a sanitized plain-text response for subtitle files."""
+    with os.fdopen(fd, "r", encoding="utf-8", errors="replace") as subtitle_file:
+        raw_content = subtitle_file.read()
+    sanitized = sanitize_subtitle_content(raw_content)
+    response = Response(sanitized, mimetype="text/plain")
+    response.charset = "utf-8"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+def _build_media_stream_response(
+    validated_file: ValidatedFileHandle, filename: str
+) -> Response:
+    """Build a range-capable streaming response for media files."""
+    stat_result = os.fstat(validated_file.fd)
+    try:
+        file_obj = os.fdopen(validated_file.fd, "rb")
+    except OSError:
+        os.close(validated_file.fd)
+        raise
+    try:
+        response = Response(
+            wrap_file(request.environ, file_obj),
+            mimetype=guess_media_mime_type(filename),
+            direct_passthrough=True,
+        )
+        response.content_length = stat_result.st_size
+        response.last_modified = stat_result.st_mtime
+        response.cache_control.no_cache = True
+        try:
+            response = response.make_conditional(
+                request.environ,
+                accept_ranges=True,
+                complete_length=stat_result.st_size,
+            )
+        except RequestedRangeNotSatisfiable:
+            file_obj.close()
+            raise
+    except RequestedRangeNotSatisfiable:
+        raise
+    except Exception:
+        file_obj.close()
+        raise
+    return response
+
+
+def _attach_stream_perf_logging(
+    server: MediaRelayServer,
+    response: Response,
+    video_path: str,
+    file_size: int,
+) -> None:
+    """Register a callback to log stream serve duration when the response closes."""
+    perf_logger = server.performance_logger
+    if perf_logger is None:
+        return
+
+    serve_start = time.time()
+
+    def _log_serve_metrics() -> None:
+        duration = time.time() - serve_start
+        perf_logger.log_file_serve_time(video_path, file_size, duration)
+
+    response.call_on_close(_log_serve_metrics)
+
+
+def handle_stream_request(
+    server: MediaRelayServer, video_path: str
+) -> Response | tuple[str, int]:
+    """Handle video streaming requests with range support."""
+    auth_result = _check_stream_auth_and_path(server, video_path)
+    if isinstance(auth_result, Response):
+        return auth_result
+    if isinstance(auth_result[0], str):
+        return auth_result
+    safe_path, client_ip = auth_result
+    size_error = _check_stream_size_limits(server, video_path, safe_path, client_ip)
+    if size_error is not None:
+        return size_error
+
+    file_size = safe_path.stat().st_size
+    is_subtitle = safe_path.suffix.lower() in SUBTITLE_EXTENSIONS
+
     if server.security_logger:
         server.security_logger.log_file_access(
             video_path,
             client_ip,
             True,
-            _session_username(),
+            get_session_username(),
         )
 
     validated_file = open_validated_file(
@@ -520,62 +614,17 @@ def handle_stream_request(
                 video_path,
                 client_ip,
                 False,
-                _session_username(),
+                get_session_username(),
             )
         return "Video not found", 404
 
     try:
         if is_subtitle:
-            with os.fdopen(
-                validated_file.fd, "r", encoding="utf-8", errors="replace"
-            ) as subtitle_file:
-                raw_content = subtitle_file.read()
-            sanitized = sanitize_subtitle_content(raw_content)
-            response = Response(sanitized, mimetype="text/plain")
-            response.charset = "utf-8"
-            response.headers["X-Content-Type-Options"] = "nosniff"
+            response = _build_subtitle_response(validated_file.fd)
         else:
-            filename = safe_path.name
-            stat_result = os.fstat(validated_file.fd)
-            try:
-                file_obj = os.fdopen(validated_file.fd, "rb")
-            except OSError:
-                os.close(validated_file.fd)
-                raise
-            try:
-                response = Response(
-                    wrap_file(request.environ, file_obj),
-                    mimetype=guess_media_mime_type(filename),
-                    direct_passthrough=True,
-                )
-                response.content_length = stat_result.st_size
-                response.last_modified = stat_result.st_mtime
-                response.cache_control.no_cache = True
-                try:
-                    response = response.make_conditional(
-                        request.environ,
-                        accept_ranges=True,
-                        complete_length=stat_result.st_size,
-                    )
-                except RequestedRangeNotSatisfiable:
-                    file_obj.close()
-                    raise
-            except RequestedRangeNotSatisfiable:
-                raise
-            except BaseException:
-                file_obj.close()
-                raise
+            response = _build_media_stream_response(validated_file, safe_path.name)
 
-        perf_logger = server.performance_logger
-        if perf_logger is not None:
-            serve_start = time.time()
-
-            def _log_serve_metrics() -> None:
-                duration = time.time() - serve_start
-                perf_logger.log_file_serve_time(video_path, file_size, duration)
-
-            response.call_on_close(_log_serve_metrics)
-
+        _attach_stream_perf_logging(server, response, video_path, file_size)
         return response
 
     except (OSError, PermissionError, FileNotFoundError) as error:
@@ -641,5 +690,5 @@ def handle_api_files_request(
         )
 
     except (OSError, ValueError) as error:
-        server.app.logger.error(f"API files error: {str(error)}")
+        server.app.logger.error("API files error: %s", error)
         return jsonify({"error": "Internal server error"}), 500  # type: ignore[misc]

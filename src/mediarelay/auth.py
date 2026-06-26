@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import time
 from typing import TYPE_CHECKING
@@ -21,6 +22,13 @@ from .session_store import (
 
 if TYPE_CHECKING:
     from .server import MediaRelayServer
+
+
+def _username_matches(configured: str, provided: str) -> bool:
+    """Compare usernames in constant time without leaking configured length."""
+    configured_digest = hashlib.sha256(configured.encode("utf-8")).digest()
+    provided_digest = hashlib.sha256(provided.encode("utf-8")).digest()
+    return hmac.compare_digest(configured_digest, provided_digest)
 
 
 def auth_required_response(server: MediaRelayServer) -> Response:
@@ -73,7 +81,7 @@ def check_auth(
                 )
         return False
 
-    username_ok = hmac.compare_digest(username, server.config.username)
+    username_ok = _username_matches(server.config.username, username)
     password_ok = check_password_hash(server.config.password_hash, password)
     valid = username_ok and password_ok
 

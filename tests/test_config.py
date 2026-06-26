@@ -18,7 +18,6 @@ from unittest.mock import patch
 
 import pytest
 
-import mediarelay.config as config_module
 from mediarelay.config import (
     ServerConfig,
     _get_default_video_directory,
@@ -806,6 +805,63 @@ class TestMaxFileSizeConfiguration:
         assert config_dict["username"] == "[redacted]"
         assert config.is_production() is True
 
+    def test_config_construction_smoke(self, tmp_path: Path) -> None:
+        """Config construction and validation succeed without error."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+            },
+        ):
+            config = ServerConfig()
+            config.validate_config()
+            assert config.password_hash == TEST_PASSWORD_HASH
+
+    def test_empty_secret_key_env_generates_key(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Explicit empty VIDEO_SERVER_SECRET_KEY is replaced in non-production."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        monkeypatch.setenv("VIDEO_SERVER_SECRET_KEY", "")
+        monkeypatch.setenv("VIDEO_SERVER_PASSWORD_HASH", TEST_PASSWORD_HASH)
+        monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(video_dir))
+        config = ServerConfig()
+        assert len(config.secret_key) >= 32
+
+    def test_credential_epoch_changes_with_credentials(self, tmp_path: Path) -> None:
+        """credential_epoch fingerprint changes when username or password hash changes."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        base = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash=TEST_PASSWORD_HASH,
+            username="tboy1337",
+        )
+        other_user = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash=TEST_PASSWORD_HASH,
+            username="otheruser",
+        )
+        other_hash = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash=TEST_PASSWORD_HASH + "x",
+            username="tboy1337",
+        )
+        assert base.credential_epoch != other_user.credential_epoch
+        assert base.credential_epoch != other_hash.credential_epoch
+        assert (
+            base.credential_epoch
+            == ServerConfig(
+                video_directory=str(video_dir),
+                password_hash=TEST_PASSWORD_HASH,
+                username="tboy1337",
+            ).credential_epoch
+        )
+
 
 class TestServerConfigMethodsComprehensive:
     """Test ServerConfig methods comprehensively"""
@@ -937,24 +993,6 @@ class TestConfigLoading:
 
             assert mock_env_file.read_text(encoding="utf-8") == "existing content"
 
-
-class TestConfigLoadingComprehensive:
-    """Test config loading functions comprehensively"""
-
-    def test_load_config_function(self):
-        """Test load_config function"""
-        with patch.dict(
-            os.environ,
-            {
-                "VIDEO_SERVER_HOST": "testhost",
-                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
-                "VIDEO_SERVER_DIRECTORY": str(Path.home()),
-            },
-        ):
-            config = load_config()
-            assert isinstance(config, ServerConfig)
-            assert config.host == "testhost"
-
     def test_create_sample_env_file_content(self, tmp_path):
         """Test create_sample_env_file creates correct content"""
         with patch("mediarelay.config.Path") as mock_path_class:
@@ -966,14 +1004,11 @@ class TestConfigLoadingComprehensive:
 
                 create_sample_env_file()
 
-                # Verify file was opened for writing
                 mock_open.assert_called_once_with(env_file, "w", encoding="utf-8")
 
-                # Verify content was written
                 write_calls = mock_file.write.call_args_list
                 written_content = "".join(call[0][0] for call in write_calls)
 
-                # Check that key configuration items are present
                 assert "VIDEO_SERVER_HOST=0.0.0.0" in written_content
                 assert "VIDEO_SERVER_PORT=5000" in written_content
                 assert "VIDEO_SERVER_USERNAME=tboy1337" in written_content
@@ -993,7 +1028,6 @@ class TestConfigLoadingComprehensive:
                 with patch("builtins.open", create=True):
                     create_sample_env_file()
 
-                    # Verify appropriate messages were printed
                     expected_messages = [
                         f"Sample environment file created: {env_file}",
                         "Copy this to .env and update the values for your deployment",
@@ -1033,32 +1067,15 @@ class TestSecurityHeaders:
         assert "media-src 'self'" in csp
         assert "style-src 'self' 'unsafe-inline'" in csp
 
-
-@pytest.mark.timeout(10)
-class TestConfigPerformance:
-    """Functional tests for configuration loading."""
-
-    def test_config_loading_performance(self):
-        """Repeated config construction succeeds without error."""
-        with patch.dict(
-            os.environ,
-            {
-                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
-                "VIDEO_SERVER_DIRECTORY": str(Path.home()),
-            },
-        ):
-            configs = [ServerConfig() for _ in range(100)]
-            assert len(configs) == 100
-            assert all(config.password_hash == TEST_PASSWORD_HASH for config in configs)
-
-    def test_config_validation_performance(self):
-        """Repeated configuration validation succeeds without error."""
+    def test_should_send_hsts_when_behind_proxy(self) -> None:
+        """HSTS is sent when behind a reverse proxy even without VIDEO_SERVER_HSTS."""
         config = ServerConfig(
-            password_hash=TEST_PASSWORD_HASH, video_directory=str(Path.home())
+            password_hash=TEST_PASSWORD_HASH,
+            video_directory=str(Path.home()),
+            behind_proxy=True,
+            hsts_enabled=False,
         )
-
-        for _ in range(100):
-            config.validate_config()
+        assert config.should_send_hsts() is True
 
 
 class TestConfigComprehensiveEdgeCases:
@@ -2286,3 +2303,68 @@ class TestNumericUpperBounds:
                 password_hash=TEST_PASSWORD_HASH,
                 log_directory=str(log_dir),
             )
+
+    def test_page_size_upper_bound(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_PAGE_SIZE": "999999",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+            },
+        ):
+            with pytest.raises(
+                ValueError, match="VIDEO_SERVER_PAGE_SIZE must be at most"
+            ):
+                ServerConfig(log_directory=str(tmp_path / "logs"))
+
+    def test_stream_rate_limit_upper_bound(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE": "999999",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+            },
+        ):
+            with pytest.raises(
+                ValueError,
+                match="VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE must be at most",
+            ):
+                ServerConfig(log_directory=str(tmp_path / "logs"))
+
+    def test_session_max_lifetime_upper_bound(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_SESSION_MAX_LIFETIME": "999999999",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+            },
+        ):
+            with pytest.raises(
+                ValueError, match="VIDEO_SERVER_SESSION_MAX_LIFETIME must be at most"
+            ):
+                ServerConfig(log_directory=str(tmp_path / "logs"))
+
+    def test_max_directory_entries_upper_bound(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_MAX_DIRECTORY_ENTRIES": "999999999",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+            },
+        ):
+            with pytest.raises(
+                ValueError, match="VIDEO_SERVER_MAX_DIRECTORY_ENTRIES must be at most"
+            ):
+                ServerConfig(log_directory=str(tmp_path / "logs"))

@@ -30,7 +30,7 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 
 - HTTP Basic Authentication with Werkzeug password hashes (scrypt via `mediarelay-genpass`)
 - Session cookies after successful login (HttpOnly, Secure, SameSite configurable)
-- Constant-time username comparison (`hmac.compare_digest`)
+- Constant-time username comparison (SHA-256 digest compare via `hmac.compare_digest`; does not leak configured username length)
 - Password verification on every login attempt, including when already locked out (mitigates username timing enumeration); `/health` probes with `record_lockout=false` skip lockout accounting and expensive hash work during lockout
 - Account lockout after repeated failed attempts (per IP + username, and per username across all IPs when `VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED=true`); lockout also terminates active sessions
 - Active lockout entries are never evicted from the lockout tracker when at capacity; trackers with in-progress failed-attempt counters are also preserved (only zero-failure inactive trackers are evicted)
@@ -76,7 +76,7 @@ Run `python scripts/verify.py` locally before release; it enforces black, isort,
 4. **Terminate TLS** at nginx, Caddy, or another reverse proxy. Do not expose plain HTTP to the internet.
 5. Bind to `127.0.0.1` when using a reverse proxy; use firewall rules if binding to `0.0.0.0`. Startup validation warns when `0.0.0.0` is used without `VIDEO_SERVER_BEHIND_PROXY` (LAN binding remains allowed).
 6. Keep `VIDEO_SERVER_SESSION_COOKIE_SECURE=true` and `VIDEO_SERVER_SESSION_COOKIE_HTTPONLY=true` when using HTTPS (both required in production).
-7. Set `VIDEO_SERVER_SECRET_KEY` to at least 32 characters in production (use `mediarelay-genpass`).
+7. Set `VIDEO_SERVER_SECRET_KEY` to at least 32 characters in production (use `mediarelay-genpass`). An explicit empty or placeholder value is rejected in production; in non-production, empty/placeholder values are replaced with an ephemeral auto-generated key at startup.
 8. Set `VIDEO_SERVER_BEHIND_PROXY=true` and `VIDEO_SERVER_PROXY_TRUSTED=true` when MediaRelay is unreachable except through your trusted proxy. Production startup **fails** if `BEHIND_PROXY` is enabled without `PROXY_TRUSTED`.
 9. Ensure the video directory is not writable by the server process (enforced at startup in production).
 10. Unauthenticated `/health` returns `{"status":"ok"}` (HTTP 200) when healthy or `{"status":"degraded"}` (HTTP 503) when the video directory is inaccessible; use authenticated `/health` for full readiness details. Failed Basic Auth on `/health` does not increment account lockout counters.

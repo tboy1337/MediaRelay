@@ -69,6 +69,17 @@ def _get_default_video_directory() -> str:
         return "./videos"
 
 
+def _resolve_secret_key() -> str:
+    """Resolve session signing key from VIDEO_SERVER_SECRET_KEY."""
+    raw = os.getenv("VIDEO_SERVER_SECRET_KEY")
+    if raw is None:
+        return secrets.token_hex(32)
+    stripped = raw.strip()
+    if stripped in _PLACEHOLDER_SECRET_KEYS:
+        return secrets.token_hex(32)
+    return stripped
+
+
 def _parse_int_env(
     name: str,
     default: str,
@@ -395,11 +406,7 @@ class ServerConfig:
     )
 
     # Security Settings
-    secret_key: str = field(
-        default_factory=lambda: os.getenv(
-            "VIDEO_SERVER_SECRET_KEY", secrets.token_hex(32)
-        )
-    )
+    secret_key: str = field(default_factory=_resolve_secret_key)
     username: str = field(
         default_factory=lambda: os.getenv("VIDEO_SERVER_USERNAME", "tboy1337")
     )

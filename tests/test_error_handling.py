@@ -173,6 +173,7 @@ class TestMemoryErrorHandling:
         """Directories above max_directory_entries return HTTP 413."""
         monkeypatch.setenv("VIDEO_SERVER_MAX_DIRECTORY_ENTRIES", "5")
         media_relay_server.config.max_directory_entries = 5
+        media_relay_server.security_logger = MagicMock()
         listing_dir = temp_video_dir / "huge_dir"
         listing_dir.mkdir()
         for i in range(6):
@@ -180,6 +181,12 @@ class TestMemoryErrorHandling:
 
         response = authenticated_client.get("/huge_dir")
         assert response.status_code == 413
+        media_relay_server.security_logger.log_security_violation.assert_called()
+        violation_types = [
+            call.args[0]
+            for call in media_relay_server.security_logger.log_security_violation.call_args_list
+        ]
+        assert "directory_listing_truncated" in violation_types
 
         api_response = authenticated_client.get("/api/files?path=huge_dir")
         assert api_response.status_code == 413
@@ -321,6 +328,29 @@ class TestHandlerErrorPaths:
                     with patch(
                         "mediarelay.handlers.os.scandir",
                         side_effect=OSError("read error"),
+                    ):
+                        result = handle_api_files_request(media_relay_server)
+        assert result[1] == 500
+
+    def test_api_files_handler_value_error_returns_500(self, media_relay_server):
+        """API files handler returns 500 when listing raises ValueError."""
+        mock_dir = MagicMock()
+        mock_dir.exists.return_value = True
+        mock_dir.is_dir.return_value = True
+
+        auth = base64.b64encode(b"testuser:testpass").decode()
+        with media_relay_server.app.test_request_context(
+            "/api/files",
+            method="GET",
+            headers={"Authorization": f"Basic {auth}"},
+        ):
+            with patch.object(
+                media_relay_server, "check_authentication", return_value=True
+            ):
+                with patch("mediarelay.handlers.get_safe_path", return_value=mock_dir):
+                    with patch(
+                        "mediarelay.handlers._resolve_directory_listing",
+                        side_effect=ValueError("invalid listing state"),
                     ):
                         result = handle_api_files_request(media_relay_server)
         assert result[1] == 500

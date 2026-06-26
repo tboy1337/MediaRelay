@@ -569,21 +569,33 @@ class TestAuthModule:
             server_config.password_hash, "anypassword"
         )
 
-    @patch("mediarelay.auth.hmac.compare_digest", return_value=False)
+    @patch("mediarelay.auth._username_matches", return_value=False)
     @patch("mediarelay.auth.check_password_hash", return_value=False)
     def test_check_auth_uses_constant_time_username_compare(
         self,
         mock_check_hash: Mock,
-        mock_compare_digest: Mock,
+        mock_username_matches: Mock,
         media_relay_server,
         server_config,
     ) -> None:
-        """Username comparison must use hmac.compare_digest."""
+        """Username comparison must use constant-time digest comparison."""
         with media_relay_server.app.test_request_context():
             assert media_relay_server.check_auth("wronguser", "anypassword") is False
 
-        mock_compare_digest.assert_called_once_with("wronguser", server_config.username)
+        mock_username_matches.assert_called_once_with(
+            server_config.username, "wronguser"
+        )
         mock_check_hash.assert_called_once()
+
+    def test_wrong_length_username_returns_false(
+        self, media_relay_server, server_config
+    ) -> None:
+        """Usernames with different lengths are rejected without raising."""
+        from mediarelay.auth import _username_matches
+
+        assert _username_matches(server_config.username, "x") is False
+        with media_relay_server.app.test_request_context():
+            assert media_relay_server.check_auth("x", "anypassword") is False
 
 
 class TestAuthenticationSecurity:
@@ -1219,6 +1231,31 @@ class TestSubtitleSanitization:
         assert "::cue" not in sanitized
         assert "NOTE dangerous" not in sanitized
         assert "Safe cue text" in sanitized
+
+    def test_sanitize_strips_control_characters(self) -> None:
+        from mediarelay.subtitle_sanitize import sanitize_subtitle_content
+
+        content = "WEBVTT\n\n\x00\x01Safe cue text\n"
+        sanitized = sanitize_subtitle_content(content)
+        assert "\x00" not in sanitized
+        assert "\x01" not in sanitized
+        assert "Safe cue text" in sanitized
+
+    def test_sanitize_strips_html_comments_and_blob_uris(self) -> None:
+        from mediarelay.subtitle_sanitize import sanitize_subtitle_content
+
+        content = (
+            "WEBVTT\n\n<!-- hidden -->\n"
+            "00:00:00.000 --> 00:00:01.000\n"
+            "blob:evil\n"
+            "view-source:secret\n"
+        )
+        sanitized = sanitize_subtitle_content(content)
+        assert "<!--" not in sanitized
+        assert "hidden" not in sanitized
+        assert "blob:" not in sanitized
+        assert "view-source:" not in sanitized
+        assert "00:00:00.000 --> 00:00:01.000" in sanitized
 
     def test_stream_subtitle_strips_malicious_content(
         self, media_relay_server: MediaRelayServer, server_config: ServerConfig

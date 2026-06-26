@@ -1,6 +1,3 @@
-# Video Streaming Server - Production Dependencies
-# Core runtime dependencies required for the application to run
-
 # Web Framework
 Flask
 jinja2
