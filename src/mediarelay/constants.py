@@ -35,3 +35,4 @@ AUDIO_EXTENSIONS: frozenset[str] = frozenset({".mp3", ".aac", ".ogg", ".wav"})
 VIDEO_EXTENSIONS: frozenset[str] = frozenset(
     {".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v", ".flv"}
 )
+SUBTITLE_EXTENSIONS: frozenset[str] = frozenset({".srt", ".vtt"})

@@ -148,7 +148,7 @@ For local network access only, `http://localhost:5000` or `http://your-lan-ip:50
 #### Video Player
 
 - **Controls**: Play, pause, seek, volume, fullscreen
-- **Subtitles**: Automatically loaded when a `.srt` file with the same basename as the video exists in the same directory (e.g. `movie.mp4` + `movie.srt`)
+- **Subtitles**: Automatically loaded when a `.vtt` or `.srt` file with the same basename as the video exists in the same directory (WebVTT is preferred when both are present; e.g. `movie.mp4` + `movie.vtt`)
 - **Back Button**: Return to directory listing
 - **Responsive**: Works on mobile devices
 
@@ -442,7 +442,7 @@ A: Yes! The interface is mobile-optimized and works on smartphones and tablets.
 A: Yes, with password protection, session management, security headers, and comprehensive logging.
 
 **Q: Can multiple people use it at once?**
-A: Yes, the server supports concurrent users with configurable performance settings.
+A: Multiple viewers can connect at the same time, but they all share a single username and password. MediaRelay is a single-user server, not a multi-account system with separate access controls.
 
 ### Setup Questions
 

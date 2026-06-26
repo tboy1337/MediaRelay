@@ -14,7 +14,7 @@ A video streaming server that allows you to securely share your personal video l
 
 ### 🎥 Media Streaming  
 - **Universal Format Support**: MP4, MKV, AVI, MOV, WebM, M4V, FLV
-- **Subtitle Support**: SRT subtitle files
+- **Subtitle Support**: SRT and WebVTT (`.srt`, `.vtt`) subtitle files
 - **Audio Support**: MP3, AAC, OGG, WAV
 - **Range Requests**: Efficient streaming with seek support
 - **Mobile Optimized**: Responsive design for all devices

@@ -31,6 +31,7 @@ from mediarelay.constants import (
 from mediarelay.lockout import AccountLockoutManager, LoginAttemptTracker
 from mediarelay.logging_config import SecurityEventLogger
 from mediarelay.server import MediaRelayServer
+from mediarelay.session_store import SessionAuthState
 from tests.helpers import authenticate_client
 
 
@@ -656,6 +657,86 @@ class TestAuthenticationSecurity:
                 "invalid_session_state"
             )
 
+    def test_session_invalid_reason_idle_timeout(
+        self, media_relay_server, server_config
+    ):
+        """Idle timeout invalidates an otherwise valid session."""
+        current_time = time.time()
+        auth_state = SessionAuthState(
+            last_activity=current_time - server_config.session_timeout - 1,
+            login_time=current_time - 100,
+            login_ip="127.0.0.1",
+            username=server_config.username,
+            credential_epoch=server_config.credential_epoch,
+        )
+        with patch(
+            "mediarelay.auth.read_session_auth_state",
+            return_value=auth_state,
+        ):
+            assert _session_invalid_reason(media_relay_server, current_time) == (
+                "session_idle_timeout"
+            )
+
+    def test_session_invalid_reason_missing_login_ip(
+        self, media_relay_server, server_config
+    ):
+        """Sessions without a bound login IP are invalid."""
+        current_time = time.time()
+        auth_state = SessionAuthState(
+            last_activity=current_time,
+            login_time=current_time - 100,
+            login_ip=None,
+            username=server_config.username,
+            credential_epoch=server_config.credential_epoch,
+        )
+        with patch(
+            "mediarelay.auth.read_session_auth_state",
+            return_value=auth_state,
+        ):
+            assert _session_invalid_reason(media_relay_server, current_time) == (
+                "session_missing_login_ip"
+            )
+
+    def test_session_invalid_reason_credential_changed(
+        self, media_relay_server, server_config
+    ):
+        """Credential rotation invalidates existing sessions."""
+        current_time = time.time()
+        auth_state = SessionAuthState(
+            last_activity=current_time,
+            login_time=current_time - 100,
+            login_ip="127.0.0.1",
+            username=server_config.username,
+            credential_epoch="stale-epoch",
+        )
+        with patch(
+            "mediarelay.auth.read_session_auth_state",
+            return_value=auth_state,
+        ):
+            assert _session_invalid_reason(media_relay_server, current_time) == (
+                "credential_changed"
+            )
+
+    def test_session_invalid_reason_max_lifetime_exceeded(
+        self, media_relay_server, server_config
+    ):
+        """Absolute session lifetime invalidates the session."""
+        current_time = time.time()
+        auth_state = SessionAuthState(
+            last_activity=current_time,
+            login_time=current_time - server_config.session_max_lifetime - 1,
+            login_ip="127.0.0.1",
+            username=server_config.username,
+            credential_epoch=server_config.credential_epoch,
+        )
+        with patch(
+            "mediarelay.auth.read_session_auth_state",
+            return_value=auth_state,
+        ):
+            assert _session_invalid_reason(media_relay_server, current_time) == (
+                "session_max_lifetime_exceeded"
+            )
+
     def test_concurrent_sessions_allowed(self, media_relay_server, server_config):
         """Test that multiple independent clients can hold sessions concurrently"""
         credentials = base64.b64encode(
@@ -687,27 +768,27 @@ class TestAuthenticationSecurity:
         assert "password_hash" not in config_dict
         assert server_config.password_hash not in str(config_dict)
 
-    def test_lockout_response_includes_retry_after(self, media_relay_server):
+    def test_lockout_response_includes_retry_after(
+        self, media_relay_server, server_config
+    ):
         """Test that lockout response includes Retry-After header"""
-        # Configure a short lockout
         media_relay_server.lockout_manager = AccountLockoutManager(
             max_attempts=1, lockout_duration=60
         )
 
+        invalid_credentials = base64.b64encode(
+            f"{server_config.username}:wrongpass".encode("utf-8")
+        ).decode("utf-8")
+
         with media_relay_server.app.test_client() as client:
-            # First request to trigger lockout
-            invalid_credentials = base64.b64encode(b"baduser:badpass").decode("utf-8")
-
-            # Trigger lockout
             client.get("/", headers={"Authorization": f"Basic {invalid_credentials}"})
-
-            # Next request should get lockout response
             response = client.get(
                 "/", headers={"Authorization": f"Basic {invalid_credentials}"}
             )
 
-            # Should be either 401 (auth required) or 403 (locked out)
-            assert response.status_code in [401, 403]
+            assert response.status_code == 401
+            assert response.headers.get("Retry-After") is not None
+            assert int(response.headers["Retry-After"]) >= 1
 
 
 class TestLogoutEndpoint:
@@ -1310,14 +1391,9 @@ class TestDenialOfServiceProtection:
 
     def test_repeated_api_requests_remain_stable(self, authenticated_client):
         """Repeated API listing requests should succeed without server errors."""
-        successful_responses = []
-
         for _ in range(100):
             response = authenticated_client.get("/api/files")
-            if response.status_code == 200:
-                successful_responses.append(response.data)
-
-        assert len(successful_responses) > 0
+            assert response.status_code == 200
 
     @pytest.mark.timeout(10)
     def test_request_timeout_handling(self, media_relay_server):
@@ -1406,16 +1482,14 @@ class TestSecurityLogging:
 
         with media_relay_server.app.test_request_context():
             for path in dangerous_paths:
-                # Test get_safe_path which should log security violations
                 result = media_relay_server.get_safe_path(path)
-                if result is None:  # Path was blocked
-                    # Should have logged a security violation
-                    continue
+                assert result is None
 
-        # Verify that security violations were logged for blocked paths
-        # (The actual count depends on which paths get blocked)
-        if hasattr(media_relay_server.security_logger, "log_security_violation"):
-            media_relay_server.security_logger.log_security_violation.assert_called()
+        media_relay_server.security_logger.log_security_violation.assert_called()
+        assert (
+            media_relay_server.security_logger.log_security_violation.call_count
+            >= len(dangerous_paths)
+        )
 
 
 class TestCryptographicSecurity:

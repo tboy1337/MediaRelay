@@ -40,7 +40,7 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 |----------|---------|-------------|
 | `VIDEO_SERVER_DIRECTORY` | `~/Videos` (or `./videos`) | Root path for media library. Must exist, be a directory, and be readable at startup. |
 | `VIDEO_SERVER_LOG_DIR` | `./logs` | Log file directory (created if missing; must be writable). |
-| `VIDEO_SERVER_ALLOWED_EXTENSIONS` | *(built-in set)* | Comma-separated extensions. Must be a subset of the built-in media allowlist (video, audio, `.srt`). Invalid values are rejected at startup. |
+| `VIDEO_SERVER_ALLOWED_EXTENSIONS` | *(built-in set)* | Comma-separated extensions. Must be a subset of the built-in media allowlist (video, audio, `.srt`, `.vtt`). Invalid values are rejected at startup. |
 | `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES` | `10000` | Maximum listable entries per directory request. Exceeding this returns HTTP 413. |
 | `VIDEO_SERVER_MAX_FILE_SIZE` | `21474836480` | Maximum file size in bytes for uploads and streaming (`0` disables). Oversized streams return HTTP 413. |
 
@@ -66,7 +66,7 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 **Minimal local setup (development):**
 
 1. `pip install mediarelay`
-2. `mediarelay-genpass > .env` (redirect securely; set `VIDEO_SERVER_VIDEO_DIRECTORY`)
+2. `mediarelay-genpass > .env` (redirect securely; set `VIDEO_SERVER_DIRECTORY`)
 3. `mediarelay`
 
 **Production deploy:** set `VIDEO_SERVER_PRODUCTION=true`, then run `mediarelay-validate` before starting the service.

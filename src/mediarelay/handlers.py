@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, TypedDict
 
 from flask import Response, jsonify, request, send_from_directory
 
-from .constants import MAX_LOGGED_PATH_LENGTH
+from .constants import MAX_LOGGED_PATH_LENGTH, SUBTITLE_EXTENSIONS
 from .path_utils import (
     get_breadcrumbs,
     get_safe_path,
@@ -47,9 +47,6 @@ class _PaginationResult:
     has_next: bool
     range_start: int
     range_end: int
-
-
-_SUBTITLE_EXTENSIONS: frozenset[str] = frozenset({".srt", ".vtt"})
 
 
 def _truncate_log_path(path: str) -> str:
@@ -278,8 +275,11 @@ def _render_media_player(
         )
 
     subtitle_path: str | None = None
+    vtt_file = safe_path.with_suffix(".vtt")
     srt_file = safe_path.with_suffix(".srt")
-    if srt_file.is_file():
+    if vtt_file.is_file():
+        subtitle_path = str(vtt_file.relative_to(video_root)).replace("\\", "/")
+    elif srt_file.is_file():
         subtitle_path = str(srt_file.relative_to(video_root)).replace("\\", "/")
 
     media_kind = "audio" if is_audio_file(safe_path.name) else "video"
@@ -511,7 +511,7 @@ def handle_stream_request(
         filename = safe_path.name
         response = send_from_directory(directory, filename)
 
-        if safe_path.suffix.lower() in _SUBTITLE_EXTENSIONS:
+        if safe_path.suffix.lower() in SUBTITLE_EXTENSIONS:
             response.headers["Content-Type"] = "text/plain; charset=utf-8"
             response.headers["X-Content-Type-Options"] = "nosniff"
 

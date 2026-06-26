@@ -191,6 +191,8 @@ class TestServerConfig:
         assert config.lockout_max_attempts == 5
         assert config.lockout_duration == 900
         assert ".mp4" in config.allowed_extensions
+        assert ".srt" in config.allowed_extensions
+        assert ".vtt" in config.allowed_extensions
         assert config.rate_limit_enabled is True
         assert config.rate_limit_per_minute == 60
 

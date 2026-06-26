@@ -197,7 +197,7 @@ Stream video files with range request support.
 
 **Endpoint**: `GET /stream/<path:video_path>`
 **Authentication**: Required
-**Rate Limit**: Exempt (not counted toward per-IP limit; supports range seeking)
+**Rate Limit**: Dedicated per-IP limit via `VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE` (default 600/min), separate from the global browsing/API limit
 
 #### Request
 ```http
@@ -228,7 +228,7 @@ Accept-Ranges: bytes
 
 #### Supported File Types
 - Video: .mp4, .mkv, .avi, .mov, .webm, .m4v, .flv
-- Subtitles: .srt
+- Subtitles: .srt, .vtt
 - Audio: .mp3, .aac, .ogg, .wav
 
 ### 5. Files API
@@ -371,7 +371,7 @@ Rate Limit Exceeded - Too Many Requests
 
 ## Security Headers
 
-All responses except `/stream/` include `Cache-Control: no-store` to prevent browsers from caching authenticated listings.
+All responses include `Cache-Control: no-store` or `private, no-store` to prevent browsers from caching authenticated listings and streamed media.
 
 ```http
 X-Content-Type-Options: nosniff

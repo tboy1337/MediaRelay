@@ -41,11 +41,12 @@ from .constants import (
     MAX_USERNAME_LENGTH,
     MIN_PAGE_SIZE,
     MIN_PRODUCTION_SECRET_KEY_LENGTH,
+    SUBTITLE_EXTENSIONS,
     VIDEO_EXTENSIONS,
 )
 
 _DEFAULT_ALLOWED_EXTENSIONS: frozenset[str] = (
-    VIDEO_EXTENSIONS | AUDIO_EXTENSIONS | frozenset({".srt"})
+    VIDEO_EXTENSIONS | AUDIO_EXTENSIONS | SUBTITLE_EXTENSIONS
 )
 
 _PLACEHOLDER_SECRET_KEYS = frozenset(
@@ -779,7 +780,7 @@ VIDEO_SERVER_LOG_DIR=./logs
 
 # File Settings
 # Comma-separated extensions (leave unset for defaults: .mp4,.mkv,.avi,...)
-# VIDEO_SERVER_ALLOWED_EXTENSIONS=.mp4,.mkv,.avi,.mov,.webm,.m4v,.flv,.srt,.mp3,.aac,.ogg,.wav
+# VIDEO_SERVER_ALLOWED_EXTENSIONS=.mp4,.mkv,.avi,.mov,.webm,.m4v,.flv,.srt,.vtt,.mp3,.aac,.ogg,.wav
 # Maximum directory entries per listing request (prevents memory exhaustion)
 VIDEO_SERVER_MAX_DIRECTORY_ENTRIES=10000
 # Maximum file size in bytes (21474836480 = 20GB, set to 0 to disable limit)

@@ -12,9 +12,12 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from werkzeug.exceptions import TooManyRequests
 
 from mediarelay.config import ServerConfig
+from mediarelay.constants import MAX_LOGGED_PATH_LENGTH
 from mediarelay.handlers import (
+    _truncate_log_path,
     handle_api_files_request,
     handle_index_request,
     handle_stream_request,
@@ -371,3 +374,50 @@ class TestProductionAuditErrorHandlers:
         assert response.status_code == 503
         data = json.loads(response.data)
         assert data["status"] == "unhealthy"
+
+
+class TestHandlerUtilities:
+    """Tests for small handler utilities and error-handler branches."""
+
+    def test_truncate_log_path_short_path_unchanged(self) -> None:
+        path = "movies/video.mp4"
+        assert _truncate_log_path(path) == path
+
+    def test_truncate_log_path_long_path_truncated(self) -> None:
+        long_path = "a" * (MAX_LOGGED_PATH_LENGTH + 20)
+        truncated = _truncate_log_path(long_path)
+        assert truncated.endswith("...(truncated)")
+        assert len(truncated) < len(long_path)
+
+
+class TestRateLimitErrorHandlerBranches:
+    """Cover retry_after fallback branches in the 429 error handler."""
+
+    def test_rate_limit_handler_uses_error_retry_after(
+        self, media_relay_server
+    ) -> None:
+        error = TooManyRequests()
+        error.retry_after = 42
+
+        with media_relay_server.app.test_request_context("/"):
+            handler = media_relay_server.app.error_handler_spec[None][429][
+                TooManyRequests
+            ]
+            response = handler(error)
+
+        assert response.status_code == 429
+        assert response.headers["Retry-After"] == "42"
+
+    def test_rate_limit_handler_default_retry_when_limit_disabled(
+        self, media_relay_server
+    ) -> None:
+        media_relay_server.config.rate_limit_per_minute = 0
+
+        with media_relay_server.app.test_request_context("/"):
+            handler = media_relay_server.app.error_handler_spec[None][429][
+                TooManyRequests
+            ]
+            response = handler(TooManyRequests())
+
+        assert response.status_code == 429
+        assert response.headers["Retry-After"] == "60"

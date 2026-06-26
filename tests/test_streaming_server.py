@@ -452,6 +452,18 @@ class TestVideoStreaming:
         assert response.headers.get("Content-Type") == "text/plain; charset=utf-8"
         assert response.headers.get("X-Content-Type-Options") == "nosniff"
 
+    def test_vtt_file_streaming(self, authenticated_client, temp_video_dir):
+        """Test streaming WebVTT subtitle files from the default allowlist."""
+        vtt_path = temp_video_dir / "captions.vtt"
+        vtt_path.write_text("WEBVTT\n", encoding="utf-8")
+
+        response = authenticated_client.get("/stream/captions.vtt")
+
+        assert response.status_code == 200
+        assert response.data.decode("utf-8").startswith("WEBVTT")
+        assert response.headers.get("Content-Type") == "text/plain; charset=utf-8"
+        assert response.headers.get("X-Content-Type-Options") == "nosniff"
+
     def test_stream_range_request_partial_content(self, authenticated_client):
         """Test HTTP Range request returns partial content for seeking"""
         headers = {"Range": "bytes=0-4"}
@@ -1798,6 +1810,35 @@ class TestProductionAuditFixes:
         html = response.get_data(as_text=True)
         assert 'kind="subtitles"' in html
         assert "/stream/captioned.srt" in html
+
+    def test_subtitle_track_when_vtt_exists(
+        self, media_relay_server, server_config, temp_video_dir, authenticated_client
+    ):
+        video = temp_video_dir / "webvtt_video.mp4"
+        video.write_text("video", encoding="utf-8")
+        vtt = temp_video_dir / "webvtt_video.vtt"
+        vtt.write_text("WEBVTT\n", encoding="utf-8")
+
+        response = authenticated_client.get("/webvtt_video.mp4")
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert 'kind="subtitles"' in html
+        assert "/stream/webvtt_video.vtt" in html
+        assert "/stream/webvtt_video.srt" not in html
+
+    def test_subtitle_prefers_vtt_over_srt(
+        self, media_relay_server, server_config, temp_video_dir, authenticated_client
+    ):
+        video = temp_video_dir / "dual_caption.mp4"
+        video.write_text("video", encoding="utf-8")
+        (temp_video_dir / "dual_caption.srt").write_text("srt", encoding="utf-8")
+        (temp_video_dir / "dual_caption.vtt").write_text("WEBVTT\n", encoding="utf-8")
+
+        response = authenticated_client.get("/dual_caption.mp4")
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert "/stream/dual_caption.vtt" in html
+        assert "/stream/dual_caption.srt" not in html
 
     def test_api_files_rejects_file_path(self, authenticated_client, temp_video_dir):
         response = authenticated_client.get("/api/files?path=test_video.mp4")
