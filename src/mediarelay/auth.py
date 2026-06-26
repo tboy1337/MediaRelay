@@ -110,7 +110,7 @@ def _session_invalid_reason(
     """Return a reason string when the active session is invalid, else None."""
     auth_state = read_session_auth_state()
     if auth_state is None:
-        return None
+        return "invalid_session_state"
 
     if current_time - auth_state.last_activity > server.config.session_timeout:
         return "session_idle_timeout"

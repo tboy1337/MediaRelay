@@ -360,7 +360,12 @@ def _resolve_within_jail(
     return resolved_path
 
 
-def revalidate_before_serve(resolved_path: Path, video_directory: str) -> bool:
+def revalidate_before_serve(
+    resolved_path: Path,
+    video_directory: str,
+    *,
+    inode_index: InodeLinkIndex | None = None,
+) -> bool:
     """Re-check jail containment and hard links immediately before serving a file."""
     try:
         current_path = resolve_path(resolved_path)
@@ -372,7 +377,9 @@ def revalidate_before_serve(resolved_path: Path, video_directory: str) -> bool:
     if not current_path.is_file():
         return False
 
-    return not _is_hardlink_outside_jail(current_path, jail_root, inode_index=None)
+    return not _is_hardlink_outside_jail(
+        current_path, jail_root, inode_index=inode_index
+    )
 
 
 def get_breadcrumbs(config: ServerConfig, path: Path) -> list[dict[str, str]]:

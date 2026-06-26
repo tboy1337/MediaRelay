@@ -8,6 +8,7 @@ from flask import Flask
 from mediarelay.session_store import (
     clear_session,
     establish_session,
+    get_csrf_token,
     get_length_violation,
     get_request_id,
     get_session_credential_epoch,
@@ -18,11 +19,13 @@ from mediarelay.session_store import (
     get_start_time,
     has_request_timing,
     is_session_authenticated,
+    issue_csrf_token,
     read_session_auth_state,
     set_length_violation,
     set_request_id,
     set_start_time,
     touch_session_activity,
+    validate_csrf_token,
 )
 
 
@@ -162,3 +165,30 @@ class TestLengthViolationContext:
             violation_type, detail = get_length_violation()
             assert violation_type == "url_too_long"
             assert detail == "Request URI too long"
+
+
+class TestCsrfToken:
+    """Tests for session CSRF token helpers."""
+
+    def test_issue_and_validate_csrf_token(self, app: Flask) -> None:
+        with app.test_request_context():
+            token = issue_csrf_token()
+            assert validate_csrf_token(token) is True
+            assert validate_csrf_token("wrong") is False
+            assert validate_csrf_token(None) is False
+
+    def test_establish_session_issues_csrf_token(self, app: Flask) -> None:
+        with app.test_request_context():
+            establish_session(
+                username="testuser",
+                current_time=1.0,
+                login_ip="127.0.0.1",
+                credential_epoch="epoch",
+            )
+            assert get_csrf_token() is not None
+
+    def test_clear_session_removes_csrf_token(self, app: Flask) -> None:
+        with app.test_request_context():
+            issue_csrf_token()
+            clear_session()
+            assert get_csrf_token() is None

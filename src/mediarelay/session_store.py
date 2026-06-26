@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import hmac
+import secrets
 from dataclasses import dataclass
 from typing import cast
 
 from flask import g, has_request_context, session
+
+_CSRF_SESSION_KEY = "csrf_token"
 
 
 @dataclass(frozen=True)
@@ -91,6 +95,27 @@ def clear_session() -> None:
     session.clear()
 
 
+def issue_csrf_token() -> str:
+    """Generate and store a CSRF token in the current session."""
+    token = secrets.token_urlsafe(32)
+    session[_CSRF_SESSION_KEY] = token
+    return token
+
+
+def get_csrf_token() -> str | None:
+    """Return the CSRF token from the session when present."""
+    value = _session_value(_CSRF_SESSION_KEY, None)
+    return value if isinstance(value, str) else None
+
+
+def validate_csrf_token(header_value: str | None) -> bool:
+    """Return True when the header matches the session CSRF token."""
+    session_token = get_csrf_token()
+    if session_token is None or not header_value:
+        return False
+    return hmac.compare_digest(session_token, header_value)
+
+
 def establish_session(
     *,
     username: str,
@@ -107,6 +132,7 @@ def establish_session(
     session["login_ip"] = login_ip
     session["credential_epoch"] = credential_epoch
     session.permanent = True
+    issue_csrf_token()
 
 
 def get_request_id() -> str | None:

@@ -20,12 +20,16 @@ from .handlers import (
 from .logging_config import get_request_logger
 from .session_store import (
     clear_session,
+    get_csrf_token,
     get_request_id,
     get_session_username,
     get_start_time,
+    has_request_timing,
+    is_session_authenticated,
     set_length_violation,
     set_request_id,
     set_start_time,
+    validate_csrf_token,
 )
 
 if TYPE_CHECKING:
@@ -78,6 +82,11 @@ def register_routes(server: MediaRelayServer) -> None:
         if server.config.should_send_hsts():
             response.headers["Strict-Transport-Security"] = HSTS_HEADER_VALUE
 
+        if is_session_authenticated():
+            csrf_token = get_csrf_token()
+            if csrf_token is not None:
+                response.headers["X-CSRF-Token"] = csrf_token
+
         if request.path.startswith("/stream/"):
             response.headers["Cache-Control"] = "private, no-store"
             response.headers["Pragma"] = "no-cache"
@@ -85,14 +94,15 @@ def register_routes(server: MediaRelayServer) -> None:
             response.headers["Cache-Control"] = "no-store"
             response.headers["Pragma"] = "no-cache"
 
-        start_time = get_start_time()
-        if start_time is not None and server.performance_logger:
-            duration = time.time() - start_time
-            server.performance_logger.log_request_duration(
-                request.endpoint or request.path,
-                duration,
-                response.status_code,
-            )
+        if has_request_timing() and server.performance_logger:
+            start_time = get_start_time()
+            if start_time is not None:
+                duration = time.time() - start_time
+                server.performance_logger.log_request_duration(
+                    request.endpoint or request.path,
+                    duration,
+                    response.status_code,
+                )
 
         return response
 
@@ -134,6 +144,17 @@ def register_routes(server: MediaRelayServer) -> None:
         """Logout endpoint that properly invalidates the session."""
         if not check_authentication(server):
             return auth_required_response(server)
+
+        csrf_header = request.headers.get("X-CSRF-Token")
+        if not validate_csrf_token(csrf_header):
+            client_ip = server.get_client_ip()
+            if server.security_logger:
+                server.security_logger.log_security_violation(
+                    "csrf_validation_failed",
+                    "Logout rejected due to missing or invalid CSRF token",
+                    client_ip,
+                )
+            return Response("CSRF validation failed", 403)
 
         username = get_session_username()
         client_ip = server.get_client_ip()

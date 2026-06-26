@@ -175,9 +175,9 @@ class TestMediaRelayServerComprehensive:
                 assert isinstance(result, str)
                 assert "test.mp4" in result
 
-                # Test non-video file (should return 400)
+                # Test non-video file (should return 403)
                 result = handle_index_request(media_relay_server, "document.txt")
-                assert result == ("Not a video file", 400)
+                assert result == ("File type not allowed", 403)
 
                 # Test non-existent path
                 result = handle_index_request(media_relay_server, "nonexistent.mp4")
@@ -449,6 +449,8 @@ class TestVideoStreaming:
 
         assert response.status_code == 200
         assert response.data == b"fake subtitle content"
+        assert response.headers.get("Content-Type") == "text/plain; charset=utf-8"
+        assert response.headers.get("X-Content-Type-Options") == "nosniff"
 
     def test_stream_range_request_partial_content(self, authenticated_client):
         """Test HTTP Range request returns partial content for seeking"""
@@ -669,12 +671,18 @@ class TestErrorHandling:
         assert b"File type not allowed" in response.data
 
     def test_400_error_handling(self, authenticated_client):
-        """Test bad request error handling"""
-        # Try to view a non-video file as video player
-        response = authenticated_client.get("/invalid_file.txt")
+        """Test bad request error handling for invalid page parameter"""
+        response = authenticated_client.get("/?page=invalid")
 
         assert response.status_code == 400
-        assert b"Not a video file" in response.data
+        assert b"Invalid page parameter" in response.data
+
+    def test_index_disallowed_file_type_returns_403(self, authenticated_client):
+        """Disallowed file types on index route return 403, not 400."""
+        response = authenticated_client.get("/invalid_file.txt")
+
+        assert response.status_code == 403
+        assert b"File type not allowed" in response.data
 
     def test_session_timeout_handling(self, media_relay_server):
         """Test session timeout and clearing logic"""
@@ -1740,14 +1748,13 @@ class TestProductionAuditFixes:
         assert response.headers.get("Pragma") == "no-cache"
 
     def test_logout_uses_log_logout(self, media_relay_server, server_config):
-        credentials = base64.b64encode(
-            f"{server_config.username}:testpass".encode("utf-8")
-        ).decode("utf-8")
+        from tests.helpers import authenticate_client
+
         media_relay_server.security_logger = MagicMock()
 
         with media_relay_server.app.test_client() as client:
-            client.get("/", headers={"Authorization": f"Basic {credentials}"})
-            client.post("/logout")
+            csrf_token = authenticate_client(client, server_config.username, "testpass")
+            client.post("/logout", headers={"X-CSRF-Token": csrf_token})
 
         media_relay_server.security_logger.log_logout.assert_called_once()
 

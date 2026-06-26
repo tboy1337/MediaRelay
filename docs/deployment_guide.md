@@ -37,8 +37,8 @@ Windows users can also download pre-built executables from [GitHub Releases](htt
 
 #### Windows executable (GitHub Releases)
 
-1. Download `MediaRelay.zip` from [GitHub Releases](https://github.com/tboy1337/MediaRelay/releases).
-2. Extract `MediaRelay.exe` to a folder of your choice.
+1. Download `MediaRelay-v1.0.<run_number>.zip` from [GitHub Releases](https://github.com/tboy1337/MediaRelay/releases) (artifact name includes the CI run number).
+2. Extract `MediaRelay-v1.0.<run_number>.exe` to a folder of your choice.
 3. Create a `.env` file in the same directory (copy from `.env.example` or run `mediarelay-config` if you have Python installed).
 4. Generate credentials with `mediarelay-genpass --non-interactive` (or interactive `mediarelay-genpass`) and update `.env`.
 5. Restrict `.env` permissions where supported (`icacls` on Windows, `chmod 600 .env` on Linux/macOS).

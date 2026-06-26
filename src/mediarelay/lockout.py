@@ -102,7 +102,7 @@ class AccountLockoutManager:
         inactive_keys = [
             key
             for key, tracker in self._trackers.items()
-            if tracker.lockout_until <= current_time
+            if (tracker.lockout_until <= current_time and tracker.failed_attempts == 0)
         ]
         if not inactive_keys:
             return False

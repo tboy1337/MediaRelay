@@ -31,6 +31,7 @@ from mediarelay.constants import (
 from mediarelay.lockout import AccountLockoutManager, LoginAttemptTracker
 from mediarelay.logging_config import SecurityEventLogger
 from mediarelay.server import MediaRelayServer
+from tests.helpers import authenticate_client
 
 
 class TestAccountLockoutManager:
@@ -235,17 +236,41 @@ class TestAccountLockoutManager:
     def test_lockout_tracker_eviction_when_at_capacity(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Inactive tracker entries are evicted when at MAX_LOCKOUT_TRACKERS."""
+        """Inactive tracker entries with zero failures are evicted at capacity."""
         monkeypatch.setattr("mediarelay.lockout.MAX_LOCKOUT_TRACKERS", 2)
         manager = AccountLockoutManager(max_attempts=10, lockout_duration=300)
 
-        manager.record_failed_attempt("1.1.1.1", "user1")
-        manager.record_failed_attempt("2.2.2.2", "user2")
+        manager._trackers["1.1.1.1:user1"] = (
+            LoginAttemptTracker()
+        )  # pylint: disable=protected-access
+        manager._trackers["2.2.2.2:user2"] = (
+            LoginAttemptTracker()
+        )  # pylint: disable=protected-access
         assert len(manager._trackers) == 2  # pylint: disable=protected-access
 
         manager.record_failed_attempt("3.3.3.3", "user3")
         assert len(manager._trackers) == 2  # pylint: disable=protected-access
         assert "3.3.3.3:user3" in manager._trackers  # pylint: disable=protected-access
+
+    def test_partial_attempt_tracker_not_evicted_at_capacity(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Trackers with in-progress failed attempts are never evicted."""
+        monkeypatch.setattr("mediarelay.lockout.MAX_LOCKOUT_TRACKERS", 2)
+        manager = AccountLockoutManager(max_attempts=10, lockout_duration=300)
+
+        manager.record_failed_attempt("1.1.1.1", "user1")
+        manager.record_failed_attempt("2.2.2.2", "user2")
+        assert manager.get_failed_attempts("1.1.1.1", "user1") == 1
+        assert manager.get_failed_attempts("2.2.2.2", "user2") == 1
+
+        now_locked, tracker_exhausted = manager.record_failed_attempt(
+            "3.3.3.3", "user3"
+        )
+        assert now_locked is True
+        assert tracker_exhausted is True
+        assert manager.get_failed_attempts("1.1.1.1", "user1") == 1
+        assert manager.get_failed_attempts("2.2.2.2", "user2") == 1
 
     def test_active_lockout_not_evicted_at_capacity(
         self, monkeypatch: pytest.MonkeyPatch
@@ -627,7 +652,9 @@ class TestAuthenticationSecurity:
             "mediarelay.auth.read_session_auth_state",
             return_value=None,
         ):
-            assert _session_invalid_reason(media_relay_server, time.time()) is None
+            assert _session_invalid_reason(media_relay_server, time.time()) == (
+                "invalid_session_state"
+            )
 
     def test_concurrent_sessions_allowed(self, media_relay_server, server_config):
         """Test that multiple independent clients can hold sessions concurrently"""
@@ -688,38 +715,23 @@ class TestLogoutEndpoint:
 
     def test_logout_clears_session(self, media_relay_server, server_config):
         """Test that logout properly clears the session"""
-        credentials = base64.b64encode(
-            f"{server_config.username}:testpass".encode("utf-8")
-        ).decode("utf-8")
-
         with media_relay_server.app.test_client() as client:
-            # First, authenticate
-            response = client.get(
-                "/", headers={"Authorization": f"Basic {credentials}"}
-            )
-            assert response.status_code == 200
+            csrf_token = authenticate_client(client, server_config.username, "testpass")
 
-            # Verify session is set
             with client.session_transaction() as sess:
                 assert sess.get("authenticated") is True
 
-            # Logout via POST
-            response = client.post("/logout")
+            response = client.post("/logout", headers={"X-CSRF-Token": csrf_token})
             assert response.status_code == 200
 
-            # Verify session is cleared
             with client.session_transaction() as sess:
                 assert sess.get("authenticated") is None
 
     def test_logout_response_headers(self, media_relay_server, server_config):
         """Test that logout response includes proper headers"""
-        credentials = base64.b64encode(
-            f"{server_config.username}:testpass".encode("utf-8")
-        ).decode("utf-8")
-
         with media_relay_server.app.test_client() as client:
-            client.get("/", headers={"Authorization": f"Basic {credentials}"})
-            response = client.post("/logout")
+            csrf_token = authenticate_client(client, server_config.username, "testpass")
+            response = client.post("/logout", headers={"X-CSRF-Token": csrf_token})
             assert "Clear-Site-Data" in response.headers
             assert "WWW-Authenticate" in response.headers
 
@@ -727,6 +739,29 @@ class TestLogoutEndpoint:
         """Test that logout requires prior authentication"""
         response = flask_client.post("/logout")
         assert response.status_code == 401
+
+    def test_logout_requires_csrf_token(self, media_relay_server, server_config):
+        """POST logout without CSRF token is rejected."""
+        with media_relay_server.app.test_client() as client:
+            authenticate_client(client, server_config.username, "testpass")
+            response = client.post("/logout")
+            assert response.status_code == 403
+            assert b"CSRF validation failed" in response.data
+
+    def test_logout_rejects_invalid_csrf_token(self, media_relay_server, server_config):
+        """POST logout with wrong CSRF token is rejected."""
+        with media_relay_server.app.test_client() as client:
+            authenticate_client(client, server_config.username, "testpass")
+            response = client.post("/logout", headers={"X-CSRF-Token": "invalid-token"})
+            assert response.status_code == 403
+
+    def test_authenticated_response_includes_csrf_token(
+        self, media_relay_server, server_config
+    ):
+        """Authenticated responses expose X-CSRF-Token for logout clients."""
+        with media_relay_server.app.test_client() as client:
+            csrf_token = authenticate_client(client, server_config.username, "testpass")
+            assert len(csrf_token) > 0
 
     def test_logout_get_returns_method_not_allowed(
         self, media_relay_server, server_config

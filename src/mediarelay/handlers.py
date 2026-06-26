@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, TypedDict
 
 from flask import Response, jsonify, request, send_from_directory
 
+from .constants import MAX_LOGGED_PATH_LENGTH
 from .path_utils import (
     get_breadcrumbs,
     get_safe_path,
@@ -46,6 +47,16 @@ class _PaginationResult:
     has_next: bool
     range_start: int
     range_end: int
+
+
+_SUBTITLE_EXTENSIONS: frozenset[str] = frozenset({".srt", ".vtt"})
+
+
+def _truncate_log_path(path: str) -> str:
+    """Truncate path strings before logging."""
+    if len(path) <= MAX_LOGGED_PATH_LENGTH:
+        return path
+    return f"{path[:MAX_LOGGED_PATH_LENGTH]}...(truncated)"
 
 
 def _session_username() -> str:
@@ -382,7 +393,13 @@ def handle_index_request(
     if safe_path.is_file():
         if safe_path.suffix.lower() in server.config.allowed_extensions:
             return _render_media_player(server, safe_path, video_root, client_ip)
-        return "Not a video file", 400
+        if server.security_logger:
+            server.security_logger.log_security_violation(
+                "unauthorized_file_type",
+                f"Unauthorized file type access: {subpath}",
+                client_ip,
+            )
+        return "File type not allowed", 403
 
     listing_context = _resolve_directory_listing(
         server,
@@ -473,7 +490,11 @@ def handle_stream_request(
             _session_username(),
         )
 
-    if not revalidate_before_serve(safe_path, server.config.video_directory):
+    if not revalidate_before_serve(
+        safe_path,
+        server.config.video_directory,
+        inode_index=server.inode_link_index,
+    ):
         if server.security_logger:
             server.security_logger.log_file_access(
                 video_path,
@@ -489,6 +510,10 @@ def handle_stream_request(
         directory = safe_path.parent
         filename = safe_path.name
         response = send_from_directory(directory, filename)
+
+        if safe_path.suffix.lower() in _SUBTITLE_EXTENSIONS:
+            response.headers["Content-Type"] = "text/plain; charset=utf-8"
+            response.headers["X-Content-Type-Options"] = "nosniff"
 
         if server.performance_logger:
             duration = time.time() - start_time
@@ -562,7 +587,7 @@ def handle_api_files_request(
         if server.security_logger:
             server.security_logger.log_security_violation(
                 "access_denied",
-                f"Permission denied reading directory: {path_param!r}",
+                f"Permission denied reading directory: {_truncate_log_path(path_param)!r}",
                 server.get_client_ip(),
             )
         return jsonify({"error": "Access denied to directory"}), 403  # type: ignore[misc]

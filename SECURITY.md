@@ -33,7 +33,8 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 - Constant-time username comparison (`hmac.compare_digest`)
 - Password verification on every login attempt, including when already locked out (mitigates username timing enumeration)
 - Account lockout after repeated failed attempts (per IP + username); lockout also terminates active sessions
-- Active lockout entries are never evicted from the lockout tracker when at capacity; new attackers receive an emergency lockout when all slots hold active lockouts
+- Active lockout entries are never evicted from the lockout tracker when at capacity; trackers with in-progress failed-attempt counters are also preserved (only zero-failure inactive trackers are evicted)
+- New attackers receive an emergency lockout when all slots hold active lockouts or in-progress attempt counters
 - Session invalidation on client IP change; sessions without a bound login IP are rejected
 - Session invalidation when username or password hash changes (`credential_epoch` fingerprint)
 - Expired sessions fall through to valid HTTP Basic credentials on the same request
@@ -59,11 +60,11 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 - HTML UI output uses Jinja2 autoescape for filenames and paths rendered in templates
 - Directory listings capped at `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES` (default 10000) using lazy iteration to prevent memory exhaustion
 - `VIDEO_SERVER_MAX_FILE_SIZE` enforced on streaming responses (HTTP 413 when exceeded; `0` disables)
-- Lockout tracker bounded at 10000 IP:username entries (only inactive trackers evicted when full; fail-closed emergency lockout when saturated)
+- Lockout tracker bounded at 10000 IP:username entries (only inactive trackers with zero failed attempts evicted when full; fail-closed emergency lockout when saturated)
 
 ### Audit Logging
 
-Security events are written to `logs/security.log` in JSON format, including authentication attempts, lockout events, path violations, and rate-limit breaches. Each event includes a `request_id` when emitted during an HTTP request. Usernames in auth logs are truncated to 64 characters.
+Security events are written to `logs/security.log` in JSON format, including authentication attempts, lockout events, path violations, and rate-limit breaches. Each event includes a `request_id` when emitted during an HTTP request. Usernames in auth logs are truncated to 64 characters; User-Agent strings are truncated to 512 characters.
 
 Run `python scripts/verify.py` locally before release; it enforces black, isort, mypy, bandit, pylint, pip-audit, and pytest with 90%+ branch coverage.
 
@@ -90,8 +91,9 @@ Run `python scripts/verify.py` locally before release; it enforces black, isort,
 | Shared-IP lockout | Lockout is keyed by IP + username; users behind the same NAT may affect each other |
 | Single-user model | One username/password pair; no role-based access control |
 | Session IP binding | Sessions invalidate when the client IP changes (VPN/mobile networks may require re-login) |
-| GET logout disabled | Logout requires `POST /logout` to prevent CSRF-forced logout |
+| GET logout disabled | Logout requires `POST /logout` with a valid `X-CSRF-Token` header (token issued at login and returned on authenticated responses) |
 | Basic Auth credential caching | Browsers may re-send cached credentials after `POST /logout`; close the browser or use private browsing |
+| Subtitle files (`.srt`, `.vtt`) | Served with `Content-Type: text/plain` and `X-Content-Type-Options: nosniff`; subtitle content is rendered by the browser and is not sanitized server-side |
 | Distributed brute force | Lockout is per IP + username; use a strong password |
 | Stream rate limit | `/stream/` has a dedicated high limit; tune `VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE` or restrict network access |
 | CSP inline styles | Embedded UI template requires `style-src 'unsafe-inline'` |

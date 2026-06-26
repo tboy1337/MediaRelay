@@ -200,7 +200,7 @@ class TestMemoryErrorHandling:
         with patch.object(Path, "stat", return_value=mock_stat_result):
             with patch.object(Path, "is_file", return_value=True):
                 response = authenticated_client.get("/")
-                assert response.status_code in (200, 400)
+                assert response.status_code in (200, 403)
 
 
 class TestFileSystemErrorHandling:

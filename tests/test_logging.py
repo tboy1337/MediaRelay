@@ -922,3 +922,18 @@ class TestLogLogout:
         assert event["event_type"] == "logout"
         assert event["username"] == "testuser"
         assert event["ip_address"] == "127.0.0.1"
+
+    def test_log_auth_attempt_truncates_long_user_agent(
+        self, server_config, tmp_path
+    ) -> None:
+        """Oversized User-Agent strings are truncated in security logs."""
+        from mediarelay.constants import MAX_LOGGED_USER_AGENT_LENGTH
+
+        server_config.log_directory = str(tmp_path)
+        logger = SecurityEventLogger(server_config)
+        long_agent = "A" * (MAX_LOGGED_USER_AGENT_LENGTH + 100)
+        logger.log_auth_attempt("user", False, "127.0.0.1", long_agent)
+
+        event = json.loads((tmp_path / "security.log").read_text().strip())
+        assert len(event["user_agent"]) < len(long_agent)
+        assert event["user_agent"].endswith("...(truncated)")

@@ -82,17 +82,24 @@ def register_error_handlers(server: MediaRelayServer) -> None:
         return "Request URI Too Long", 414
 
     @server.app.errorhandler(429)  # type: ignore[misc]
-    def rate_limit_handler(_error: Exception) -> Response:
+    def rate_limit_handler(error: Exception) -> Response:
         """Handle rate limit exceeded."""
         if server.security_logger:
             server.security_logger.log_rate_limit_exceeded(
                 server.get_client_ip(),
                 request.endpoint or request.path,
             )
+        retry_after_attr = getattr(error, "retry_after", None)
+        if retry_after_attr is not None:
+            retry_after = str(max(1, int(retry_after_attr)))
+        elif server.config.rate_limit_per_minute > 0:
+            retry_after = str(max(1, 60))
+        else:
+            retry_after = "60"
         return Response(
             "Rate Limit Exceeded - Too Many Requests",
             429,
-            {"Retry-After": "60"},
+            {"Retry-After": retry_after},
         )
 
     @server.app.errorhandler(500)  # type: ignore[misc]

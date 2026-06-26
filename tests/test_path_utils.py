@@ -529,6 +529,33 @@ class TestRevalidateBeforeServe:
 
         assert revalidate_before_serve(outside.resolve(), str(video_dir)) is False
 
+    def test_revalidate_before_serve_rejects_hardlink_escape(
+        self, tmp_path: Path
+    ) -> None:
+        """Hard links pointing outside the jail are rejected at serve time."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        outside_dir = tmp_path / "outside"
+        outside_dir.mkdir()
+        secret = outside_dir / "secret.mp4"
+        secret.write_text("secret", encoding="utf-8")
+        alias = video_dir / "alias.mp4"
+        try:
+            os.link(secret, alias)
+        except (OSError, NotImplementedError):
+            pytest.skip("Platform does not support creating hard links")
+
+        index = InodeLinkIndex(video_dir)
+        index.refresh()
+        assert (
+            revalidate_before_serve(
+                alias.resolve(),
+                str(video_dir),
+                inode_index=index,
+            )
+            is False
+        )
+
 
 class TestLogDetailTruncation:
     """Security log detail strings are truncated for oversized paths."""

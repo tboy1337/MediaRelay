@@ -19,7 +19,7 @@ import colorlog
 import psutil
 
 from .config import ServerConfig
-from .constants import MAX_LOGGED_PATH_LENGTH
+from .constants import MAX_LOGGED_PATH_LENGTH, MAX_LOGGED_USER_AGENT_LENGTH
 from .session_store import get_request_id
 
 
@@ -43,6 +43,13 @@ def _truncate_logged_path(file_path: str) -> str:
     if len(file_path) <= MAX_LOGGED_PATH_LENGTH:
         return file_path
     return f"{file_path[:MAX_LOGGED_PATH_LENGTH]}...(truncated)"
+
+
+def _truncate_logged_user_agent(user_agent: str) -> str:
+    """Truncate attacker-controlled User-Agent strings before security logging."""
+    if len(user_agent) <= MAX_LOGGED_USER_AGENT_LENGTH:
+        return user_agent
+    return f"{user_agent[:MAX_LOGGED_USER_AGENT_LENGTH]}...(truncated)"
 
 
 class SecurityEventLogger:
@@ -95,7 +102,7 @@ class SecurityEventLogger:
                 "username": logged_username,
                 "success": success,
                 "ip_address": ip_address,
-                "user_agent": user_agent,
+                "user_agent": _truncate_logged_user_agent(user_agent),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -111,7 +118,7 @@ class SecurityEventLogger:
                 "event_type": "logout",
                 "username": logged_username,
                 "ip_address": ip_address,
-                "user_agent": user_agent,
+                "user_agent": _truncate_logged_user_agent(user_agent),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         )

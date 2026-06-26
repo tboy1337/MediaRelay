@@ -37,8 +37,17 @@ Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
 Sessions are automatically created upon successful authentication and include:
 - `authenticated`: Boolean flag
 - `username`: Authenticated username
-- `last_activity`: Timestamp of last activity
-- Automatic timeout after inactivity
+- `last_activity`: Timestamp of last activity (updated on each authenticated request)
+- `login_time`: Timestamp when the session was created
+- `login_ip`: Client IP bound at login (session invalidates if the IP changes)
+- `credential_epoch`: Fingerprint of the current password hash (invalidates sessions after credential rotation)
+- `csrf_token`: Server-side token required for `POST /logout`
+
+Session lifetime is governed by:
+- `VIDEO_SERVER_SESSION_TIMEOUT`: Idle timeout (default 1 hour)
+- `VIDEO_SERVER_SESSION_MAX_LIFETIME`: Absolute maximum session age from login (default 24 hours)
+
+Authenticated responses include an `X-CSRF-Token` header containing the current session CSRF token for use with `POST /logout`.
 
 ## Endpoints
 
@@ -120,7 +129,10 @@ Invalidate the current session.
 POST /logout HTTP/1.1
 Host: localhost:5000
 Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+X-CSRF-Token: <token-from-authenticated-response>
 ```
+
+Obtain the CSRF token from the `X-CSRF-Token` response header on any authenticated request (for example, after `GET /` with valid credentials).
 
 #### Response
 ```http
@@ -134,6 +146,7 @@ Logged out successfully. Close browser to complete logout.
 #### Status Codes
 - `200 OK`: Session cleared
 - `401 Unauthorized`: Not authenticated
+- `403 Forbidden`: Missing or invalid `X-CSRF-Token` header
 - `405 Method Not Allowed`: GET request rejected
 
 ### 3. Directory Listing
@@ -173,8 +186,8 @@ GET /video.mp4          # Individual video file (shows player)
 
 #### Status Codes
 - `200 OK`: Directory listing or video player page
-- `400 Bad Request`: Invalid file type for video player
 - `401 Unauthorized`: Authentication required
+- `403 Forbidden`: Disallowed file type for direct file access
 - `404 Not Found`: Path does not exist
 - `413 Payload Too Large`: Directory exceeds `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES`
 
@@ -407,6 +420,7 @@ Authorization: Basic dGJveTEzMzc6bXlwYXNzd29yZA==
 HTTP/1.1 200 OK
 Content-Type: text/html
 Set-Cookie: session=...; HttpOnly; SameSite=Strict
+X-CSRF-Token: <session-csrf-token>
 
 <!DOCTYPE html>
 <html>...
