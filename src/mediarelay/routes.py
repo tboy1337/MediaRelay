@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from flask import Response, abort, jsonify, request
 
 from . import __version__
-from .auth import auth_required_response, check_authentication
+from .auth import auth_required_response, check_authentication, is_health_authorized
 from .constants import HSTS_HEADER_VALUE, MAX_PATH_LENGTH, MAX_URL_LENGTH
 from .handlers import (
     handle_api_files_request,
@@ -130,9 +130,7 @@ def register_routes(server: MediaRelayServer) -> None:
 
     def _health_handler() -> Response | tuple[Response, int]:
         """Health check endpoint for monitoring."""
-        is_authenticated = check_authentication(
-            server, establish_session=False, record_lockout=False
-        )
+        is_authorized = is_health_authorized(server)
 
         try:
             is_healthy = server.check_runtime_health()
@@ -142,7 +140,7 @@ def register_routes(server: MediaRelayServer) -> None:
         status = "healthy" if is_healthy else "unhealthy"
         status_code = 200 if is_healthy else 503
 
-        if not is_authenticated:
+        if not is_authorized:
             liveness_status = "ok" if is_healthy else "degraded"
             liveness_code = 200 if is_healthy else 503
             return jsonify({"status": liveness_status}), liveness_code  # type: ignore[misc]

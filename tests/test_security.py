@@ -1181,25 +1181,29 @@ class TestHealthEndpointSecurity:
 
     def test_health_uptime_is_positive_and_increases(
         self,
-        authenticated_client,
+        flask_client,
+        server_config: ServerConfig,
         media_relay_server,
         temp_video_dir,  # pylint: disable=unused-argument
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Authenticated health responses report monotonic server uptime."""
+        """Authorized health responses report monotonic server uptime."""
         current = [1000.0]
 
         def fake_time() -> float:
             return current[0]
 
         monkeypatch.setattr("mediarelay.routes.time.time", fake_time)
-        media_relay_server._start_time = 995.0  # drives uptime_seconds()
+        monkeypatch.setattr("mediarelay.server.time.time", fake_time)
+        media_relay_server._start_time = 995.0
 
-        first = json.loads(authenticated_client.get("/health").data)
+        authenticate_client(flask_client, server_config.username, "testpass")
+
+        first = json.loads(flask_client.get("/health").data)
         assert first["uptime_seconds"] >= 0
 
         current[0] += 5.0
-        second = json.loads(authenticated_client.get("/health").data)
+        second = json.loads(flask_client.get("/health").data)
         assert second["uptime_seconds"] >= first["uptime_seconds"]
 
     def test_health_returns_correct_status_code(self, flask_client):
@@ -1226,7 +1230,7 @@ class TestHealthEndpointSecurity:
     def test_health_basic_auth_does_not_create_session(
         self, flask_client, server_config
     ) -> None:
-        """Basic Auth on /health must not establish a Flask session."""
+        """Basic Auth on /health must not establish a Flask session or reveal details."""
         credentials = base64.b64encode(
             f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
@@ -1240,10 +1244,62 @@ class TestHealthEndpointSecurity:
         )
         assert response.status_code in [200, 503]
         data = json.loads(response.data)
-        assert "version" in data
+        assert "version" not in data
+        assert "uptime_seconds" not in data
 
         with flask_client.session_transaction() as sess:
             assert not sess.get("authenticated")
+
+    def test_health_basic_auth_returns_minimal_only(
+        self, flask_client, server_config: ServerConfig
+    ) -> None:
+        """Valid Basic Auth on /health still returns liveness-only JSON."""
+        credentials = base64.b64encode(
+            f"{server_config.username}:testpass".encode("utf-8")
+        ).decode("utf-8")
+        response = flask_client.get(
+            "/health",
+            headers={"Authorization": f"Basic {credentials}"},
+        )
+        assert response.status_code in (200, 503)
+        data = json.loads(response.data)
+        assert data["status"] in ("ok", "degraded")
+        assert "version" not in data
+        assert "uptime_seconds" not in data
+
+    def test_health_token_returns_detailed_info(
+        self, media_relay_server: MediaRelayServer
+    ) -> None:
+        """X-Health-Token with the configured token returns detailed health."""
+        media_relay_server.config.health_token = "monitoring-token-32-chars-minimum!"
+        with media_relay_server.app.test_client() as client:
+            response = client.get(
+                "/health",
+                headers={
+                    "X-Health-Token": "monitoring-token-32-chars-minimum!",
+                },
+            )
+        assert response.status_code in (200, 503)
+        data = json.loads(response.data)
+        assert "version" in data
+        assert "uptime_seconds" in data
+        assert "rate_limiting_enabled" in data
+
+    def test_health_wrong_token_returns_minimal(
+        self, media_relay_server: MediaRelayServer
+    ) -> None:
+        """Wrong X-Health-Token returns liveness-only JSON without detailed fields."""
+        media_relay_server.config.health_token = "monitoring-token-32-chars-minimum!"
+        with media_relay_server.app.test_client() as client:
+            response = client.get(
+                "/health",
+                headers={"X-Health-Token": "wrong-token"},
+            )
+        assert response.status_code in (200, 503)
+        data = json.loads(response.data)
+        assert data["status"] in ("ok", "degraded")
+        assert "version" not in data
+        assert "uptime_seconds" not in data
 
     def test_health_failed_auth_does_not_increment_lockout(
         self, media_relay_server: MediaRelayServer, server_config: ServerConfig
@@ -1268,51 +1324,6 @@ class TestHealthEndpointSecurity:
                 )
                 == 0
             )
-
-    def test_health_locked_out_still_verifies_password_hash(
-        self, media_relay_server: MediaRelayServer, server_config: ServerConfig
-    ) -> None:
-        """Locked /health probes still run password hash work without lockout accounting."""
-        wrong_creds = base64.b64encode(
-            f"{server_config.username}:wrongpassword".encode("utf-8")
-        ).decode("utf-8")
-        auth_header = {"Authorization": f"Basic {wrong_creds}"}
-
-        with media_relay_server.app.test_request_context():
-            for _ in range(server_config.lockout_max_attempts):
-                media_relay_server.check_auth(server_config.username, "wrongpassword")
-
-        with patch(
-            "mediarelay.auth.check_password_hash", return_value=False
-        ) as mock_hash:
-            with media_relay_server.app.test_client() as client:
-                failed_before = media_relay_server.lockout_manager.get_failed_attempts(
-                    "127.0.0.1", server_config.username
-                )
-                response = client.get("/health", headers=auth_header)
-                failed_after = media_relay_server.lockout_manager.get_failed_attempts(
-                    "127.0.0.1", server_config.username
-                )
-
-        assert response.status_code in (200, 503)
-        mock_hash.assert_called()
-        assert failed_after == failed_before
-
-    def test_health_valid_auth_returns_detailed_info(
-        self, flask_client, server_config: ServerConfig
-    ) -> None:
-        """Valid Basic Auth on /health returns detailed health payload."""
-        credentials = base64.b64encode(
-            f"{server_config.username}:testpass".encode("utf-8")
-        ).decode("utf-8")
-        response = flask_client.get(
-            "/health",
-            headers={"Authorization": f"Basic {credentials}"},
-        )
-        assert response.status_code in (200, 503)
-        data = json.loads(response.data)
-        assert "version" in data
-        assert "uptime_seconds" in data
 
 
 class TestSubtitleSanitization:

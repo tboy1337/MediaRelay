@@ -24,11 +24,16 @@ if TYPE_CHECKING:
     from .server import MediaRelayServer
 
 
-def _username_matches(configured: str, provided: str) -> bool:
-    """Compare usernames in constant time without leaking configured length."""
+def _digest_matches(configured: str, provided: str) -> bool:
+    """Compare strings in constant time without leaking configured length."""
     configured_digest = hashlib.sha256(configured.encode("utf-8")).digest()
     provided_digest = hashlib.sha256(provided.encode("utf-8")).digest()
     return hmac.compare_digest(configured_digest, provided_digest)
+
+
+def _username_matches(configured: str, provided: str) -> bool:
+    """Compare usernames in constant time without leaking configured length."""
+    return _digest_matches(configured, provided)
 
 
 def auth_required_response(server: MediaRelayServer) -> Response:
@@ -152,6 +157,27 @@ def _session_invalid_reason(
         return "account_lockout"
 
     return None
+
+
+def is_health_authorized(server: MediaRelayServer) -> bool:
+    """Return True when the request may receive detailed /health information.
+
+    Detailed health is available via a valid session cookie or a configured
+    ``X-Health-Token`` header. Basic Auth is intentionally not accepted here
+    to prevent password-oracle probing on an unthrottled endpoint.
+    """
+    current_time = time.time()
+    if is_session_authenticated():
+        if _session_invalid_reason(server, current_time) is None:
+            return True
+
+    health_token = server.config.health_token
+    if health_token:
+        provided_token = request.headers.get("X-Health-Token", "")
+        if _digest_matches(health_token, provided_token):
+            return True
+
+    return False
 
 
 def check_authentication(

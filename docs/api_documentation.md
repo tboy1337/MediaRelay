@@ -56,9 +56,8 @@ Authenticated HTML directory responses include an `X-CSRF-Token` header containi
 Check server health and status.
 
 **Endpoint**: `GET /health`
-**Authentication**: Optional — unauthenticated callers receive minimal information
+**Authentication**: Liveness requires none. Detailed readiness requires an active session cookie or `X-Health-Token` when `VIDEO_SERVER_HEALTH_TOKEN` is configured. HTTP Basic Auth is not accepted (prevents password-oracle probing).
 **Rate Limit**: Exempt from global rate limiting (monitoring probes are not throttled)
-**Lockout**: Failed Basic Auth on `/health` does not increment account lockout counters (monitoring misconfiguration cannot trigger lockout)
 
 #### Request
 ```http
@@ -84,9 +83,9 @@ When the video directory is inaccessible, the response is HTTP `503` with:
 }
 ```
 
-#### Response (authenticated)
+#### Response (authorized for detailed readiness)
 
-When authenticated (HTTP Basic Auth or session cookie), returns full readiness details:
+When authorized (session cookie or valid `X-Health-Token`), returns full readiness details:
 
 ```json
 {
@@ -102,10 +101,10 @@ When authenticated (HTTP Basic Auth or session cookie), returns full readiness d
 #### Status Codes
 - Unauthenticated `200 OK`: Process is up and video directory is accessible (`{"status":"ok"}`)
 - Unauthenticated `503 Service Unavailable`: Process is up but video directory is inaccessible (`{"status":"degraded"}`)
-- Authenticated `200 OK`: Server is healthy (video directory accessible)
-- Authenticated `503 Service Unavailable`: Video directory is inaccessible
+- Authorized `200 OK`: Server is healthy (video directory accessible)
+- Authorized `503 Service Unavailable`: Video directory is inaccessible
 
-#### Response Fields (authenticated only)
+#### Response Fields (authorized detailed readiness only)
 | Field | Type | Description |
 |-------|------|-------------|
 | status | string | `"healthy"` or `"unhealthy"` |
@@ -493,12 +492,12 @@ Accept-Ranges: bytes
 
 #### Check Server Health
 
-Unauthenticated callers receive minimal readiness (`{"status": "ok"}` when healthy, `{"status": "degraded"}` with HTTP 503 when the video directory is inaccessible). Full readiness details require HTTP Basic Auth or a valid session cookie.
+Unauthenticated callers receive minimal readiness (`{"status": "ok"}` when healthy, `{"status": "degraded"}` with HTTP 503 when the video directory is inaccessible). Full readiness details require a valid session cookie or `X-Health-Token` when `VIDEO_SERVER_HEALTH_TOKEN` is configured.
 
 ```bash
 curl http://localhost:5000/health
-# Authenticated readiness details:
-curl -u username:password http://localhost:5000/health
+# Detailed readiness via monitoring token:
+curl -H "X-Health-Token: your-health-token" http://localhost:5000/health
 ```
 
 ```json

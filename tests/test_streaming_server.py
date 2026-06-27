@@ -696,47 +696,34 @@ class TestHealthCheckComprehensive:
     def test_health_check_unhealthy_authenticated(
         self, media_relay_server, server_config
     ):
-        """Authenticated health reports unhealthy when disk is inaccessible."""
-        credentials = base64.b64encode(
-            f"{server_config.username}:testpass".encode("utf-8")
-        ).decode("utf-8")
+        """Session-authenticated health reports unhealthy when disk is inaccessible."""
         with media_relay_server.app.test_client() as client:
+            authenticate_client(client, server_config.username, "testpass")
             with patch.object(Path, "exists", return_value=False):
-                response = client.get(
-                    "/health",
-                    headers={"Authorization": f"Basic {credentials}"},
-                )
+                response = client.get("/health")
                 assert response.status_code == 503
 
                 data = json.loads(response.data)
                 assert data["status"] == "unhealthy"
 
-    def test_health_check_exception(self, media_relay_server):
-        """Test health check with exception (authenticated readiness)"""
-        credentials = base64.b64encode(b"testuser:testpass").decode("utf-8")
+    def test_health_check_exception(self, media_relay_server, server_config):
+        """Test health check with exception (session-authenticated readiness)."""
         with media_relay_server.app.test_client() as client:
+            authenticate_client(client, server_config.username, "testpass")
             with patch.object(Path, "exists", side_effect=OSError("Test error")):
-                response = client.get(
-                    "/health",
-                    headers={"Authorization": f"Basic {credentials}"},
-                )
+                response = client.get("/health")
                 assert response.status_code == 503
 
     def test_health_check_permission_error(self, media_relay_server, server_config):
         """Test health check when runtime health raises PermissionError."""
-        credentials = base64.b64encode(
-            f"{server_config.username}:testpass".encode("utf-8")
-        ).decode("utf-8")
         with media_relay_server.app.test_client() as client:
+            authenticate_client(client, server_config.username, "testpass")
             with patch.object(
                 media_relay_server.config,
                 "check_runtime_health",
                 side_effect=PermissionError("denied"),
             ):
-                response = client.get(
-                    "/health",
-                    headers={"Authorization": f"Basic {credentials}"},
-                )
+                response = client.get("/health")
                 assert response.status_code == 503
 
 
@@ -2208,19 +2195,14 @@ class TestProductionServerSmoke:
         self, production_server_config: ServerConfig
     ) -> None:
         server = MediaRelayServer(production_server_config)
-        credentials = base64.b64encode(
-            f"{production_server_config.username}:testpass".encode("utf-8")
-        ).decode("utf-8")
 
         with server.app.test_client() as client:
             liveness = client.get("/health")
             assert liveness.status_code == 200
             assert json.loads(liveness.data)["status"] == "ok"
 
-            readiness = client.get(
-                "/health",
-                headers={"Authorization": f"Basic {credentials}"},
-            )
+            authenticate_client(client, production_server_config.username, "testpass")
+            readiness = client.get("/health")
             assert readiness.status_code == 200
             data = json.loads(readiness.data)
             assert data["status"] == "healthy"

@@ -311,6 +311,18 @@ def _validate_session_settings(config: "ServerConfig") -> None:
         )
 
 
+def _validate_health_token(config: "ServerConfig") -> None:
+    """Validate optional health check token settings."""
+    token = config.health_token
+    if not token:
+        return
+    if config.is_production() and len(token) < MIN_PRODUCTION_SECRET_KEY_LENGTH:
+        raise ValueError(
+            f"VIDEO_SERVER_HEALTH_TOKEN must be at least "
+            f"{MIN_PRODUCTION_SECRET_KEY_LENGTH} characters in production when set."
+        )
+
+
 def _validate_production_settings(config: "ServerConfig") -> None:
     """Enforce production-only security requirements."""
     if not config.is_production():
@@ -483,6 +495,9 @@ class ServerConfig:
     session_bind_ip: bool = field(
         default_factory=lambda: _parse_bool_env("VIDEO_SERVER_SESSION_BIND_IP", "true")
     )
+    health_token: str = field(
+        default_factory=lambda: os.getenv("VIDEO_SERVER_HEALTH_TOKEN", "").strip()
+    )
 
     # Directory Settings
     video_directory: str = field(
@@ -606,6 +621,7 @@ class ServerConfig:
         _validate_credentials(self)
         _validate_server_settings(self)
         _validate_session_settings(self)
+        _validate_health_token(self)
         _validate_production_settings(self)
         _validate_log_directory(self.log_directory)
         if self.is_production():
@@ -665,6 +681,7 @@ class ServerConfig:
             "lockout_duration": self.lockout_duration,
             "username_lockout_enabled": self.username_lockout_enabled,
             "session_bind_ip": self.session_bind_ip,
+            "health_token": "***" if self.health_token else "",
             "video_directory": self.video_directory,
             "log_directory": self.log_directory,
             "allowed_extensions": list(self.allowed_extensions),
@@ -861,6 +878,8 @@ VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS=5
 VIDEO_SERVER_LOCKOUT_DURATION=900
 VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED=true
 VIDEO_SERVER_SESSION_BIND_IP=true
+# Optional token for detailed /health via X-Health-Token header (monitoring tools)
+# VIDEO_SERVER_HEALTH_TOKEN=
 
 # Session Cookie Settings
 # Set SESSION_COOKIE_SECURE=false for local HTTP development without TLS
@@ -900,8 +919,8 @@ VIDEO_SERVER_PROXY_TRUSTED=false
 # Send HSTS header when true (also sent automatically when BEHIND_PROXY is true)
 VIDEO_SERVER_HSTS=false
 
-# Environment (production enforces real credentials at startup)
-VIDEO_SERVER_PRODUCTION=true
+# Environment — set VIDEO_SERVER_PRODUCTION=true for deployment (see deployment_guide.md)
+VIDEO_SERVER_PRODUCTION=false
 """
 
     env_file = Path(".env.example")

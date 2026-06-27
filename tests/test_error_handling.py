@@ -486,3 +486,32 @@ class TestRateLimitErrorHandlerBranches:
 
         assert response.status_code == 429
         assert response.headers["Retry-After"] == "60"
+
+    def test_rate_limit_handler_invalid_retry_after_falls_back(
+        self, media_relay_server
+    ) -> None:
+        error = TooManyRequests()
+        error.retry_after = "not-a-number"
+
+        with media_relay_server.app.test_request_context("/"):
+            handler = media_relay_server.app.error_handler_spec[None][429][
+                TooManyRequests
+            ]
+            response = handler(error)
+
+        assert response.status_code == 429
+        assert response.headers["Retry-After"] == "60"
+
+    def test_rate_limit_handler_default_retry_when_limit_enabled(
+        self, media_relay_server
+    ) -> None:
+        media_relay_server.config.rate_limit_per_minute = 120
+
+        with media_relay_server.app.test_request_context("/"):
+            handler = media_relay_server.app.error_handler_spec[None][429][
+                TooManyRequests
+            ]
+            response = handler(TooManyRequests())
+
+        assert response.status_code == 429
+        assert response.headers["Retry-After"] == "60"

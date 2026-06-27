@@ -17,6 +17,7 @@ from werkzeug.security import generate_password_hash
 
 from mediarelay.config import ServerConfig
 from mediarelay.server import MediaRelayServer
+from tests.helpers import authenticate_client
 
 
 @pytest.fixture(autouse=True)
@@ -154,12 +155,8 @@ def flask_client(
 def authenticated_client(
     flask_client: FlaskClient, server_config: ServerConfig
 ) -> Generator[FlaskClient, None, None]:
-    """Create an authenticated test client"""
-    credentials = base64.b64encode(
-        f"{server_config.username}:testpass".encode("utf-8")
-    ).decode("utf-8")
-
-    flask_client.environ_base["HTTP_AUTHORIZATION"] = f"Basic {credentials}"
+    """Create an authenticated test client with an established session."""
+    authenticate_client(flask_client, server_config.username, "testpass")
     yield flask_client
 
 

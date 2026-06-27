@@ -8,10 +8,21 @@ from flask import Response, request
 
 from .auth import auth_required_response
 from .constants import MAX_LOGGED_ERROR_LENGTH
+from .logging_config import truncate_logged_path
 from .session_store import get_length_violation
 
 if TYPE_CHECKING:
     from .server import MediaRelayServer
+
+
+def _coerce_retry_after(value: object, *, fallback: int = 60) -> str:
+    """Return a positive Retry-After header value from a limiter error attribute."""
+    try:
+        if isinstance(value, (int, float, str)):
+            return str(max(1, int(value)))
+    except (TypeError, ValueError):
+        pass
+    return str(max(1, fallback))
 
 
 def register_error_handlers(server: MediaRelayServer) -> None:
@@ -40,7 +51,7 @@ def register_error_handlers(server: MediaRelayServer) -> None:
         if server.security_logger:
             server.security_logger.log_security_violation(
                 "forbidden_access",
-                f"Forbidden access attempt: {request.path}"
+                f"Forbidden access attempt: {truncate_logged_path(request.path)}"
                 f"{server._request_id_suffix()}",
                 server.get_client_ip(),
             )
@@ -50,8 +61,8 @@ def register_error_handlers(server: MediaRelayServer) -> None:
     def not_found(_error: Exception) -> tuple[str, int]:
         """Handle not found errors."""
         server.app.logger.warning(
-            f"Resource not found: {request.path} from {server.get_client_ip()}"
-            f"{server._request_id_suffix()}"
+            f"Resource not found: {truncate_logged_path(request.path)} from "
+            f"{server.get_client_ip()}{server._request_id_suffix()}"
         )
         return "Resource Not Found", 404
 
@@ -59,7 +70,8 @@ def register_error_handlers(server: MediaRelayServer) -> None:
     def method_not_allowed(_error: Exception) -> tuple[str, int]:
         """Handle method not allowed errors."""
         server.app.logger.warning(
-            f"Method not allowed: {request.method} {request.path} from "
+            f"Method not allowed: {request.method} "
+            f"{truncate_logged_path(request.path)} from "
             f"{server.get_client_ip()}{server._request_id_suffix()}"
         )
         return "Method Not Allowed", 405
@@ -68,7 +80,7 @@ def register_error_handlers(server: MediaRelayServer) -> None:
     def request_entity_too_large(_error: Exception) -> tuple[str, int]:
         """Handle file too large errors."""
         server.app.logger.warning(
-            f"Request entity too large: {request.path} from "
+            f"Request entity too large: {truncate_logged_path(request.path)} from "
             f"{server.get_client_ip()}{server._request_id_suffix()}"
         )
         return "File Too Large", 413
@@ -95,9 +107,9 @@ def register_error_handlers(server: MediaRelayServer) -> None:
             )
         retry_after_attr = getattr(error, "retry_after", None)
         if retry_after_attr is not None:
-            retry_after = str(max(1, int(retry_after_attr)))
+            retry_after = _coerce_retry_after(retry_after_attr)
         elif server.config.rate_limit_per_minute > 0:
-            retry_after = str(max(1, 60))
+            retry_after = _coerce_retry_after(60)
         else:
             retry_after = "60"
         return Response(

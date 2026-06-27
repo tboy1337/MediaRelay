@@ -25,7 +25,7 @@ The Video Streaming Server allows you to share your personal video library over 
 - **Secure Access**: Password-protected with session management
 - **Mobile Friendly**: Responsive design works on phones and tablets
 - **Multiple Formats**: Supports MP4, MKV, AVI, MOV, WebM, M4V, FLV, plus audio (MP3, AAC, OGG, WAV)
-- **Subtitle Support**: SRT subtitle files are supported
+- **Subtitle Support**: SRT and WebVTT subtitle files are supported
 - **Directory Navigation**: Browse folders and subfolders easily
 - **Streaming Optimization**: Efficient video streaming with range requests
 - **Production Ready**: Comprehensive logging, monitoring, and security
@@ -57,6 +57,7 @@ The Video Streaming Server allows you to share your personal video library over 
 
 4. **Validate and Start**
    ```bash
+   # Set VIDEO_SERVER_PRODUCTION=true and real credentials in .env first
    mediarelay-validate
    mediarelay
    ```

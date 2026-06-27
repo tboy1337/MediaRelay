@@ -822,6 +822,21 @@ class TestMaxFileSizeConfiguration:
         assert log_dict["username"] == "[redacted]"
         assert config.to_dict()["username"] == config.username
 
+    def test_to_log_dict_redacts_health_token(self, tmp_path: Path) -> None:
+        """Startup logging must never include the raw health token."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash=TEST_PASSWORD_HASH,
+            health_token="monitoring-token-32-chars-minimum!",
+        )
+
+        log_dict = config.to_log_dict()
+
+        assert log_dict["health_token"] == "***"
+        assert config.health_token == "monitoring-token-32-chars-minimum!"
+
     def test_config_construction_smoke(self, tmp_path: Path) -> None:
         """Config construction and validation succeed without error."""
         video_dir = tmp_path / "videos"
@@ -2458,3 +2473,188 @@ class TestNumericUpperBounds:
                 ValueError, match="VIDEO_SERVER_MAX_DIRECTORY_ENTRIES must be at most"
             ):
                 ServerConfig(log_directory=str(tmp_path / "logs"))
+
+    def test_channel_timeout_upper_bound(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_CHANNEL_TIMEOUT": "999999",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+            },
+        ):
+            with pytest.raises(
+                ValueError, match="VIDEO_SERVER_CHANNEL_TIMEOUT must be at most"
+            ):
+                ServerConfig(log_directory=str(tmp_path / "logs"))
+
+    def test_connection_limit_upper_bound(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_CONNECTION_LIMIT": "999999",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+            },
+        ):
+            with pytest.raises(
+                ValueError, match="VIDEO_SERVER_CONNECTION_LIMIT must be at most"
+            ):
+                ServerConfig(log_directory=str(tmp_path / "logs"))
+
+    def test_cleanup_interval_upper_bound(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_CLEANUP_INTERVAL": "999999",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+            },
+        ):
+            with pytest.raises(
+                ValueError, match="VIDEO_SERVER_CLEANUP_INTERVAL must be at most"
+            ):
+                ServerConfig(log_directory=str(tmp_path / "logs"))
+
+    def test_lockout_max_attempts_upper_bound(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS": "999999",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+            },
+        ):
+            with pytest.raises(
+                ValueError, match="VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS must be at most"
+            ):
+                ServerConfig(log_directory=str(tmp_path / "logs"))
+
+    def test_lockout_duration_upper_bound(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_LOCKOUT_DURATION": "999999",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+            },
+        ):
+            with pytest.raises(
+                ValueError, match="VIDEO_SERVER_LOCKOUT_DURATION must be at most"
+            ):
+                ServerConfig(log_directory=str(tmp_path / "logs"))
+
+    def test_session_timeout_upper_bound(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_SESSION_TIMEOUT": "999999999",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+            },
+        ):
+            with pytest.raises(
+                ValueError, match="VIDEO_SERVER_SESSION_TIMEOUT must be at most"
+            ):
+                ServerConfig(log_directory=str(tmp_path / "logs"))
+
+    def test_rate_limit_per_minute_upper_bound(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_RATE_LIMIT_PER_MIN": "999999",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+            },
+        ):
+            with pytest.raises(
+                ValueError, match="VIDEO_SERVER_RATE_LIMIT_PER_MIN must be at most"
+            ):
+                ServerConfig(log_directory=str(tmp_path / "logs"))
+
+    def test_log_backup_count_upper_bound(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_LOG_BACKUP_COUNT": "999999",
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+            },
+        ):
+            with pytest.raises(
+                ValueError, match="VIDEO_SERVER_LOG_BACKUP_COUNT must be at most"
+            ):
+                ServerConfig(log_directory=str(tmp_path / "logs"))
+
+
+class TestHealthTokenConfig:
+    """Tests for optional VIDEO_SERVER_HEALTH_TOKEN configuration."""
+
+    def test_health_token_from_env(self, tmp_path: Path) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        token = "monitoring-token-32-chars-minimum!"
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_HEALTH_TOKEN": token,
+                "VIDEO_SERVER_PASSWORD_HASH": TEST_PASSWORD_HASH,
+                "VIDEO_SERVER_DIRECTORY": str(video_dir),
+            },
+        ):
+            config = ServerConfig(log_directory=str(tmp_path / "logs"))
+        assert config.health_token == token
+
+    def test_production_rejects_short_health_token(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        _setup_production_env(monkeypatch, video_dir, log_dir)
+        monkeypatch.setenv("VIDEO_SERVER_HEALTH_TOKEN", "short-token")
+
+        with pytest.raises(
+            ValueError, match="VIDEO_SERVER_HEALTH_TOKEN must be at least"
+        ):
+            ServerConfig(
+                video_directory=str(video_dir),
+                password_hash=TEST_PASSWORD_HASH,
+                log_directory=str(log_dir),
+            )
+
+    def test_empty_health_token_allowed_in_production(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        _setup_production_env(monkeypatch, video_dir, log_dir)
+        monkeypatch.setenv("VIDEO_SERVER_BEHIND_PROXY", "false")
+        monkeypatch.setenv("VIDEO_SERVER_PROXY_TRUSTED", "false")
+        monkeypatch.delenv("VIDEO_SERVER_HEALTH_TOKEN", raising=False)
+
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash=TEST_PASSWORD_HASH,
+            log_directory=str(log_dir),
+        )
+        assert config.health_token == ""

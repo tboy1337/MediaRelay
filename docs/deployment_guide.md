@@ -176,7 +176,7 @@ The validator checks password hash format, secret key presence, video/log direct
 5. Confirm the video directory is readable and the inode hardlink index builds successfully (production startup fails fast if index build fails)
 6. Restrict media directory to read-only for the service account (see below)
 
-Unauthenticated `GET /health` returns minimal readiness (`{"status":"ok"}` when healthy, `{"status":"degraded"}` with HTTP 503 when the video directory is inaccessible or the inode index is unavailable). Use authenticated `/health` for full readiness (disk access, version, uptime).
+Unauthenticated `GET /health` returns minimal readiness (`{"status":"ok"}` when healthy, `{"status":"degraded"}` with HTTP 503 when the video directory is inaccessible or the inode index is unavailable). Detailed readiness requires an active session cookie or `X-Health-Token` matching `VIDEO_SERVER_HEALTH_TOKEN` (recommended for load balancers and external monitors).
 
 #### Read-only media directory
 
@@ -431,16 +431,22 @@ When the video directory is inaccessible, unauthenticated `/health` returns HTTP
 {"status": "degraded"}
 ```
 
-Authenticated response includes readiness (`healthy`/`unhealthy`), version, uptime, and configuration details. See [API Documentation](api_documentation.md#1-health-check).
+Authorized response includes readiness (`healthy`/`unhealthy`), version, uptime, and configuration details. See [API Documentation](api_documentation.md#1-health-check).
+
+Set `VIDEO_SERVER_HEALTH_TOKEN` to a random string of at least 32 characters and pass it as `X-Health-Token` from your monitoring system:
+
+```bash
+curl -H "X-Health-Token: your-health-token" http://localhost:5000/health
+```
 
 **Probe guidance:**
 
 | Probe type | Endpoint | Auth | Use case |
 |------------|----------|------|----------|
 | Liveness | `GET /health` | None | Process is up; directory readable |
-| Readiness | `GET /health` | Basic Auth | Full status including version and uptime |
+| Readiness | `GET /health` | `X-Health-Token` or session | Full status including version and uptime |
 
-Alert when unauthenticated `/health` returns HTTP 503 (`degraded`) or when authenticated `/health` returns `unhealthy`. Ship `security.log` to your SIEM and alert on `lockout_tracker_capacity_exceeded` and repeated `session_invalidated` events.
+Alert when unauthenticated `/health` returns HTTP 503 (`degraded`) or when authorized `/health` returns `unhealthy`. Ship `security.log` to your SIEM and alert on `lockout_tracker_capacity_exceeded` and repeated `session_invalidated` events.
 
 `/health` is exempt from rate limiting so monitoring probes are not throttled.
 
