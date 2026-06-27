@@ -19,6 +19,7 @@ from flask import g
 
 from mediarelay.config import ServerConfig
 from mediarelay.constants import (
+    MAX_LOGGED_ERROR_LENGTH,
     MAX_LOGGED_PATH_LENGTH,
     MAX_LOGGED_USER_AGENT_LENGTH,
 )
@@ -171,18 +172,18 @@ class TestSecurityEventLogger:
     def test_log_security_violation_truncates_details(
         self, server_config, tmp_path
     ) -> None:
-        """Security violation details are truncated like file paths."""
+        """Security violation details are truncated to the error detail limit."""
         server_config.log_directory = str(tmp_path)
         logger = SecurityEventLogger(server_config)
 
-        long_details = "x" * (MAX_LOGGED_PATH_LENGTH + 100)
+        long_details = "x" * (MAX_LOGGED_ERROR_LENGTH + 100)
         logger.log_security_violation("forbidden_access", long_details, "10.0.0.1")
 
         security_log = tmp_path / "security.log"
         log_data = json.loads(security_log.read_text().strip())
 
         assert log_data["details"].endswith("...(truncated)")
-        assert len(log_data["details"]) <= MAX_LOGGED_PATH_LENGTH + len(
+        assert len(log_data["details"]) <= MAX_LOGGED_ERROR_LENGTH + len(
             "...(truncated)"
         )
 

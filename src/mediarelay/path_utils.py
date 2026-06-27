@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import unquote
 
 from .config import ServerConfig
-from .constants import AUDIO_EXTENSIONS, MAX_LOGGED_PATH_LENGTH
+from .constants import AUDIO_EXTENSIONS, MAX_URL_PATH_DECODE_PASSES
 
 if TYPE_CHECKING:
     from .logging_config import SecurityEventLogger
@@ -73,19 +73,12 @@ def _contains_unsafe_path_chars(path: str) -> bool:
 
 def _decode_url_path(requested_path: str) -> str:
     """Apply multi-pass URL decoding (capped) to a requested path."""
-    for _ in range(10):
+    for _ in range(MAX_URL_PATH_DECODE_PASSES):
         decoded_path = unquote(requested_path)
         if decoded_path == requested_path:
             break
         requested_path = decoded_path
     return unicodedata.normalize("NFKC", requested_path)
-
-
-def _truncate_log_detail(detail: str) -> str:
-    """Truncate attacker-controlled detail strings before security logging."""
-    if len(detail) <= MAX_LOGGED_PATH_LENGTH:
-        return detail
-    return f"{detail[:MAX_LOGGED_PATH_LENGTH]}...(truncated)"
 
 
 def _log_path_violation(
@@ -96,9 +89,7 @@ def _log_path_violation(
 ) -> None:
     """Emit a structured security violation when a logger is available."""
     if security_logger:
-        security_logger.log_security_violation(
-            violation_type, _truncate_log_detail(detail), client_ip
-        )
+        security_logger.log_security_violation(violation_type, detail, client_ip)
 
 
 def _validate_path_segments(

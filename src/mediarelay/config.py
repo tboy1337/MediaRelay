@@ -770,6 +770,19 @@ def load_config(config_file: Path | None = None) -> ServerConfig:
 def _validate_deployment_settings(config: ServerConfig) -> None:
     """Additional production deployment checks beyond startup validation."""
     video_path = Path(config.video_directory)
+    if not video_path.expanduser().is_absolute():
+        raise ValueError(
+            "VIDEO_SERVER_DIRECTORY must be an absolute path in production "
+            f"(got {config.video_directory!r}). Use an absolute path in .env."
+        )
+
+    log_path = Path(config.log_directory)
+    if not log_path.expanduser().is_absolute():
+        raise ValueError(
+            "VIDEO_SERVER_LOG_DIR must be an absolute path in production "
+            f"(got {config.log_directory!r}). Use an absolute path in .env."
+        )
+
     if os.access(video_path, os.W_OK):
         raise ValueError(
             f"Video directory must not be writable by the server process: "
@@ -921,7 +934,7 @@ def validate_main(config_file: str | None) -> None:
         print(f"  Video directory: {config.video_directory}")
         print(f"  Production mode: {config.is_production()}")
         print(f"  Behind proxy: {config.behind_proxy}")
-    except ValueError as error:
+    except (ValueError, OSError, RuntimeError) as error:
         print(f"Configuration error: {error}", file=sys.stderr)
         sys.exit(1)
 

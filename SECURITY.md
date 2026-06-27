@@ -80,9 +80,10 @@ Run `python scripts/verify.py` locally before release; it enforces black, isort,
 7. Set `VIDEO_SERVER_SECRET_KEY` to at least 32 characters in production (use `mediarelay-genpass`). An explicit empty or placeholder value is rejected in production; in non-production, empty/placeholder values are replaced with an ephemeral auto-generated key at startup.
 8. Set `VIDEO_SERVER_BEHIND_PROXY=true` and `VIDEO_SERVER_PROXY_TRUSTED=true` when MediaRelay is unreachable except through your trusted proxy. Production startup **fails** if `BEHIND_PROXY` is enabled without `PROXY_TRUSTED`.
 9. Ensure the video directory is not writable by the server process (enforced at startup in production).
-10. Unauthenticated `/health` returns `{"status":"ok"}` (HTTP 200) when healthy or `{"status":"degraded"}` (HTTP 503) when the video directory is inaccessible; use authenticated `/health` for full readiness details. Failed Basic Auth on `/health` does not increment account lockout counters.
-11. Restrict access with firewall rules or VPN where possible.
-12. If `VIDEO_SERVER_DIRECTORY` is a symlink, production startup logs a warning with the resolved target path; verify it remains within your intended media storage.
+10. Set `VIDEO_SERVER_DIRECTORY` and `VIDEO_SERVER_LOG_DIR` to **absolute paths** in production (relative paths such as `./videos` or `./logs` are rejected by `mediarelay-validate`).
+11. Unauthenticated `/health` returns `{"status":"ok"}` (HTTP 200) when healthy or `{"status":"degraded"}` (HTTP 503) when the video directory is inaccessible; use authenticated `/health` for full readiness details. Failed Basic Auth on `/health` does not increment account lockout counters.
+12. Restrict access with firewall rules or VPN where possible.
+13. If `VIDEO_SERVER_DIRECTORY` is a symlink, production startup logs a warning with the resolved target path; verify it remains within your intended media storage.
 
 ## Known Limitations
 

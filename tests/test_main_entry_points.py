@@ -90,6 +90,17 @@ class TestValidateMainEntryPoint:
         assert result.exit_code == 1
         assert "Configuration error" in result.output
 
+    @patch("mediarelay.config.validate_deployment_config")
+    def test_validate_main_oserror(self, mock_validate):
+        """Filesystem errors during validation exit with code 1."""
+        mock_validate.side_effect = OSError("Permission denied")
+
+        runner = CliRunner()
+        result = runner.invoke(validate_main, [])
+
+        assert result.exit_code == 1
+        assert "Configuration error: Permission denied" in result.output
+
 
 class TestProductionServerRun:
     """Test cases for production server run method"""

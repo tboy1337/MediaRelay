@@ -34,6 +34,10 @@ MAX_USERNAME_LENGTH: int = 128
 MAX_FILE_SIZE: int = 21_474_836_480  # 20 GiB
 MAX_SUBTITLE_FILE_SIZE: int = 10_485_760  # 10 MiB
 
+# URL/path decoding pass limits (path traversal needs more passes than subtitle content)
+MAX_URL_PATH_DECODE_PASSES: int = 10
+MAX_SUBTITLE_DECODE_PASSES: int = 3
+
 AUDIO_EXTENSIONS: frozenset[str] = frozenset({".mp3", ".aac", ".ogg", ".wav"})
 VIDEO_EXTENSIONS: frozenset[str] = frozenset(
     {".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v", ".flv"}

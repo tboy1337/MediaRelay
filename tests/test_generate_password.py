@@ -188,7 +188,7 @@ class TestMainFunction:
                 ) as mock_secret:
                     mock_secret.return_value = "test_secret_key"
 
-                    generate_password.main()
+                    _run_interactive()
 
                     # Verify generate_password_hash was called
                     mock_hash.assert_called_once_with("TestPass123!", method="scrypt")
@@ -228,7 +228,7 @@ class TestMainFunction:
             ) as mock_secret:
                 mock_secret.return_value = "test_secret_key"
 
-                generate_password.main()
+                _run_interactive()
 
                 # Verify generate_password_hash was called with custom password
                 mock_hash.assert_called_once_with("MyPassword123!", method="scrypt")
@@ -258,7 +258,7 @@ class TestMainFunction:
                 ) as mock_secret:
                     mock_secret.return_value = "test_secret_key"
 
-                    generate_password.main()
+                    _run_interactive()
 
                     # Verify error message was printed
                     mock_print.assert_any_call("Username cannot be empty!")
@@ -284,7 +284,7 @@ class TestMainFunction:
             ) as mock_secret:
                 mock_secret.return_value = "test_secret_key"
 
-                generate_password.main()
+                _run_interactive()
 
                 # Verify error message was printed
                 mock_print.assert_any_call(
@@ -313,7 +313,7 @@ class TestMainFunction:
             ) as mock_secret:
                 mock_secret.return_value = "test_secret_key"
 
-                generate_password.main()
+                _run_interactive()
 
                 # Verify error message was printed
                 mock_print.assert_any_call("Passwords don't match! Try again.")
@@ -339,7 +339,7 @@ class TestMainFunction:
                 ) as mock_secret:
                     mock_secret.return_value = "test_secret_key"
 
-                    generate_password.main()
+                    _run_interactive()
 
                     # Check that important instructions are printed
                     expected_calls = [
@@ -371,7 +371,7 @@ class TestMainFunction:
                 ) as mock_secret:
                     mock_secret.return_value = "test_secret_key"
 
-                    generate_password.main()
+                    _run_interactive()
 
                     mock_gen.assert_called_once()
                     mock_hash.assert_called_once_with("TestPass123!", method="scrypt")
@@ -399,7 +399,7 @@ class TestMainFunction:
             ) as mock_secret:
                 mock_secret.return_value = "test_secret_key"
 
-                generate_password.main()
+                _run_interactive()
 
                 mock_hash.assert_called_once_with("MyPassword123!", method="scrypt")
                 mock_secret.assert_called_once()
@@ -430,7 +430,7 @@ class TestMainFunction:
             ) as mock_secret:
                 mock_secret.return_value = "test_secret_key"
 
-                generate_password.main()
+                _run_interactive()
 
                 mock_print.assert_any_call(
                     "Password is too short! Use at least 12 characters."
@@ -458,7 +458,7 @@ class TestMainFunction:
             ) as mock_secret:
                 mock_secret.return_value = "test_secret_key"
 
-                generate_password.main()
+                _run_interactive()
 
                 mock_print.assert_any_call("Passwords don't match! Try again.")
                 mock_hash.assert_called_once_with("MyPassword123!", method="scrypt")
@@ -480,7 +480,7 @@ class TestMainFunction:
                 ) as mock_secret:
                     mock_secret.return_value = "test_secret_key"
 
-                    generate_password.main()
+                    _run_interactive()
 
                     # Check all instruction messages are printed
                     expected_instructions = [
@@ -506,7 +506,7 @@ class TestMainFunction:
                             "mediarelay.generate_password.generate_flask_secret_key"
                         ):
                             # This should not raise any exceptions
-                            generate_password.main()
+                            _run_interactive()
 
 
 class TestGeneratePasswordCompleteEdgeCases:
@@ -530,7 +530,7 @@ class TestGeneratePasswordCompleteEdgeCases:
                             "mediarelay.generate_password.generate_flask_secret_key"
                         ) as mock_secret:
                             mock_secret.return_value = "test_secret_key"
-                            generate_password.main()
+                            _run_interactive()
                             # Verify it printed the password and hash
                             assert mock_print.call_count >= 4
 
@@ -553,7 +553,7 @@ class TestGeneratePasswordCompleteEdgeCases:
                         "mediarelay.generate_password.generate_flask_secret_key"
                     ) as mock_secret:
                         mock_secret.return_value = "test_secret_key"
-                        generate_password.main()
+                        _run_interactive()
                         assert mock_print.call_count >= 3
 
         # Test with mismatched passwords
@@ -577,7 +577,7 @@ class TestGeneratePasswordCompleteEdgeCases:
                         "mediarelay.generate_password.generate_flask_secret_key"
                     ) as mock_secret:
                         mock_secret.return_value = "test_secret_key"
-                        generate_password.main()
+                        _run_interactive()
                         assert mock_print.call_count >= 4
 
         # Test with password too short
@@ -600,7 +600,7 @@ class TestGeneratePasswordCompleteEdgeCases:
                         "mediarelay.generate_password.generate_flask_secret_key"
                     ) as mock_secret:
                         mock_secret.return_value = "test_secret_key"
-                        generate_password.main()
+                        _run_interactive()
                         assert mock_print.call_count >= 4
 
 

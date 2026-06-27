@@ -320,7 +320,7 @@ def _collect_directory_items(
                 continue
             entry_path = Path(entry.path)
             if (
-                not entry.is_dir(follow_symlinks=False)
+                not entry.is_dir(follow_symlinks=True)
                 and entry_path.suffix.lower() not in allowed_extensions
             ):
                 continue
@@ -345,9 +345,9 @@ def _collect_directory_items(
                 {
                     "name": entry.name,
                     "relative_path": str(relative_path).replace("\\", "/"),
-                    "is_dir": entry.is_dir(follow_symlinks=False),
+                    "is_dir": entry.is_dir(follow_symlinks=True),
                     "size": (
-                        item_stat.st_size if entry.is_file(follow_symlinks=False) else 0
+                        item_stat.st_size if entry.is_file(follow_symlinks=True) else 0
                     ),
                     "modified": datetime.fromtimestamp(item_stat.st_mtime).isoformat(),
                 }
@@ -628,6 +628,13 @@ def handle_stream_request(
         return response
 
     except (OSError, PermissionError, FileNotFoundError) as error:
+        if server.security_logger:
+            server.security_logger.log_file_access(
+                video_path,
+                client_ip,
+                False,
+                get_session_username(),
+            )
         server.app.logger.error(
             "Error streaming file %s: %s",
             truncate_logged_path(video_path),

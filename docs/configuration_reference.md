@@ -40,8 +40,8 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VIDEO_SERVER_DIRECTORY` | `~/Videos` (or `./videos`) | Root path for media library. Must exist, be a directory, and be readable at startup. |
-| `VIDEO_SERVER_LOG_DIR` | `./logs` | Log file directory (created if missing; must be writable). |
+| `VIDEO_SERVER_DIRECTORY` | `~/Videos` (or `./videos`) | Root path for media library. Must exist, be a directory, and be readable at startup. **Must be an absolute path in production** (`mediarelay-validate` rejects relative paths). |
+| `VIDEO_SERVER_LOG_DIR` | `./logs` | Log file directory (created if missing; must be writable). **Must be an absolute path in production.** |
 | `VIDEO_SERVER_ALLOWED_EXTENSIONS` | *(built-in set)* | Comma-separated extensions. Must be a subset of the built-in media allowlist (video, audio, `.srt`, `.vtt`). Invalid values are rejected at startup. |
 | `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES` | `10000` | Maximum listable entries per directory request. Exceeding this returns HTTP 413. |
 | `VIDEO_SERVER_MAX_FILE_SIZE` | `21474836480` | Maximum file size in bytes for media streaming (`0` disables; production startup logs a warning). Values above `21474836480` (20 GiB) are rejected at startup. Oversized streams return HTTP 413. Subtitle files (`.srt`, `.vtt`) are always capped at **10 MiB** regardless of this setting. |
@@ -75,7 +75,7 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 
 - Restrict `.env` permissions: `chmod 600 .env` (Linux/macOS).
 - Generate credentials: `mediarelay-genpass --non-interactive --username tboy1337`
-- Validate before deploy: `VIDEO_SERVER_PRODUCTION=true mediarelay-validate` (checks log directory, rejects writable video directory, rejects `BEHIND_PROXY` without `PROXY_TRUSTED`, warns on `0.0.0.0` without proxy)
+- Validate before deploy: `VIDEO_SERVER_PRODUCTION=true mediarelay-validate` (checks log directory, rejects writable video directory, rejects relative `VIDEO_SERVER_DIRECTORY` / `VIDEO_SERVER_LOG_DIR`, rejects `BEHIND_PROXY` without `PROXY_TRUSTED`, warns on `0.0.0.0` without proxy)
 - Production startup requires: real Werkzeug password hash, `VIDEO_SERVER_SECRET_KEY` (32+ chars), `VIDEO_SERVER_DEBUG=false`, `VIDEO_SERVER_SESSION_COOKIE_SECURE=true`, `VIDEO_SERVER_SESSION_COOKIE_HTTPONLY=true`, and `VIDEO_SERVER_RATE_LIMIT=true`.
 - Numeric settings have documented upper bounds (e.g. threads 256, rate limit 10,000/min) to prevent accidental resource exhaustion.
 - Do not expose plain HTTP to the internet; terminate TLS at a reverse proxy. See [Deployment Guide](deployment_guide.md) and [SECURITY.md](../SECURITY.md).

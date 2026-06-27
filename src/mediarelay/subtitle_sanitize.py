@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from urllib.parse import unquote
 
+from .constants import MAX_SUBTITLE_DECODE_PASSES
+
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 _BIDI_CHAR_RE = re.compile(r"[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
 _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -13,13 +15,12 @@ _DANGEROUS_URI_RE = re.compile(
     r"(?i)(javascript|data|vbscript|file|about|blob|view-source|chrome|ms-its)\s*:"
 )
 _WEBVTT_BLOCK_RE = re.compile(r"(?im)^(?:STYLE|NOTE)(?:\s+.*)?\n(?:.*\n)*?(?:\n|$)")
-_MAX_PERCENT_DECODE_PASSES = 3
 
 
 def _decode_percent_encoding_bounded(content: str) -> str:
     """Decode percent-encoded sequences in bounded passes before URI checks."""
     decoded = content
-    for _ in range(_MAX_PERCENT_DECODE_PASSES):
+    for _ in range(MAX_SUBTITLE_DECODE_PASSES):
         try:
             next_decoded = unquote(decoded)
         except (ValueError, UnicodeDecodeError):

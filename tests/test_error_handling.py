@@ -303,10 +303,27 @@ class TestHandlerErrorPaths:
                                 "mediarelay.handlers.wrap_file",
                                 side_effect=OSError("disk error"),
                             ):
-                                result = handle_stream_request(
-                                    media_relay_server, "test_video.mp4"
-                                )
+                                with patch.object(
+                                    media_relay_server.security_logger,
+                                    "log_file_access",
+                                ) as mock_log_file_access:
+                                    result = handle_stream_request(
+                                        media_relay_server, "test_video.mp4"
+                                    )
+                                    client_ip = media_relay_server.get_client_ip()
         assert result == ("Error streaming file", 500)
+        failure_calls = [
+            call
+            for call in mock_log_file_access.call_args_list
+            if call.args[2] is False
+        ]
+        assert len(failure_calls) == 1
+        assert failure_calls[0].args == (
+            "test_video.mp4",
+            client_ip,
+            False,
+            "unknown",
+        )
 
     def test_api_files_handler_os_error_returns_500(self, media_relay_server):
         """API files handler returns 500 on filesystem errors."""

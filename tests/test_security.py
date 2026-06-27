@@ -31,6 +31,7 @@ from mediarelay.constants import (
 from mediarelay.constants import DEFAULT_LOCKOUT_MAX_ATTEMPTS as MAX_FAILED_ATTEMPTS
 from mediarelay.constants import (
     MAX_PATH_LENGTH,
+    MAX_SUBTITLE_DECODE_PASSES,
     MAX_SUBTITLE_FILE_SIZE,
     MAX_URL_LENGTH,
 )
@@ -1388,6 +1389,43 @@ class TestSubtitleSanitization:
         assert "javascript:" not in sanitized.lower()
         assert "alert(1)" in sanitized
 
+    @pytest.mark.parametrize(
+        "decode_error",
+        [
+            ValueError("invalid percent encoding"),
+            UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+        ],
+    )
+    def test_sanitize_decode_handles_unquote_errors(
+        self, decode_error: Exception
+    ) -> None:
+        """Percent decoding stops cleanly when unquote raises."""
+        content = "WEBVTT\n\nSafe cue text\n"
+        with patch(
+            "mediarelay.subtitle_sanitize.unquote",
+            side_effect=decode_error,
+        ):
+            sanitized = sanitize_subtitle_content(content)
+        assert "Safe cue text" in sanitized
+
+    def test_sanitize_decode_exhausts_passes_without_break(self) -> None:
+        """Percent decoding runs until the pass limit when content keeps changing."""
+        call_count = 0
+
+        def _always_change(value: str) -> str:
+            nonlocal call_count
+            call_count += 1
+            return f"{value}-{call_count}"
+
+        content = "WEBVTT\n\nSafe cue text\n"
+        with patch(
+            "mediarelay.subtitle_sanitize.unquote",
+            side_effect=_always_change,
+        ):
+            sanitized = sanitize_subtitle_content(content)
+        assert call_count == MAX_SUBTITLE_DECODE_PASSES
+        assert "Safe cue text" in sanitized
+
     def test_stream_subtitle_strips_malicious_content(
         self, media_relay_server: MediaRelayServer, server_config: ServerConfig
     ) -> None:
@@ -2255,6 +2293,26 @@ class TestDirectoryListingSymlinkMetadata:
         result = _collect_directory_items(video_root, video_root, {".mp4"}, 100)
         assert len(result.items) == 1
         assert result.items[0]["size"] == 42
+
+    def test_symlink_to_directory_listed_as_directory(self, tmp_path: Path) -> None:
+        """Symlinks to directories inside the jail appear as navigable directories."""
+        video_root = tmp_path / "jail"
+        video_root.mkdir()
+        real_subdir = video_root / "real_subdir"
+        real_subdir.mkdir()
+        (real_subdir / "video.mp4").write_bytes(b"data")
+
+        link = video_root / "linked_dir"
+        try:
+            link.symlink_to(real_subdir, target_is_directory=True)
+        except OSError:
+            pytest.skip("Symlink creation not supported in this environment")
+
+        result = _collect_directory_items(video_root, video_root, {".mp4"}, 100)
+        linked_entry = next(
+            item for item in result.items if item["name"] == "linked_dir"
+        )
+        assert linked_entry["is_dir"] is True
 
 
 class TestSymlinkPathContainment:

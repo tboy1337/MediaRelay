@@ -842,9 +842,9 @@ class TestOpenValidatedFile:
 
 
 class TestLogDetailTruncation:
-    """Security log detail strings are truncated for oversized paths."""
+    """Security log detail strings are passed through to the logger for truncation."""
 
-    def test_log_path_violation_truncates_long_detail(self, tmp_path: Path) -> None:
+    def test_log_path_violation_passes_detail_to_logger(self, tmp_path: Path) -> None:
         class _FakeLogger:
             def __init__(self) -> None:
                 self.detail: str = ""
@@ -857,5 +857,4 @@ class TestLogDetailTruncation:
         logger = _FakeLogger()
         long_path = "a" * 500
         _log_path_violation(logger, "path_traversal", long_path, "127.0.0.1")
-        assert len(logger.detail) < len(long_path)
-        assert logger.detail.endswith("...(truncated)")
+        assert logger.detail == long_path

@@ -1726,6 +1726,60 @@ class TestDeploymentConfigValidation:
         with pytest.raises(ValueError, match="placeholder"):
             validate_deployment_config(env_file)
 
+    def test_deployment_config_rejects_relative_video_directory(
+        self, tmp_path, monkeypatch
+    ):
+        """Relative video directory path fails production deployment validation."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        _patch_video_dir_readonly(monkeypatch, video_dir)
+
+        env_file = tmp_path / "test.env"
+        env_file.write_text(
+            f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
+            f"VIDEO_SERVER_DIRECTORY=./videos\n"
+            f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
+            f"VIDEO_SERVER_PRODUCTION=true\n"
+            f"VIDEO_SERVER_RATE_LIMIT=true\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(
+            ValueError, match="VIDEO_SERVER_DIRECTORY must be an absolute"
+        ):
+            validate_deployment_config(env_file)
+
+    def test_deployment_config_rejects_relative_log_directory(
+        self, tmp_path, monkeypatch
+    ):
+        """Relative log directory path fails production deployment validation."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        _patch_video_dir_readonly(monkeypatch, video_dir)
+
+        env_file = tmp_path / "test.env"
+        env_file.write_text(
+            f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
+            f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
+            f"VIDEO_SERVER_LOG_DIR=./logs\n"
+            f"VIDEO_SERVER_PRODUCTION=true\n"
+            f"VIDEO_SERVER_RATE_LIMIT=true\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(
+            ValueError, match="VIDEO_SERVER_LOG_DIR must be an absolute"
+        ):
+            validate_deployment_config(env_file)
+
 
 class TestConfigProductionAuditEdgeCases:
     """Edge-case validation added during production audit."""

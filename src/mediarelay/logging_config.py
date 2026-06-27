@@ -19,7 +19,11 @@ import colorlog
 import psutil
 
 from .config import ServerConfig
-from .constants import MAX_LOGGED_PATH_LENGTH, MAX_LOGGED_USER_AGENT_LENGTH
+from .constants import (
+    MAX_LOGGED_ERROR_LENGTH,
+    MAX_LOGGED_PATH_LENGTH,
+    MAX_LOGGED_USER_AGENT_LENGTH,
+)
 from .session_store import get_request_id
 
 
@@ -43,6 +47,13 @@ def truncate_logged_path(file_path: str) -> str:
     if len(file_path) <= MAX_LOGGED_PATH_LENGTH:
         return file_path
     return f"{file_path[:MAX_LOGGED_PATH_LENGTH]}...(truncated)"
+
+
+def truncate_logged_detail(detail: str) -> str:
+    """Truncate attacker-controlled violation detail strings before security logging."""
+    if len(detail) <= MAX_LOGGED_ERROR_LENGTH:
+        return detail
+    return f"{detail[:MAX_LOGGED_ERROR_LENGTH]}...(truncated)"
 
 
 def _truncate_logged_user_agent(user_agent: str) -> str:
@@ -157,7 +168,7 @@ class SecurityEventLogger:
             {
                 "event_type": "security_violation",
                 "violation_type": violation_type,
-                "details": truncate_logged_path(details),
+                "details": truncate_logged_detail(details),
                 "ip_address": ip_address,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }

@@ -105,8 +105,9 @@ VIDEO_SERVER_SESSION_COOKIE_HTTPONLY=true
 VIDEO_SERVER_SESSION_COOKIE_SAMESITE=Strict
 
 # Directory Settings
+# Use absolute paths in production; mediarelay-validate rejects relative paths such as ./videos
 VIDEO_SERVER_DIRECTORY=/path/to/your/videos
-VIDEO_SERVER_LOG_DIR=./logs
+VIDEO_SERVER_LOG_DIR=/path/to/your/logs
 
 # Performance Settings
 VIDEO_SERVER_MAX_FILE_SIZE=21474836480  # 20GB default (max 21474836480; set to 0 to disable limit)

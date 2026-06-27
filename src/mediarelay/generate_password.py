@@ -117,11 +117,6 @@ def _run_interactive() -> None:
     _print_setup_instructions(username)
 
 
-def main() -> None:
-    """Console entry point for interactive credential generation."""
-    _run_interactive()
-
-
 @click.command()
 @click.option(
     "--non-interactive",
