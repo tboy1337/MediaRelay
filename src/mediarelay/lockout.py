@@ -132,6 +132,25 @@ class AccountLockoutManager:
             )
             return max(ip_remaining, username_remaining)
 
+    def get_ip_lockout_remaining(self, ip_address: str) -> int:
+        """Return max remaining lockout seconds for any IP-prefixed tracker.
+
+        Username-wide lockout trackers are intentionally excluded so 401
+        Retry-After headers do not reveal whether a guessed username is locked.
+        """
+        prefix = f"{ip_address}:"
+        current_time = time.time()
+        max_remaining = 0
+
+        with self._lock:
+            for key, tracker in self._trackers.items():
+                if not key.startswith(prefix):
+                    continue
+                remaining = self._remaining_lockout_seconds(tracker, current_time)
+                max_remaining = max(max_remaining, remaining)
+
+        return max_remaining
+
     def _cleanup_expired_locked(self, current_time: float) -> int:
         """Remove expired lockout entries. Caller must hold ``_lock``."""
         keys_to_remove = _collect_expired_tracker_keys(

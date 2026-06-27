@@ -63,6 +63,7 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 | `VIDEO_SERVER_RATE_LIMIT` | `true` | Enable global per-IP rate limiting. |
 | `VIDEO_SERVER_RATE_LIMIT_PER_MIN` | `60` | Requests per minute per client IP on browsing and API routes (1–10000). |
 | `VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE` | `600` | Dedicated per-IP limit for `/stream/` range requests during playback (1–10000). |
+| `VIDEO_SERVER_HEALTH_RATE_LIMIT_PER_MIN` | `120` | Dedicated per-IP limit for `/health` liveness probes (1–10000). |
 
 ## Production notes
 
@@ -76,7 +77,7 @@ Authoritative reference for all MediaRelay environment variables. Defaults match
 
 - Restrict `.env` permissions: `chmod 600 .env` (Linux/macOS).
 - Generate credentials: `mediarelay-genpass --non-interactive --username tboy1337`
-- Validate before deploy: `VIDEO_SERVER_PRODUCTION=true mediarelay-validate` (checks log directory, rejects writable video directory, rejects relative `VIDEO_SERVER_DIRECTORY` / `VIDEO_SERVER_LOG_DIR`, rejects `BEHIND_PROXY` without `PROXY_TRUSTED`, warns on `0.0.0.0` without proxy)
+- Validate before deploy: `VIDEO_SERVER_PRODUCTION=true mediarelay-validate` (checks log directory, rejects writable video directory, rejects relative paths, rejects default username, rejects symlink video directory, rejects `MAX_FILE_SIZE=0`, rejects `BEHIND_PROXY` without `PROXY_TRUSTED`, warns on `0.0.0.0` without proxy)
 - Production startup requires: real Werkzeug password hash, `VIDEO_SERVER_SECRET_KEY` (32+ chars), `VIDEO_SERVER_DEBUG=false`, `VIDEO_SERVER_SESSION_COOKIE_SECURE=true`, `VIDEO_SERVER_SESSION_COOKIE_HTTPONLY=true`, and `VIDEO_SERVER_RATE_LIMIT=true`.
 - Numeric settings have documented upper bounds (e.g. threads 256, rate limit 10,000/min) to prevent accidental resource exhaustion.
 - Do not expose plain HTTP to the internet; terminate TLS at a reverse proxy. See [Deployment Guide](deployment_guide.md) and [SECURITY.md](../SECURITY.md).

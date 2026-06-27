@@ -1917,6 +1917,32 @@ class TestGracefulShutdown:
                 server._run_lockout_cleanup()
         mock_schedule.assert_called_once()
 
+    def test_lockout_cleanup_reschedules_after_inode_refresh_failure(
+        self, server_config: ServerConfig
+    ) -> None:
+        """Lockout cleanup timer reschedules even when inode refresh fails."""
+        server = MediaRelayServer(server_config)
+        with patch.object(
+            server.inode_link_index,
+            "refresh",
+            side_effect=RuntimeError("refresh failed"),
+        ):
+            with patch.object(
+                server, "_schedule_next_lockout_cleanup"
+            ) as mock_schedule:
+                server._run_lockout_cleanup()
+        mock_schedule.assert_called_once()
+
+    def test_check_runtime_health_requires_inode_index(
+        self, server_config: ServerConfig
+    ) -> None:
+        """Runtime health is false when the inode index is not ready."""
+        server = MediaRelayServer(server_config)
+        server.inode_index_ready = False
+        with patch.object(server.config, "check_runtime_health", return_value=True):
+            assert server.check_runtime_health() is False
+        server._shutdown_cleanup()
+
     def test_stop_lockout_cleanup_without_active_timer(self, server_config):
         """Stopping lockout cleanup is safe when no timer is scheduled."""
         server = MediaRelayServer(server_config)

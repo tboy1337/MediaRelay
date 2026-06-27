@@ -147,10 +147,18 @@ class MediaRelayServer:
         """Run lockout cleanup and reschedule; survives individual cleanup failures."""
         try:
             self.lockout_manager.cleanup_expired()
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            self.app.logger.error(
+                "Lockout tracker cleanup failed: %s", error, exc_info=True
+            )
+        try:
             self.inode_link_index.refresh()
         except Exception as error:  # pylint: disable=broad-exception-caught
-            # Timer must keep firing even if a single cleanup pass fails.
-            self.app.logger.error("Lockout cleanup failed: %s", error, exc_info=True)
+            self.app.logger.error(
+                "Inode index refresh during lockout cleanup failed: %s",
+                error,
+                exc_info=True,
+            )
         self._schedule_next_lockout_cleanup()
 
     def _start_lockout_cleanup(self) -> None:

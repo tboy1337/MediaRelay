@@ -42,9 +42,29 @@ jobs:
         run: |
           Rename-Item -Path dist/MediaRelay.exe -NewName MediaRelay-v1.0.${{ github.run_number }}.exe
         shell: pwsh
-      - name: Zip the exe
+      - name: Stage Windows release bundle
         run: |
-          Compress-Archive -Path "dist/MediaRelay-v1.0.${{ github.run_number }}.exe" -DestinationPath "dist/MediaRelay-v1.0.${{ github.run_number }}.zip"
+          $releaseDir = "dist/release"
+          New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+          New-Item -ItemType Directory -Force -Path "$releaseDir/docs" | Out-Null
+          Move-Item -Path "dist/MediaRelay-v1.0.${{ github.run_number }}.exe" -Destination $releaseDir
+          Copy-Item -Path ".env.example" -Destination $releaseDir
+          Copy-Item -Path "SECURITY.md" -Destination $releaseDir
+          Copy-Item -Path "LICENSE.md" -Destination $releaseDir
+          Copy-Item -Path "docs/deployment_guide.md" -Destination "$releaseDir/docs/"
+          Copy-Item -Path "docs/configuration_reference.md" -Destination "$releaseDir/docs/"
+        shell: pwsh
+      - name: Zip the release bundle
+        run: |
+          $zip = "dist/MediaRelay-v1.0.${{ github.run_number }}.zip"
+          $root = "dist/release"
+          Compress-Archive -Path @(
+            "$root/MediaRelay-v1.0.${{ github.run_number }}.exe",
+            "$root/.env.example",
+            "$root/SECURITY.md",
+            "$root/LICENSE.md",
+            "$root/docs"
+          ) -DestinationPath $zip -Force
         shell: pwsh
       - name: Upload artifact
         uses: actions/upload-artifact@v7

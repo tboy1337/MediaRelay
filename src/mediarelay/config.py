@@ -24,9 +24,11 @@ from dotenv import load_dotenv
 
 from .constants import (
     AUDIO_EXTENSIONS,
+    DEFAULT_HEALTH_RATE_LIMIT_PER_MINUTE,
     DEFAULT_MAX_DIRECTORY_ENTRIES,
     DEFAULT_PAGE_SIZE,
     DEFAULT_STREAM_RATE_LIMIT_PER_MINUTE,
+    DEFAULT_USERNAME,
     MAX_CHANNEL_TIMEOUT,
     MAX_CLEANUP_INTERVAL,
     MAX_CONNECTION_LIMIT,
@@ -167,19 +169,21 @@ def _validate_video_directory(video_directory: str) -> None:
         raise ValueError(f"Video directory is not readable: {video_directory}")
 
 
-def _warn_video_directory_symlink(video_directory: str) -> None:
-    """Warn when the video directory is a symlink (production only)."""
+def _validate_video_directory_symlink(video_directory: str) -> None:
+    """Reject symlinked video directory in production."""
     video_path = Path(video_directory)
     if not video_path.is_symlink():
         return
     try:
         resolved = video_path.resolve()
-    except OSError:
-        return
-    _CONFIG_LOGGER.warning(
-        "VIDEO_SERVER_DIRECTORY is a symlink resolving to %s. "
-        "Ensure the target stays within your intended media storage.",
-        resolved,
+    except OSError as exc:
+        raise ValueError(
+            "VIDEO_SERVER_DIRECTORY is a symlink that could not be resolved in "
+            "production."
+        ) from exc
+    raise ValueError(
+        "VIDEO_SERVER_DIRECTORY must not be a symlink in production "
+        f"(resolves to {resolved}). Use the real directory path in .env."
     )
 
 
@@ -234,6 +238,12 @@ def _validate_credentials(config: "ServerConfig") -> None:
         raise ValueError(
             "VIDEO_SERVER_PASSWORD_HASH must be set to a real hash, not a "
             "placeholder. Run mediarelay-genpass to create one."
+        )
+
+    if config.is_production() and config.username == DEFAULT_USERNAME:
+        raise ValueError(
+            "VIDEO_SERVER_USERNAME must be changed from the default in production. "
+            "Set a unique username in your .env file."
         )
 
     _validate_password_hash_format(config.password_hash)
@@ -450,7 +460,7 @@ class ServerConfig:
     # Security Settings
     secret_key: str = field(default_factory=_resolve_secret_key)
     username: str = field(
-        default_factory=lambda: os.getenv("VIDEO_SERVER_USERNAME", "tboy1337")
+        default_factory=lambda: os.getenv("VIDEO_SERVER_USERNAME", DEFAULT_USERNAME)
     )
     password_hash: str = field(
         default_factory=lambda: os.getenv("VIDEO_SERVER_PASSWORD_HASH", "")
@@ -579,6 +589,14 @@ class ServerConfig:
             max_val=MAX_RATE_LIMIT_PER_MINUTE,
         )
     )
+    health_rate_limit_per_minute: int = field(
+        default_factory=lambda: _parse_int_env(
+            "VIDEO_SERVER_HEALTH_RATE_LIMIT_PER_MIN",
+            str(DEFAULT_HEALTH_RATE_LIMIT_PER_MINUTE),
+            min_val=1,
+            max_val=MAX_RATE_LIMIT_PER_MINUTE,
+        )
+    )
 
     # Security Headers (HSTS applied separately when enabled)
     security_headers: dict[str, str] = field(default_factory=_default_security_headers)
@@ -625,7 +643,7 @@ class ServerConfig:
         _validate_production_settings(self)
         _validate_log_directory(self.log_directory)
         if self.is_production():
-            _warn_video_directory_symlink(self.video_directory)
+            _validate_video_directory_symlink(self.video_directory)
             _validate_deployment_settings(self)
 
     def is_production(self) -> bool:
@@ -692,6 +710,7 @@ class ServerConfig:
             "rate_limit_enabled": self.rate_limit_enabled,
             "rate_limit_per_minute": self.rate_limit_per_minute,
             "stream_rate_limit_per_minute": self.stream_rate_limit_per_minute,
+            "health_rate_limit_per_minute": self.health_rate_limit_per_minute,
             "session_cookie_secure": self.session_cookie_secure,
             "session_cookie_httponly": self.session_cookie_httponly,
             "session_cookie_samesite": self.session_cookie_samesite,
@@ -828,10 +847,9 @@ def _validate_deployment_settings(config: ServerConfig) -> None:
         )
 
     if config.max_file_size == 0:
-        _CONFIG_LOGGER.warning(
-            "VIDEO_SERVER_MAX_FILE_SIZE is 0 in production; streaming size "
-            "limits are disabled. Run mediarelay-validate to review deployment "
-            "settings."
+        raise ValueError(
+            "VIDEO_SERVER_MAX_FILE_SIZE must be greater than 0 in production. "
+            "Streaming size limits cannot be disabled in production."
         )
 
 
@@ -874,6 +892,11 @@ def create_sample_env_file() -> None:
     sample_env = """# MediaRelay Configuration
 # Copy this file to .env and modify the values as needed
 
+# Environment — set VIDEO_SERVER_PRODUCTION=true before going live (see docs/deployment_guide.md)
+# Production enforces: unique username, absolute paths, non-writable media root, rate limiting,
+# persistent secret key, secure cookies, no symlink video directory, and non-zero max file size.
+VIDEO_SERVER_PRODUCTION=false
+
 # Server Settings
 # Use 127.0.0.1 when behind a reverse proxy; 0.0.0.0 exposes all interfaces
 VIDEO_SERVER_HOST=0.0.0.0
@@ -904,16 +927,16 @@ VIDEO_SERVER_SESSION_COOKIE_SECURE=true
 VIDEO_SERVER_SESSION_COOKIE_HTTPONLY=true
 VIDEO_SERVER_SESSION_COOKIE_SAMESITE=Strict
 
-# Directory Settings
+# Directory Settings (use absolute paths in production)
 VIDEO_SERVER_DIRECTORY=/path/to/your/videos
-VIDEO_SERVER_LOG_DIR=./logs
+VIDEO_SERVER_LOG_DIR=/path/to/your/logs
 
 # File Settings
 # Comma-separated extensions (leave unset for defaults: .mp4,.mkv,.avi,...)
 # VIDEO_SERVER_ALLOWED_EXTENSIONS=.mp4,.mkv,.avi,.mov,.webm,.m4v,.flv,.srt,.vtt,.mp3,.aac,.ogg,.wav
 # Maximum directory entries per listing request (prevents memory exhaustion)
 VIDEO_SERVER_MAX_DIRECTORY_ENTRIES=10000
-# Maximum file size in bytes (21474836480 = 20GB, set to 0 to disable limit)
+# Maximum file size in bytes (21474836480 = 20GB; set to 0 to disable limit in dev only)
 VIDEO_SERVER_MAX_FILE_SIZE=21474836480
 
 # Logging Settings
@@ -927,6 +950,8 @@ VIDEO_SERVER_RATE_LIMIT=true
 VIDEO_SERVER_RATE_LIMIT_PER_MIN=60
 # Higher limit for /stream/ range requests (seeking during playback)
 VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE=600
+# Dedicated limit for /health liveness probes (prevents token brute-force)
+VIDEO_SERVER_HEALTH_RATE_LIMIT_PER_MIN=120
 
 # Reverse Proxy — ONLY enable when behind a trusted reverse proxy (nginx, etc.)
 # If enabled without a proxy, client IPs can be spoofed via X-Forwarded-For
@@ -935,9 +960,6 @@ VIDEO_SERVER_BEHIND_PROXY=false
 VIDEO_SERVER_PROXY_TRUSTED=false
 # Send HSTS header when true (also sent automatically when BEHIND_PROXY is true)
 VIDEO_SERVER_HSTS=false
-
-# Environment — set VIDEO_SERVER_PRODUCTION=true for deployment (see deployment_guide.md)
-VIDEO_SERVER_PRODUCTION=false
 """
 
     env_file = Path(".env.example")

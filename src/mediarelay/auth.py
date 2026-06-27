@@ -37,16 +37,12 @@ def _username_matches(configured: str, provided: str) -> bool:
 
 
 def auth_required_response(server: MediaRelayServer) -> Response:
-    """Build a 401 response, including Retry-After when the account is locked out."""
+    """Build a 401 response, including Retry-After when the client IP is locked out."""
     headers = {"WWW-Authenticate": 'Basic realm="Video Streaming Server"'}
-    auth = request.authorization
-    if auth and auth.username:
-        client_ip = server.get_client_ip()
-        if server.lockout_manager.is_locked_out(client_ip, auth.username):
-            remaining = server.lockout_manager.get_remaining_lockout_seconds(
-                client_ip, auth.username
-            )
-            headers["Retry-After"] = str(max(1, int(remaining)))
+    client_ip = server.get_client_ip()
+    remaining = server.lockout_manager.get_ip_lockout_remaining(client_ip)
+    if remaining > 0:
+        headers["Retry-After"] = str(max(1, remaining))
     return Response("Authentication Required", 401, headers)
 
 

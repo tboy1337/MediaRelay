@@ -161,6 +161,7 @@ Once the server is running, you can access it in your web browser at:
    ```bash
    mediarelay-validate
    ```
+   Set `VIDEO_SERVER_PRODUCTION=true` and follow the full [Deployment Guide](docs/deployment_guide.md) pre-deploy checklist and [SECURITY.md](SECURITY.md) production requirements (unique username, absolute paths, TLS at reverse proxy, non-symlink media directory).
 
 6. **Start the server** (configuration is validated on startup):
    ```bash

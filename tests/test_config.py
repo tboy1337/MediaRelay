@@ -21,8 +21,8 @@ import pytest
 from mediarelay.config import (
     ServerConfig,
     _get_default_video_directory,
+    _validate_video_directory_symlink,
     _warn_insecure_env_file_permissions,
-    _warn_video_directory_symlink,
     _warn_windows_insecure_env_file_permissions,
     create_sample_env_file,
     load_config,
@@ -76,8 +76,10 @@ def _setup_production_env(
 ) -> None:
     """Configure environment variables for valid production ServerConfig."""
     monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "true")
+    monkeypatch.setenv("VIDEO_SERVER_USERNAME", "prodtestuser")
     monkeypatch.setenv("VIDEO_SERVER_SECRET_KEY", TEST_PRODUCTION_SECRET_KEY)
     monkeypatch.setenv("VIDEO_SERVER_RATE_LIMIT", "true")
+    monkeypatch.setenv("VIDEO_SERVER_MAX_FILE_SIZE", "21474836480")
     monkeypatch.setenv("VIDEO_SERVER_DEBUG", "false")
     monkeypatch.setenv("VIDEO_SERVER_DIRECTORY", str(video_dir))
     monkeypatch.setenv("VIDEO_SERVER_LOG_DIR", str(log_dir))
@@ -1183,6 +1185,7 @@ class TestProductionSecretKeyValidation:
             os.environ,
             {
                 "VIDEO_SERVER_PRODUCTION": "true",
+                "VIDEO_SERVER_USERNAME": "prodtestuser",
                 "VIDEO_SERVER_SECRET_KEY": "your-secret-key-here",
             },
         ):
@@ -1199,6 +1202,7 @@ class TestProductionSecretKeyValidation:
 
         env = {
             "VIDEO_SERVER_PRODUCTION": "true",
+            "VIDEO_SERVER_USERNAME": "prodtestuser",
             "VIDEO_SERVER_DEBUG": "false",
         }
         with patch.dict(os.environ, env, clear=False):
@@ -1220,6 +1224,7 @@ class TestProductionSecretKeyValidation:
             os.environ,
             {
                 "VIDEO_SERVER_PRODUCTION": "true",
+                "VIDEO_SERVER_USERNAME": "prodtestuser",
                 "VIDEO_SERVER_SECRET_KEY": TEST_PRODUCTION_SECRET_KEY,
                 "VIDEO_SERVER_DEBUG": "true",
                 "VIDEO_SERVER_RATE_LIMIT": "true",
@@ -1251,6 +1256,29 @@ class TestProductionSecretKeyValidation:
                 log_directory=str(log_dir),
             )
 
+    def test_production_rejects_default_username(self, tmp_path: Path) -> None:
+        """Production mode rejects the default username."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        with patch.dict(
+            os.environ,
+            {
+                "VIDEO_SERVER_PRODUCTION": "true",
+                "VIDEO_SERVER_USERNAME": "tboy1337",
+                "VIDEO_SERVER_SECRET_KEY": TEST_PRODUCTION_SECRET_KEY,
+                "VIDEO_SERVER_RATE_LIMIT": "true",
+                "VIDEO_SERVER_LOG_DIR": str(log_dir),
+            },
+        ):
+            with pytest.raises(ValueError, match="must be changed from the default"):
+                ServerConfig(
+                    video_directory=str(video_dir),
+                    password_hash=TEST_PASSWORD_HASH,
+                    log_directory=str(log_dir),
+                )
+
     def test_validate_config_runs_deployment_checks_in_production(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1260,6 +1288,7 @@ class TestProductionSecretKeyValidation:
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
         monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "true")
+        monkeypatch.setenv("VIDEO_SERVER_USERNAME", "prodtestuser")
         monkeypatch.setenv("VIDEO_SERVER_SECRET_KEY", TEST_PRODUCTION_SECRET_KEY)
         monkeypatch.setenv("VIDEO_SERVER_RATE_LIMIT", "true")
         monkeypatch.setenv("VIDEO_SERVER_DEBUG", "false")
@@ -1679,11 +1708,13 @@ class TestDeploymentConfigValidation:
         env_file = tmp_path / "test.env"
         env_file.write_text(
             f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_USERNAME=prodtestuser\n"
             f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
             f"VIDEO_SERVER_PRODUCTION=true\n"
-            f"VIDEO_SERVER_RATE_LIMIT=true\n",
+            f"VIDEO_SERVER_RATE_LIMIT=true\n"
+            f"VIDEO_SERVER_MAX_FILE_SIZE=21474836480\n",
             encoding="utf-8",
         )
 
@@ -1698,6 +1729,7 @@ class TestDeploymentConfigValidation:
         env_file = tmp_path / "test.env"
         env_file.write_text(
             f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_USERNAME=prodtestuser\n"
             f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_PRODUCTION=false\n",
@@ -1715,6 +1747,7 @@ class TestDeploymentConfigValidation:
         env_file = tmp_path / "test.env"
         env_file.write_text(
             f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_USERNAME=prodtestuser\n"
             f"VIDEO_SERVER_SECRET_KEY=your-secret-key-here\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_PRODUCTION=true\n",
@@ -1732,6 +1765,7 @@ class TestDeploymentConfigValidation:
         env_file = tmp_path / "test.env"
         env_file.write_text(
             f"VIDEO_SERVER_PASSWORD_HASH=your-password-hash-here\n"
+            f"VIDEO_SERVER_USERNAME=prodtestuser\n"
             f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_PRODUCTION=true\n",
@@ -1754,11 +1788,13 @@ class TestDeploymentConfigValidation:
         env_file = tmp_path / "test.env"
         env_file.write_text(
             f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_USERNAME=prodtestuser\n"
             f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
             f"VIDEO_SERVER_DIRECTORY=./videos\n"
             f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
             f"VIDEO_SERVER_PRODUCTION=true\n"
-            f"VIDEO_SERVER_RATE_LIMIT=true\n",
+            f"VIDEO_SERVER_RATE_LIMIT=true\n"
+            f"VIDEO_SERVER_MAX_FILE_SIZE=21474836480\n",
             encoding="utf-8",
         )
 
@@ -1781,11 +1817,13 @@ class TestDeploymentConfigValidation:
         env_file = tmp_path / "test.env"
         env_file.write_text(
             f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_USERNAME=prodtestuser\n"
             f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_LOG_DIR=./logs\n"
             f"VIDEO_SERVER_PRODUCTION=true\n"
-            f"VIDEO_SERVER_RATE_LIMIT=true\n",
+            f"VIDEO_SERVER_RATE_LIMIT=true\n"
+            f"VIDEO_SERVER_MAX_FILE_SIZE=21474836480\n",
             encoding="utf-8",
         )
 
@@ -1808,11 +1846,13 @@ class TestDeploymentConfigValidation:
         env_file = tmp_path / "test.env"
         env_file.write_text(
             f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_USERNAME=prodtestuser\n"
             f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
             f"VIDEO_SERVER_PRODUCTION=true\n"
-            f"VIDEO_SERVER_RATE_LIMIT=true\n",
+            f"VIDEO_SERVER_RATE_LIMIT=true\n"
+            f"VIDEO_SERVER_MAX_FILE_SIZE=21474836480\n",
             encoding="utf-8",
         )
 
@@ -1975,11 +2015,13 @@ class TestConfigProductionAuditEdgeCases:
         env_file = tmp_path / "test.env"
         env_file.write_text(
             f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_USERNAME=prodtestuser\n"
             f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
             f"VIDEO_SERVER_PRODUCTION=true\n"
-            f"VIDEO_SERVER_RATE_LIMIT=true\n",
+            f"VIDEO_SERVER_RATE_LIMIT=true\n"
+            f"VIDEO_SERVER_MAX_FILE_SIZE=21474836480\n",
             encoding="utf-8",
         )
 
@@ -2021,11 +2063,13 @@ class TestConfigProductionAuditEdgeCases:
         env_file = tmp_path / "test.env"
         env_file.write_text(
             f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_USERNAME=prodtestuser\n"
             f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
             f"VIDEO_SERVER_PRODUCTION=true\n"
-            f"VIDEO_SERVER_RATE_LIMIT=true\n",
+            f"VIDEO_SERVER_RATE_LIMIT=true\n"
+            f"VIDEO_SERVER_MAX_FILE_SIZE=21474836480\n",
             encoding="utf-8",
         )
 
@@ -2035,13 +2079,10 @@ class TestConfigProductionAuditEdgeCases:
         with pytest.raises(ValueError, match="Log directory is not writable"):
             validate_deployment_config(env_file)
 
-    def test_deployment_config_warns_on_max_file_size_zero(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        caplog: pytest.LogCaptureFixture,
+    def test_deployment_config_rejects_max_file_size_zero(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Deployment validation warns when streaming size limits are disabled."""
+        """Deployment validation rejects disabled streaming size limits."""
         video_dir = tmp_path / "videos"
         video_dir.mkdir()
         log_dir = tmp_path / "logs"
@@ -2051,6 +2092,7 @@ class TestConfigProductionAuditEdgeCases:
         env_file = tmp_path / "test.env"
         env_file.write_text(
             f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_USERNAME=prodtestuser\n"
             f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
@@ -2061,10 +2103,8 @@ class TestConfigProductionAuditEdgeCases:
         )
 
         monkeypatch.chdir(tmp_path)
-        with caplog.at_level(logging.WARNING):
+        with pytest.raises(ValueError, match="MAX_FILE_SIZE must be greater than 0"):
             validate_deployment_config(env_file)
-
-        assert any("MAX_FILE_SIZE is 0" in record.message for record in caplog.records)
 
     def test_deployment_config_warns_on_public_bind_without_proxy(
         self,
@@ -2082,13 +2122,15 @@ class TestConfigProductionAuditEdgeCases:
         env_file = tmp_path / "test.env"
         env_file.write_text(
             f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_USERNAME=prodtestuser\n"
             f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
             f"VIDEO_SERVER_HOST=0.0.0.0\n"
             f"VIDEO_SERVER_BEHIND_PROXY=false\n"
             f"VIDEO_SERVER_PRODUCTION=true\n"
-            f"VIDEO_SERVER_RATE_LIMIT=true\n",
+            f"VIDEO_SERVER_RATE_LIMIT=true\n"
+            f"VIDEO_SERVER_MAX_FILE_SIZE=21474836480\n",
             encoding="utf-8",
         )
 
@@ -2111,13 +2153,15 @@ class TestConfigProductionAuditEdgeCases:
         env_file = tmp_path / "test.env"
         env_file.write_text(
             f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_USERNAME=prodtestuser\n"
             f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
             f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
             f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
             f"VIDEO_SERVER_BEHIND_PROXY=true\n"
             f"VIDEO_SERVER_PROXY_TRUSTED=false\n"
             f"VIDEO_SERVER_PRODUCTION=true\n"
-            f"VIDEO_SERVER_RATE_LIMIT=true\n",
+            f"VIDEO_SERVER_RATE_LIMIT=true\n"
+            f"VIDEO_SERVER_MAX_FILE_SIZE=21474836480\n",
             encoding="utf-8",
         )
 
@@ -2284,10 +2328,10 @@ class TestConfigProductionAuditEdgeCases:
         with patch.object(Path, "exists", side_effect=OSError("boom")):
             assert config.check_runtime_health() is False
 
-    def test_warn_video_directory_symlink_logs_resolved_target(
+    def test_validate_video_directory_symlink_rejects_symlink(
         self, tmp_path: Path
     ) -> None:
-        """Production symlink check logs the resolved target path."""
+        """Production rejects symlinked video directory paths."""
         target = tmp_path / "media_target"
         target.mkdir()
         link = tmp_path / "media_link"
@@ -2296,51 +2340,63 @@ class TestConfigProductionAuditEdgeCases:
         except (OSError, NotImplementedError):
             pytest.skip("Symlinks not supported on this platform")
 
-        with patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning:
-            _warn_video_directory_symlink(str(link))
+        with pytest.raises(ValueError, match="must not be a symlink"):
+            _validate_video_directory_symlink(str(link))
 
-        mock_warning.assert_called_once()
-        assert str(target.resolve()) in str(mock_warning.call_args[0][1])
-
-    def test_warn_video_directory_symlink_resolve_oserror_silent(
+    def test_validate_video_directory_symlink_resolve_oserror(
         self, tmp_path: Path
     ) -> None:
-        """Broken symlink resolution does not log when resolve fails."""
+        """Broken symlink resolution raises in production validation."""
         link = tmp_path / "broken_link"
         with (
             patch.object(Path, "is_symlink", return_value=True),
             patch.object(Path, "resolve", side_effect=OSError("broken")),
-            patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning,
         ):
-            _warn_video_directory_symlink(str(link))
+            with pytest.raises(ValueError, match="could not be resolved"):
+                _validate_video_directory_symlink(str(link))
 
-        mock_warning.assert_not_called()
-
-    def test_warn_video_directory_symlink_skips_non_symlink(
+    def test_validate_video_directory_symlink_skips_non_symlink(
         self, tmp_path: Path
     ) -> None:
-        """Non-symlink directories do not trigger symlink warnings."""
+        """Non-symlink directories pass production symlink validation."""
         normal_dir = tmp_path / "normal"
         normal_dir.mkdir()
-        with patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning:
-            _warn_video_directory_symlink(str(normal_dir))
-        mock_warning.assert_not_called()
+        _validate_video_directory_symlink(str(normal_dir))
 
-    def test_warn_video_directory_symlink_mocked_on_all_platforms(
+    def test_validate_video_directory_symlink_mocked_on_all_platforms(
         self, tmp_path: Path
     ) -> None:
-        """Symlink warning logs resolved target when is_symlink is true (mocked)."""
+        """Symlink validation rejects symlinked paths when is_symlink is true."""
         resolved = tmp_path / "resolved_target"
         link_path = tmp_path / "media_link"
         with (
             patch.object(Path, "is_symlink", return_value=True),
             patch.object(Path, "resolve", return_value=resolved),
-            patch("mediarelay.config._CONFIG_LOGGER.warning") as mock_warning,
         ):
-            _warn_video_directory_symlink(str(link_path))
+            with pytest.raises(ValueError, match="must not be a symlink"):
+                _validate_video_directory_symlink(str(link_path))
 
-        mock_warning.assert_called_once()
-        assert str(resolved) in str(mock_warning.call_args[0][1])
+    def test_production_rejects_symlink_video_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Production ServerConfig rejects symlinked VIDEO_SERVER_DIRECTORY."""
+        target = tmp_path / "media_target"
+        target.mkdir()
+        link = tmp_path / "media_link"
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        try:
+            link.symlink_to(target, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("Symlinks not supported on this platform")
+
+        _setup_production_env(monkeypatch, link, log_dir)
+        with pytest.raises(ValueError, match="must not be a symlink"):
+            ServerConfig(
+                video_directory=str(link),
+                password_hash=TEST_PASSWORD_HASH,
+                log_directory=str(log_dir),
+            )
 
 
 class TestPasswordHashFormatValidation:

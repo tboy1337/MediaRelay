@@ -15,6 +15,8 @@ MIN_PAGE_SIZE: int = 1
 DEFAULT_MAX_DIRECTORY_ENTRIES: int = 10000
 MAX_LOCKOUT_TRACKERS: int = 10000
 DEFAULT_STREAM_RATE_LIMIT_PER_MINUTE: int = 600
+DEFAULT_HEALTH_RATE_LIMIT_PER_MINUTE: int = 120
+DEFAULT_USERNAME: str = "tboy1337"
 
 # Upper bounds for numeric configuration (prevent accidental resource exhaustion)
 MAX_THREADS: int = 256

@@ -157,7 +157,8 @@ def register_routes(server: MediaRelayServer) -> None:
         return jsonify(health_data), status_code  # type: ignore[misc]
 
     if server.limiter is not None:
-        _health_handler = server.limiter.exempt(_health_handler)
+        health_limit = f"{server.config.health_rate_limit_per_minute} per minute"
+        _health_handler = server.limiter.limit(health_limit)(_health_handler)
 
     server.app.route("/health")(_health_handler)
 

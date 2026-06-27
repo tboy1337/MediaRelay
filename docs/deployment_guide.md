@@ -170,13 +170,16 @@ The validator checks password hash format, secret key presence, video/log direct
 **Pre-deploy checklist:**
 
 1. Set `VIDEO_SERVER_PRODUCTION=true`
-2. Run `mediarelay-validate` and fix all reported errors
-3. Terminate TLS at a reverse proxy (never send Basic Auth over plain HTTP)
-4. Set `VIDEO_SERVER_PROXY_TRUSTED=true` only when MediaRelay is exclusively behind your trusted reverse proxy
-5. Run `mediarelay-validate` to confirm the inode hardlink index builds successfully (also enforced again at production server startup)
-6. Restrict media directory to read-only for the service account (see below)
+2. Run `mediarelay-genpass` and set a **non-default username** (not `tboy1337`), secret key (32+ chars), and password hash
+3. Run `mediarelay-validate` and fix all reported errors
+4. Terminate TLS at a reverse proxy (never send Basic Auth over plain HTTP)
+5. Set `VIDEO_SERVER_PROXY_TRUSTED=true` only when MediaRelay is exclusively behind your trusted reverse proxy
+6. Use **absolute paths** for `VIDEO_SERVER_DIRECTORY` and `VIDEO_SERVER_LOG_DIR` (no symlink for video directory)
+7. Ensure `VIDEO_SERVER_MAX_FILE_SIZE` is greater than zero
+8. Restrict media directory to read-only for the service account (see below)
+9. Run `mediarelay-validate` to confirm the inode hardlink index builds successfully (also enforced again at production server startup)
 
-Unauthenticated `GET /health` returns minimal readiness (`{"status":"ok"}` when healthy, `{"status":"degraded"}` with HTTP 503 when the video directory is inaccessible or the inode index is unavailable). Detailed readiness requires an active session cookie or `X-Health-Token` matching `VIDEO_SERVER_HEALTH_TOKEN` (recommended for load balancers and external monitors).
+Unauthenticated `GET /health` returns minimal readiness (`{"status":"ok"}` when healthy, `{"status":"degraded"}` with HTTP 503 when the video directory is inaccessible or the inode index is unavailable). Detailed readiness requires an active session cookie or `X-Health-Token` matching `VIDEO_SERVER_HEALTH_TOKEN` (recommended for load balancers and external monitors). `/health` is rate-limited separately via `VIDEO_SERVER_HEALTH_RATE_LIMIT_PER_MIN` (default 120/min).
 
 #### Read-only media directory
 
@@ -219,7 +222,7 @@ Account lockout tracks up to **10,000** unique `IP:username` combinations. Activ
 
 Username-wide lockout (`VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED=true`) blocks cross-IP brute force but allows account denial-of-service if an attacker knows your username. Set it to `false` if that tradeoff is unacceptable and rely on per-IP lockout plus a strong password.
 
-Setting `VIDEO_SERVER_MAX_FILE_SIZE=0` disables streaming size limits in production (startup logs a warning only). Prefer the default 20 GiB cap unless you have a deliberate reason to disable limits.
+Setting `VIDEO_SERVER_MAX_FILE_SIZE=0` disables streaming size limits in non-production mode only. Production startup **rejects** `VIDEO_SERVER_MAX_FILE_SIZE=0`. Prefer the default 20 GiB cap unless you have a deliberate reason to tune the limit.
 
 ### 3. Directory Structure
 

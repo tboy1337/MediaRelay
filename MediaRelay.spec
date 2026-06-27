@@ -6,9 +6,10 @@ import os
 block_cipher = None
 
 _src_root = os.path.abspath("src")
+_entry_script = os.path.abspath(os.path.join("scripts", "pyinstaller_entry.py"))
 
 a = Analysis(
-    ["src/mediarelay/server.py"],
+    [_entry_script],
     pathex=[_src_root],
     binaries=[],
     datas=[],

@@ -6,6 +6,7 @@ Tests for error handling, exception cases, and edge conditions.
 
 import base64
 import json
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -25,6 +26,7 @@ from mediarelay.logging_config import truncate_logged_path
 from mediarelay.path_utils import ValidatedFileHandle
 from mediarelay.server import MediaRelayServer
 from tests.constants import TEST_PASSWORD_HASH
+from tests.helpers import authenticate_client
 
 
 class TestServerErrorHandling:
@@ -413,6 +415,17 @@ class TestProductionAuditErrorHandlers:
 
         assert response.status_code == 405
         assert response.get_data(as_text=True) == "Method Not Allowed"
+
+    def test_method_not_allowed_log_includes_request_id(
+        self, media_relay_server, server_config, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Error handler logs include the current request ID."""
+        with media_relay_server.app.test_client() as client:
+            authenticate_client(client, server_config.username, "testpass")
+            with caplog.at_level(logging.WARNING):
+                response = client.get("/logout")
+        assert response.status_code == 405
+        assert any("request_id=" in record.message for record in caplog.records)
 
     def test_performance_logger_failure_does_not_break_response(
         self, authenticated_client, media_relay_server

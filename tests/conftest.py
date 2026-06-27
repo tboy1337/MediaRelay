@@ -92,6 +92,7 @@ def production_server_config(
     monkeypatch.setenv("VIDEO_SERVER_PRODUCTION", "true")
     monkeypatch.setenv("VIDEO_SERVER_BEHIND_PROXY", "false")
     monkeypatch.setenv("VIDEO_SERVER_PROXY_TRUSTED", "false")
+    monkeypatch.setenv("VIDEO_SERVER_MAX_FILE_SIZE", "21474836480")
 
     real_access = os.access
     resolved_video = temp_video_dir.resolve()

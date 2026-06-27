@@ -42,6 +42,7 @@ from mediarelay.logging_config import SecurityEventLogger
 from mediarelay.server import MediaRelayServer
 from mediarelay.session_store import SessionAuthState
 from mediarelay.subtitle_sanitize import sanitize_subtitle_content
+from tests.constants import TEST_PASSWORD_HASH
 from tests.helpers import authenticate_client
 
 
@@ -222,6 +223,25 @@ class TestAccountLockoutManager:
     def test_get_remaining_lockout_seconds_zero_when_not_locked(self) -> None:
         manager = AccountLockoutManager()
         assert manager.get_remaining_lockout_seconds("192.168.1.1", "testuser") == 0
+
+    def test_get_ip_lockout_remaining_after_ip_lockout(self) -> None:
+        manager = AccountLockoutManager(max_attempts=1, lockout_duration=60)
+        manager.record_failed_attempt("192.168.1.1", "testuser")
+        remaining = manager.get_ip_lockout_remaining("192.168.1.1")
+        assert remaining > 0
+        assert remaining <= 60
+
+    def test_get_ip_lockout_remaining_zero_for_other_ip(self) -> None:
+        manager = AccountLockoutManager(max_attempts=1, lockout_duration=60)
+        manager.record_failed_attempt("192.168.1.1", "testuser")
+        assert manager.get_ip_lockout_remaining("10.0.0.1") == 0
+
+    def test_get_ip_lockout_remaining_ignores_username_wide_lockout(self) -> None:
+        """Username-wide lockout must not surface via IP-only Retry-After lookup."""
+        manager = AccountLockoutManager(max_attempts=1, lockout_duration=60)
+        manager.record_failed_attempt("192.168.1.1", "testuser")
+        assert manager.is_locked_out("10.0.0.9", "testuser") is True
+        assert manager.get_ip_lockout_remaining("10.0.0.9") == 0
 
     def test_expired_lockout_resets_before_new_failed_attempt(
         self, monkeypatch: pytest.MonkeyPatch
@@ -578,6 +598,29 @@ class TestAuthModule:
     ) -> None:
         """401 without credentials must not include Retry-After."""
         with media_relay_server.app.test_request_context():
+            response = media_relay_server.auth_required_response()
+
+        assert response.status_code == 401
+        assert "Retry-After" not in response.headers
+
+    def test_auth_required_response_omits_retry_after_for_username_wide_lockout(
+        self, media_relay_server, server_config
+    ) -> None:
+        """401 must not leak username lockout via Retry-After on a fresh client IP."""
+        media_relay_server.lockout_manager = AccountLockoutManager(
+            max_attempts=1, lockout_duration=120
+        )
+        media_relay_server.lockout_manager.record_failed_attempt(
+            "192.168.1.1", server_config.username
+        )
+        credentials = base64.b64encode(
+            f"{server_config.username}:wrongpass".encode("utf-8")
+        ).decode("utf-8")
+
+        with media_relay_server.app.test_request_context(
+            environ_base={"REMOTE_ADDR": "203.0.113.50"},
+            headers={"Authorization": f"Basic {credentials}"},
+        ):
             response = media_relay_server.auth_required_response()
 
         assert response.status_code == 401
@@ -1358,6 +1401,29 @@ class TestHealthEndpointSecurity:
         assert data["status"] in ("ok", "degraded")
         assert "version" not in data
         assert "uptime_seconds" not in data
+
+    def test_health_endpoint_rate_limited(self, tmp_path: Path) -> None:
+        """Health checks use a dedicated rate limit instead of full exemption."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash=TEST_PASSWORD_HASH,
+            username="testuser",
+            rate_limit_enabled=True,
+            rate_limit_per_minute=60,
+            health_rate_limit_per_minute=2,
+        )
+        server = MediaRelayServer(config)
+        server.app.config["TESTING"] = True
+        try:
+            with server.app.test_client() as client:
+                assert client.get("/health").status_code == 200
+                assert client.get("/health").status_code == 200
+                response = client.get("/health")
+                assert response.status_code == 429
+        finally:
+            server._shutdown_cleanup()
 
     def test_health_failed_auth_does_not_increment_lockout(
         self, media_relay_server: MediaRelayServer, server_config: ServerConfig
