@@ -452,8 +452,6 @@ curl -H "X-Health-Token: your-health-token" http://localhost:5000/health
 
 Alert when unauthenticated `/health` returns HTTP 503 (`degraded`) or when authorized `/health` returns `unhealthy`. Ship `security.log` to your SIEM and alert on `lockout_tracker_capacity_exceeded` and repeated `session_invalidated` events.
 
-`/health` is exempt from rate limiting so monitoring probes are not throttled.
-
 ### 4. Performance Tuning
 
 #### Resource Allocation

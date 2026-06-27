@@ -57,7 +57,7 @@ Check server health and status.
 
 **Endpoint**: `GET /health`
 **Authentication**: Liveness requires none. Detailed readiness requires an active session cookie or `X-Health-Token` when `VIDEO_SERVER_HEALTH_TOKEN` is configured. HTTP Basic Auth is not accepted (prevents password-oracle probing).
-**Rate Limit**: Exempt from global rate limiting (monitoring probes are not throttled)
+**Rate Limit**: Dedicated per-IP limit via `VIDEO_SERVER_HEALTH_RATE_LIMIT_PER_MIN` (default 120/min), separate from the global browsing/API limit
 
 #### Request
 ```http
@@ -353,7 +353,7 @@ The API implements rate limiting to prevent abuse.
 
 ### Default Limits
 - **Browsing, API, and auth routes**: 60 requests per minute per IP (configurable via `VIDEO_SERVER_RATE_LIMIT_PER_MIN`)
-- **`/health`**: Exempt from rate limiting (monitoring probes are not throttled)
+- **`/health`**: Dedicated per-IP limit via `VIDEO_SERVER_HEALTH_RATE_LIMIT_PER_MIN` (default 120/min), separate from the global browsing/API limit
 - **Streaming (`/stream/`)**: 600 requests per minute per IP by default (`VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE`), high enough for range seeking during playback
 
 ### Rate Limit Headers

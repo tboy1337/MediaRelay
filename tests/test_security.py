@@ -1643,12 +1643,18 @@ class TestSubtitleSanitization:
             f"{server_config.username}:testpass".encode("utf-8")
         ).decode("utf-8")
 
-        with media_relay_server.app.test_client() as client:
-            response = client.get(
-                "/stream/capped.vtt",
-                headers={"Authorization": f"Basic {credentials}"},
-            )
-            assert response.status_code == 413
+        assert media_relay_server.security_logger is not None
+        with patch.object(
+            media_relay_server.security_logger, "log_security_violation"
+        ) as mock_log:
+            with media_relay_server.app.test_client() as client:
+                response = client.get(
+                    "/stream/capped.vtt",
+                    headers={"Authorization": f"Basic {credentials}"},
+                )
+                assert response.status_code == 413
+            violation_types = [call.args[0] for call in mock_log.call_args_list]
+            assert "subtitle_too_large" in violation_types
 
 
 class TestSessionInvalidationLogging:

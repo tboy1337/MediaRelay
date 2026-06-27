@@ -474,7 +474,12 @@ class TestInodeLinkIndex:
         index = InodeLinkIndex(video_dir)
         index.refresh()
         fingerprint = index._fingerprint  # pylint: disable=protected-access
-        os.utime(video_dir, None)
+        jail_root = index._jail_root  # pylint: disable=protected-access
+        current_mtime_ns = jail_root.stat().st_mtime_ns
+        # Force mtime mismatch without relying on os.utime resolution on Windows.
+        index._cached_mtime_ns = (
+            current_mtime_ns - 1
+        )  # pylint: disable=protected-access
         with patch(
             "mediarelay.path_utils._compute_jail_fingerprint",
             return_value=fingerprint,
@@ -482,6 +487,9 @@ class TestInodeLinkIndex:
             with patch("mediarelay.path_utils._build_inode_counts") as mock_build:
                 index.refresh()
                 mock_build.assert_not_called()
+        assert (
+            index._cached_mtime_ns == current_mtime_ns
+        )  # pylint: disable=protected-access
 
     def test_refresh_skips_when_fingerprint_unchanged(self, tmp_path: Path) -> None:
         video_dir = tmp_path / "videos"

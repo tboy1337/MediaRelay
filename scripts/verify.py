@@ -170,12 +170,16 @@ def _build_verification_steps() -> list[tuple[str, list[str], bool]]:
         ),
         (
             "Black formatting",
-            _python_module("black", "--check", _path(SRC), _path(TESTS)),
+            _python_module(
+                "black", "--check", _path(SRC), _path(TESTS), _path(SCRIPTS)
+            ),
             False,
         ),
         (
             "Import sorting (isort)",
-            _python_module("isort", "--check-only", _path(SRC), _path(TESTS)),
+            _python_module(
+                "isort", "--check-only", _path(SRC), _path(TESTS), _path(SCRIPTS)
+            ),
             False,
         ),
         (
