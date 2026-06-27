@@ -304,10 +304,10 @@ class TestAccountLockoutManager:
         assert len(manager._trackers) == 2  # pylint: disable=protected-access
         assert "3.3.3.3:user3" in manager._trackers  # pylint: disable=protected-access
 
-    def test_partial_attempt_tracker_not_evicted_at_capacity(
+    def test_partial_attempt_tracker_evicted_at_capacity(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Trackers with in-progress failed attempts are never evicted."""
+        """Oldest non-locked trackers with in-progress attempts are evicted."""
         monkeypatch.setattr("mediarelay.lockout.MAX_LOCKOUT_TRACKERS", 2)
         manager = AccountLockoutManager(max_attempts=10, lockout_duration=300)
 
@@ -320,10 +320,10 @@ class TestAccountLockoutManager:
             "3.3.3.3", "user3"
         )
         assert now_locked is False
-        assert tracker_exhausted is True
+        assert tracker_exhausted is False
         assert not manager.is_locked_out("3.3.3.3", "user3")
-        assert manager.get_failed_attempts("1.1.1.1", "user1") == 1
-        assert manager.get_failed_attempts("2.2.2.2", "user2") == 1
+        assert len(manager._trackers) == 2  # pylint: disable=protected-access
+        assert "3.3.3.3:user3" in manager._trackers  # pylint: disable=protected-access
 
     def test_active_lockout_not_evicted_at_capacity(
         self, monkeypatch: pytest.MonkeyPatch
@@ -458,6 +458,23 @@ class TestAccountLockoutManager:
         assert tracker_exhausted is False
         assert now_locked is False
         assert "3.3.3.3:user_c" in manager._trackers  # pylint: disable=protected-access
+
+    def test_empty_username_does_not_pollute_username_tracker(self) -> None:
+        """Failed attempts with empty usernames skip username-wide lockout tracking."""
+        manager = AccountLockoutManager(
+            max_attempts=2,
+            lockout_duration=300,
+            username_lockout_enabled=True,
+        )
+
+        manager.record_failed_attempt("1.1.1.1", "")
+        manager.record_failed_attempt("2.2.2.2", "   ")
+
+        assert "" not in manager._username_trackers  # pylint: disable=protected-access
+        assert (
+            "   " not in manager._username_trackers
+        )  # pylint: disable=protected-access
+        assert manager.get_failed_attempts("1.1.1.1", "") == 1
 
 
 class TestLockoutTrackerExhaustedAuth:
@@ -1357,6 +1374,19 @@ class TestSubtitleSanitization:
         assert "blob:" not in sanitized
         assert "view-source:" not in sanitized
         assert "00:00:00.000 --> 00:00:01.000" in sanitized
+
+    def test_sanitize_strips_bidi_override_characters(self) -> None:
+        content = "WEBVTT\n\n\u202eHidden\u202c visible cue\n"
+        sanitized = sanitize_subtitle_content(content)
+        assert "\u202e" not in sanitized
+        assert "\u202c" not in sanitized
+        assert "visible cue" in sanitized
+
+    def test_sanitize_strips_percent_encoded_dangerous_uris(self) -> None:
+        content = "WEBVTT\n\n%6a%61%76%61%73%63%72%69%70%74:alert(1)\n"
+        sanitized = sanitize_subtitle_content(content)
+        assert "javascript:" not in sanitized.lower()
+        assert "alert(1)" in sanitized
 
     def test_stream_subtitle_strips_malicious_content(
         self, media_relay_server: MediaRelayServer, server_config: ServerConfig

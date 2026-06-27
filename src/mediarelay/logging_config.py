@@ -52,6 +52,13 @@ def _truncate_logged_user_agent(user_agent: str) -> str:
     return f"{user_agent[:MAX_LOGGED_USER_AGENT_LENGTH]}...(truncated)"
 
 
+def _truncate_logged_username(username: str) -> str:
+    """Truncate attacker-controlled username strings before security logging."""
+    if len(username) <= _MAX_LOGGED_USERNAME_LENGTH:
+        return username
+    return f"{username[:_MAX_LOGGED_USERNAME_LENGTH]}...(truncated)"
+
+
 class SecurityEventLogger:
     """Specialized logger for security events and audit trails"""
 
@@ -95,7 +102,7 @@ class SecurityEventLogger:
         self, username: str, success: bool, ip_address: str, user_agent: str = ""
     ) -> None:
         """Log authentication attempts"""
-        logged_username = username[:_MAX_LOGGED_USERNAME_LENGTH]
+        logged_username = _truncate_logged_username(username)
         event_data = self._build_event_data(
             {
                 "event_type": "authentication",
@@ -112,7 +119,7 @@ class SecurityEventLogger:
 
     def log_logout(self, username: str, ip_address: str, user_agent: str = "") -> None:
         """Log user logout events."""
-        logged_username = username[:_MAX_LOGGED_USERNAME_LENGTH]
+        logged_username = _truncate_logged_username(username)
         event_data = self._build_event_data(
             {
                 "event_type": "logout",
@@ -134,7 +141,7 @@ class SecurityEventLogger:
                 "file_path": truncate_logged_path(file_path),
                 "ip_address": ip_address,
                 "success": success,
-                "user": user,
+                "user": _truncate_logged_username(user),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -389,7 +396,7 @@ def _collect_system_info(config: ServerConfig) -> dict[str, Any]:  # type: ignor
             "cpu_count": psutil.cpu_count(),
             "memory_total_gb": round(psutil.virtual_memory().total / (1024**3), 2),
             "disk_free_gb": round(psutil.disk_usage(disk_path).free / (1024**3), 2),
-            "config": config.to_dict(),  # type: ignore[misc]
+            "config": config.to_log_dict(),  # type: ignore[misc]
         }
     except (ImportError, OSError):
         return {
@@ -398,7 +405,7 @@ def _collect_system_info(config: ServerConfig) -> dict[str, Any]:  # type: ignor
             "cpu_count": "unknown",
             "memory_total_gb": "unknown",
             "disk_free_gb": "unknown",
-            "config": config.to_dict(),  # type: ignore[misc]
+            "config": config.to_log_dict(),  # type: ignore[misc]
         }
 
 

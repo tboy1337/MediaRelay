@@ -161,16 +161,16 @@ class AccountLockoutManager:
         if len(trackers) < MAX_LOCKOUT_TRACKERS:
             return True
 
-        inactive_keys = [
+        evictable_keys = [
             key
             for key, tracker in trackers.items()
-            if (tracker.lockout_until <= current_time and tracker.failed_attempts == 0)
+            if tracker.lockout_until <= current_time
         ]
-        if not inactive_keys:
+        if not evictable_keys:
             return False
 
         oldest_key = min(
-            inactive_keys,
+            evictable_keys,
             key=lambda tracker_key: trackers[tracker_key].last_attempt,
         )
         del trackers[oldest_key]
@@ -226,7 +226,7 @@ class AccountLockoutManager:
                 return False, True
 
             username_locked = False
-            if self.username_lockout_enabled:
+            if self.username_lockout_enabled and username.strip():
                 username_locked, username_exhausted = self._record_failed_on_tracker(
                     self._username_trackers, username, current_time
                 )

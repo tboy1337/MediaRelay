@@ -214,7 +214,11 @@ Non-production mode continues with degraded health when the index fails to build
 
 #### Lockout tracker capacity
 
-Account lockout tracks up to **10,000** unique `IP:username` combinations. When the tracker is full, new failed login attempts are not recorded and a `lockout_tracker_capacity_exceeded` event is written to `security.log`. Monitor this event to detect tracker flooding attacks.
+Account lockout tracks up to **10,000** unique `IP:username` combinations. Active lockouts are never evicted; when the tracker is full, the oldest non-locked entry may be evicted to record new failures. When every slot holds an active lockout, new failed login attempts are not recorded and a `lockout_tracker_capacity_exceeded` event is written to `security.log`. Monitor this event to detect tracker flooding attacks.
+
+Username-wide lockout (`VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED=true`) blocks cross-IP brute force but allows account denial-of-service if an attacker knows your username. Set it to `false` if that tradeoff is unacceptable and rely on per-IP lockout plus a strong password.
+
+Setting `VIDEO_SERVER_MAX_FILE_SIZE=0` disables streaming size limits in production (startup logs a warning only). Prefer the default 20 GiB cap unless you have a deliberate reason to disable limits.
 
 ### 3. Directory Structure
 

@@ -691,6 +691,33 @@ class TestInodeLinkIndex:
         mock_warning.assert_called_once()
         assert "Inode index miss" in mock_warning.call_args[0][0]
 
+    def test_hardlink_check_live_scan_rejects_stale_overcounted_index(
+        self, tmp_path: Path
+    ) -> None:
+        """A stale inode index that overcounts in-jail links is confirmed by live scan."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        outside_dir = tmp_path / "outside"
+        outside_dir.mkdir()
+        secret = outside_dir / "secret.mp4"
+        secret.write_text("secret", encoding="utf-8")
+        alias = video_dir / "alias.mp4"
+        try:
+            os.link(secret, alias)
+        except (OSError, NotImplementedError):
+            pytest.skip("Platform does not support creating hard links")
+
+        index = InodeLinkIndex(video_dir)
+        jail_root = video_dir.resolve()
+        resolved = alias.resolve()
+        stat_result = resolved.stat()
+
+        with patch.object(index, "count_links", return_value=stat_result.st_nlink):
+            assert (
+                _is_hardlink_outside_jail(resolved, jail_root, inode_index=index)
+                is True
+            )
+
 
 class TestRevalidateBeforeServe:
     """Tests for serve-time path revalidation."""

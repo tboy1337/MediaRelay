@@ -641,6 +641,14 @@ class ServerConfig:
     def to_dict(self) -> dict[str, Any]:  # type: ignore[explicit-any]
         """Convert config to dictionary (excluding sensitive data)"""
         username_value = "[redacted]" if self.is_production() else self.username
+        return self._config_dict(username_value)
+
+    def to_log_dict(self) -> dict[str, Any]:  # type: ignore[explicit-any]
+        """Convert config to a dictionary safe for startup and audit logs."""
+        return self._config_dict("[redacted]")
+
+    def _config_dict(self, username_value: str) -> dict[str, Any]:  # type: ignore[explicit-any]
+        """Build the shared config dictionary with a caller-chosen username value."""
         return {
             "host": self.host,
             "port": self.port,

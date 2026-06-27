@@ -33,8 +33,9 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 - Constant-time username comparison (SHA-256 digest compare via `hmac.compare_digest`; does not leak configured username length)
 - Password verification on every login attempt, including when already locked out (mitigates username timing enumeration); `/health` probes with `record_lockout=false` skip lockout accounting but still perform password hash work when credentials are supplied (timing mitigation)
 - Account lockout after repeated failed attempts (per IP + username, and per username across all IPs when `VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED=true`); lockout also terminates active sessions
-- Active lockout entries are never evicted from the lockout tracker when at capacity; trackers with in-progress failed-attempt counters are also preserved (only zero-failure inactive trackers are evicted)
-- When all tracker slots hold active lockouts or in-progress attempt counters, new failed attempts are not recorded and new attackers are not locked out; a `lockout_tracker_capacity_exceeded` security event is logged instead
+- Active lockout entries are never evicted from the lockout tracker when at capacity; the oldest non-locked tracker (including those with in-progress failed-attempt counters) may be evicted to make room for new `IP:username` pairs
+- When every tracker slot holds an active lockout, new failed attempts are not recorded and new attackers are not locked out; a `lockout_tracker_capacity_exceeded` security event is logged instead
+- Empty or whitespace-only usernames do not populate the username-wide lockout tracker
 - Session invalidation on client IP change when `VIDEO_SERVER_SESSION_BIND_IP=true` (default); sessions without a bound login IP are rejected
 - Session invalidation when username or password hash changes (`credential_epoch` fingerprint)
 - Expired sessions fall through to valid HTTP Basic credentials on the same request
@@ -45,7 +46,7 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 
 - All file access is constrained to the configured video directory jail
 - Symlinks are resolved before containment checks
-- Hard links whose inode is also linked outside the jail are rejected using a cached inode index (refreshed periodically)
+- Hard links whose inode is also linked outside the jail are rejected using a cached inode index (refreshed periodically) with a live directory scan confirmation before allowing access when `st_nlink > 1`
 - Path traversal payloads (including multi-pass URL decoding, NFKC normalization, and Unicode control characters) are rejected and logged
 - Dotfiles (path segments starting with `.`) are hidden from listings and blocked on direct access
 - Custom `VIDEO_SERVER_ALLOWED_EXTENSIONS` must be a subset of the built-in media allowlist
@@ -60,11 +61,11 @@ MediaRelay is a **single-user, read-only** personal media streaming server. It i
 - HTML UI output uses Jinja2 autoescape for filenames and paths rendered in templates
 - Directory listings capped at `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES` (default 10000) using lazy iteration to prevent memory exhaustion
 - `VIDEO_SERVER_MAX_FILE_SIZE` enforced on streaming responses (HTTP 413 when exceeded; `0` disables; upper bound 20 GiB at startup validation)
-- Lockout tracker bounded at 10000 IP:username entries (only inactive trackers with zero failed attempts evicted when full; when saturated, new attackers are not locked out but the event is logged as `lockout_tracker_capacity_exceeded`)
+- Lockout tracker bounded at 10000 IP:username entries (active lockouts are never evicted; oldest non-locked trackers may be evicted when full; when every slot is an active lockout, new attackers are not locked out but the event is logged as `lockout_tracker_capacity_exceeded`)
 
 ### Audit Logging
 
-Security events are written to `logs/security.log` in JSON format, including authentication attempts, lockout events, path violations, and rate-limit breaches. Each event includes a `request_id` when emitted during an HTTP request. Usernames in auth logs are truncated to 64 characters; User-Agent strings are truncated to 512 characters.
+Security events are written to `logs/security.log` in JSON format, including authentication attempts, lockout events, path violations, and rate-limit breaches. Each event includes a `request_id` when emitted during an HTTP request. Usernames in auth and file-access logs are truncated to 64 characters; User-Agent strings are truncated to 512 characters. Startup system logs use `to_log_dict()` and always redact the configured username.
 
 Run `python scripts/verify.py` locally before release; it enforces black, isort, mypy, bandit, pylint, pip-audit, and pytest with 90%+ branch coverage.
 
@@ -95,12 +96,12 @@ Run `python scripts/verify.py` locally before release; it enforces black, isort,
 | GET logout disabled | Logout requires `POST /logout` with a valid CSRF token via `X-CSRF-Token` header or `csrf_token` form field (HTML form submit; no inline JavaScript) |
 | Basic Auth credential caching | Browsers may re-send cached credentials after `POST /logout`; close the browser or use private browsing |
 | Subtitle files (`.srt`, `.vtt`) | Served as `text/plain` with HTML tags and `javascript:`/`data:` URI patterns stripped before delivery; trust only subtitle files you control |
-| Distributed brute force | Username-wide lockout (`VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED`) limits cross-IP attacks; use a strong password |
+| Distributed brute force | Username-wide lockout (`VIDEO_SERVER_USERNAME_LOCKOUT_ENABLED`) limits cross-IP attacks but allows account DoS if the username is known; disable it or use a strong password and monitor `security.log` |
 | Stream rate limit | `/stream/` has a dedicated high limit; tune `VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE` or restrict network access |
 | CSP inline styles | Embedded UI template requires `style-src 'unsafe-inline'`; scripts are blocked via `script-src 'none'` |
 | Extension-only file filter | No magic-byte content validation; only extension allowlist (custom extensions must match built-in set) |
 | Large directories | Listings above `VIDEO_SERVER_MAX_DIRECTORY_ENTRIES` return HTTP 413 |
-| Hard links in video directory | Cached inode check blocks files also linked outside the jail; keep the video directory non-writable by untrusted users |
+| Hard links in video directory | Cached inode check plus live scan at serve time blocks files also linked outside the jail; keep the video directory non-writable by untrusted users |
 | `mediarelay-genpass` output | Emits secrets to stdout; redirect to a secure file and avoid logging stdout/stderr |
 | Intentional `0.0.0.0` bind | Default host binding is audited with bandit `B104` skipped; use `127.0.0.1` behind a reverse proxy in production |
 

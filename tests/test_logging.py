@@ -133,6 +133,20 @@ class TestSecurityEventLogger:
         assert log_data["file_path"].endswith("...(truncated)")
         assert len(log_data["file_path"]) < len(long_path)
 
+    def test_log_file_access_truncates_long_username(self, server_config, tmp_path):
+        """Test that long usernames are truncated before security logging."""
+        server_config.log_directory = str(tmp_path)
+        logger = SecurityEventLogger(server_config)
+
+        long_user = "u" * 100
+        logger.log_file_access("/test/video.mp4", "127.0.0.1", True, long_user)
+
+        security_log = tmp_path / "security.log"
+        log_data = json.loads(security_log.read_text().strip())
+
+        assert log_data["user"].endswith("...(truncated)")
+        assert len(log_data["user"]) == 64 + len("...(truncated)")
+
     def test_log_security_violation(self, server_config, tmp_path):
         """Test logging security violations"""
         server_config.log_directory = str(tmp_path)

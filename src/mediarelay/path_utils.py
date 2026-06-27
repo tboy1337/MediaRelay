@@ -327,8 +327,10 @@ def _is_hardlink_outside_jail(
 
     jail_resolved = jail_root.resolve()
     links_in_jail: int | None = None
+    used_cached_count = False
     if inode_index is not None:
         links_in_jail = inode_index.count_links(stat_result.st_ino, stat_result.st_dev)
+        used_cached_count = links_in_jail is not None
 
     if links_in_jail is None:
         _PATH_LOGGER.warning(
@@ -340,7 +342,16 @@ def _is_hardlink_outside_jail(
             stat_result.st_ino, stat_result.st_dev, jail_resolved
         )
 
-    return links_in_jail < stat_result.st_nlink
+    if links_in_jail < stat_result.st_nlink:
+        return True
+
+    if used_cached_count:
+        live_count = _count_inode_links_under_jail(
+            stat_result.st_ino, stat_result.st_dev, jail_resolved
+        )
+        return live_count < stat_result.st_nlink
+
+    return False
 
 
 def _resolve_within_jail(

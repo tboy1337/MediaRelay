@@ -807,6 +807,21 @@ class TestMaxFileSizeConfiguration:
         assert config_dict["username"] == "[redacted]"
         assert config.is_production() is True
 
+    def test_to_log_dict_always_redacts_username(self, tmp_path: Path) -> None:
+        """Startup logging must never include the configured username."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        config = ServerConfig(
+            video_directory=str(video_dir),
+            password_hash=TEST_PASSWORD_HASH,
+            username="secret-operator",
+        )
+
+        log_dict = config.to_log_dict()
+
+        assert log_dict["username"] == "[redacted]"
+        assert config.to_dict()["username"] == config.username
+
     def test_config_construction_smoke(self, tmp_path: Path) -> None:
         """Config construction and validation succeed without error."""
         video_dir = tmp_path / "videos"
