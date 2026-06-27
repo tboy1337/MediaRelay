@@ -835,6 +835,21 @@ def _validate_deployment_settings(config: ServerConfig) -> None:
         )
 
 
+def _validate_inode_index(video_directory: str) -> None:
+    """Ensure the hardlink inode index can be built for the video directory."""
+    from .path_utils import InodeLinkIndex  # isort: skip
+
+    index = InodeLinkIndex(Path(video_directory))
+    try:
+        index.refresh(force=True)
+    except Exception as error:  # pylint: disable=broad-exception-caught
+        raise ValueError(
+            "Inode hardlink index failed to build for the video directory. "
+            "Verify VIDEO_SERVER_DIRECTORY is readable and accessible. "
+            f"Detail: {error}"
+        ) from error
+
+
 def validate_deployment_config(config_file: Path | None = None) -> ServerConfig:
     """Load and validate configuration for production deployment.
 
@@ -848,6 +863,8 @@ def validate_deployment_config(config_file: Path | None = None) -> ServerConfig:
             "VIDEO_SERVER_PRODUCTION must be true for deployment validation. "
             "Set VIDEO_SERVER_PRODUCTION=true in your environment or .env file."
         )
+
+    _validate_inode_index(config.video_directory)
 
     return config
 
@@ -882,7 +899,7 @@ VIDEO_SERVER_SESSION_BIND_IP=true
 # VIDEO_SERVER_HEALTH_TOKEN=
 
 # Session Cookie Settings
-# Set SESSION_COOKIE_SECURE=false for local HTTP development without TLS
+# Set VIDEO_SERVER_SESSION_COOKIE_SECURE=false for local HTTP development without TLS
 VIDEO_SERVER_SESSION_COOKIE_SECURE=true
 VIDEO_SERVER_SESSION_COOKIE_HTTPONLY=true
 VIDEO_SERVER_SESSION_COOKIE_SAMESITE=Strict

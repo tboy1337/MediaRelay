@@ -23,6 +23,7 @@ from mediarelay.auth import (
     _username_matches,
     check_auth,
     check_authentication,
+    is_health_authorized,
 )
 from mediarelay.config import ServerConfig
 from mediarelay.constants import (
@@ -619,6 +620,63 @@ class TestAuthModule:
         assert _username_matches(server_config.username, "x") is False
         with media_relay_server.app.test_request_context():
             assert media_relay_server.check_auth("x", "anypassword") is False
+
+    def test_check_auth_locked_out_with_empty_password_skips_hash_verify(
+        self, media_relay_server, server_config
+    ) -> None:
+        """Locked-out login with empty password must not invoke password hash check."""
+        media_relay_server.lockout_manager = AccountLockoutManager(
+            max_attempts=1, lockout_duration=60
+        )
+        media_relay_server.security_logger = Mock()
+
+        with media_relay_server.app.test_request_context():
+            media_relay_server.lockout_manager.record_failed_attempt(
+                "127.0.0.1", server_config.username
+            )
+            with patch("mediarelay.auth.check_password_hash") as mock_check_hash:
+                assert (
+                    media_relay_server.check_auth(server_config.username, "") is False
+                )
+                mock_check_hash.assert_not_called()
+
+    def test_check_auth_locked_out_record_lockout_false(
+        self, media_relay_server, server_config
+    ) -> None:
+        """Locked-out login with record_lockout=False still returns False."""
+        media_relay_server.lockout_manager = AccountLockoutManager(
+            max_attempts=1, lockout_duration=60
+        )
+
+        with media_relay_server.app.test_request_context():
+            media_relay_server.lockout_manager.record_failed_attempt(
+                "127.0.0.1", server_config.username
+            )
+            assert (
+                check_auth(
+                    media_relay_server,
+                    server_config.username,
+                    "anypassword",
+                    record_lockout=False,
+                )
+                is False
+            )
+
+    def test_health_authorized_falls_through_invalid_session_to_health_token(
+        self, media_relay_server
+    ) -> None:
+        """Invalid session must not block authorization via X-Health-Token."""
+        media_relay_server.config.health_token = "monitoring-token-32-chars-minimum!"
+
+        with media_relay_server.app.test_request_context(
+            headers={"X-Health-Token": "monitoring-token-32-chars-minimum!"}
+        ):
+            with patch("mediarelay.auth.is_session_authenticated", return_value=True):
+                with patch(
+                    "mediarelay.auth._session_invalid_reason",
+                    return_value="session_idle_timeout",
+                ):
+                    assert is_health_authorized(media_relay_server) is True
 
 
 class TestAuthenticationSecurity:

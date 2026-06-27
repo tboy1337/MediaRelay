@@ -82,7 +82,7 @@ Run `python scripts/verify.py` locally before release; it enforces black, isort,
 8. Set `VIDEO_SERVER_BEHIND_PROXY=true` and `VIDEO_SERVER_PROXY_TRUSTED=true` when MediaRelay is unreachable except through your trusted proxy. Production startup **fails** if `BEHIND_PROXY` is enabled without `PROXY_TRUSTED`.
 9. Ensure the video directory is not writable by the server process (enforced at startup in production).
 10. Set `VIDEO_SERVER_DIRECTORY` and `VIDEO_SERVER_LOG_DIR` to **absolute paths** in production (relative paths such as `./videos` or `./logs` are rejected by `mediarelay-validate`).
-11. Unauthenticated `/health` returns `{"status":"ok"}` (HTTP 200) when healthy or `{"status":"degraded"}` (HTTP 503) when the video directory is inaccessible. Detailed readiness requires an active session cookie or `X-Health-Token` matching `VIDEO_SERVER_HEALTH_TOKEN` when configured. Basic Auth is not accepted on `/health`.
+11. Unauthenticated `/health` returns `{"status":"ok"}` (HTTP 200) when runtime health passes (video directory accessible and inode hardlink index ready) or `{"status":"degraded"}` (HTTP 503) when the video directory is inaccessible or the inode index is not ready. Detailed readiness requires an active session cookie or `X-Health-Token` matching `VIDEO_SERVER_HEALTH_TOKEN` when configured. Basic Auth is not accepted on `/health`.
 12. Restrict access with firewall rules or VPN where possible.
 13. If `VIDEO_SERVER_DIRECTORY` is a symlink, production startup logs a warning with the resolved target path; verify it remains within your intended media storage.
 

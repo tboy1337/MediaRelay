@@ -165,7 +165,7 @@ mediarelay-validate --config-file /path/to/.env
 
 When `VIDEO_SERVER_PRODUCTION=true`, the same deployment checks also run automatically when you start the server with `mediarelay`. Use `mediarelay-validate` to catch configuration errors before a service restart or container rollout.
 
-The validator checks password hash format, secret key presence, video/log directory permissions, rate limiting, bind address format, and port range. Fix any reported errors before deployment.
+The validator checks password hash format, secret key presence, video/log directory permissions, rate limiting, bind address format, port range, and builds the inode hardlink index (the same check enforced at production server startup). Fix any reported errors before deployment.
 
 **Pre-deploy checklist:**
 
@@ -173,7 +173,7 @@ The validator checks password hash format, secret key presence, video/log direct
 2. Run `mediarelay-validate` and fix all reported errors
 3. Terminate TLS at a reverse proxy (never send Basic Auth over plain HTTP)
 4. Set `VIDEO_SERVER_PROXY_TRUSTED=true` only when MediaRelay is exclusively behind your trusted reverse proxy
-5. Confirm the video directory is readable and the inode hardlink index builds successfully (production startup fails fast if index build fails)
+5. Run `mediarelay-validate` to confirm the inode hardlink index builds successfully (also enforced again at production server startup)
 6. Restrict media directory to read-only for the service account (see below)
 
 Unauthenticated `GET /health` returns minimal readiness (`{"status":"ok"}` when healthy, `{"status":"degraded"}` with HTTP 503 when the video directory is inaccessible or the inode index is unavailable). Detailed readiness requires an active session cookie or `X-Health-Token` matching `VIDEO_SERVER_HEALTH_TOKEN` (recommended for load balancers and external monitors).
@@ -328,7 +328,8 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/path/to/MediaRelay/logs
+ReadWritePaths=/path/to/your/logs
+# Set VIDEO_SERVER_LOG_DIR to the same absolute path as ReadWritePaths
 # Mount VIDEO_SERVER_DIRECTORY read-only; do not add it to ReadWritePaths
 
 [Install]
@@ -443,7 +444,7 @@ curl -H "X-Health-Token: your-health-token" http://localhost:5000/health
 
 | Probe type | Endpoint | Auth | Use case |
 |------------|----------|------|----------|
-| Liveness | `GET /health` | None | Process is up; directory readable |
+| Liveness | `GET /health` | None | Process is up; video directory readable and inode index ready |
 | Readiness | `GET /health` | `X-Health-Token` or session | Full status including version and uptime |
 
 Alert when unauthenticated `/health` returns HTTP 503 (`degraded`) or when authorized `/health` returns `unhealthy`. Ship `security.log` to your SIEM and alert on `lockout_tracker_capacity_exceeded` and repeated `session_invalidated` events.

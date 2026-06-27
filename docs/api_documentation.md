@@ -75,7 +75,7 @@ Returns minimal readiness without leaking configuration details:
 }
 ```
 
-When the video directory is inaccessible, the response is HTTP `503` with:
+When the video directory is inaccessible or the inode hardlink index is not ready, the response is HTTP `503` with:
 
 ```json
 {
@@ -91,7 +91,7 @@ When authorized (session cookie or valid `X-Health-Token`), returns full readine
 {
     "status": "healthy",
     "timestamp": "2026-06-25T12:00:00.000000+00:00",
-    "version": "1.0.14",
+    "version": "<installed-version>",
     "uptime_seconds": 3600,
     "video_directory_accessible": true,
     "rate_limiting_enabled": true
@@ -99,19 +99,19 @@ When authorized (session cookie or valid `X-Health-Token`), returns full readine
 ```
 
 #### Status Codes
-- Unauthenticated `200 OK`: Process is up and video directory is accessible (`{"status":"ok"}`)
-- Unauthenticated `503 Service Unavailable`: Process is up but video directory is inaccessible (`{"status":"degraded"}`)
-- Authorized `200 OK`: Server is healthy (video directory accessible)
-- Authorized `503 Service Unavailable`: Video directory is inaccessible
+- Unauthenticated `200 OK`: Process is up, video directory is accessible, and inode index is ready (`{"status":"ok"}`)
+- Unauthenticated `503 Service Unavailable`: Process is up but runtime health failed — video directory inaccessible and/or inode index not ready (`{"status":"degraded"}`)
+- Authorized `200 OK`: Server is healthy (video directory accessible and inode index ready)
+- Authorized `503 Service Unavailable`: Runtime health check failed
 
 #### Response Fields (authorized detailed readiness only)
 | Field | Type | Description |
 |-------|------|-------------|
 | status | string | `"healthy"` or `"unhealthy"` |
 | timestamp | string | ISO 8601 timestamp (UTC) |
-| version | string | Installed package version |
+| version | string | Installed package version (from `mediarelay.__version__`) |
 | uptime_seconds | number | Server uptime in seconds |
-| video_directory_accessible | boolean | Whether video directory is accessible |
+| video_directory_accessible | boolean | Combined runtime health: video directory readable **and** inode hardlink index ready (field name kept for backward compatibility) |
 | rate_limiting_enabled | boolean | Whether rate limiting is active |
 
 ### 2. Logout
@@ -492,7 +492,7 @@ Accept-Ranges: bytes
 
 #### Check Server Health
 
-Unauthenticated callers receive minimal readiness (`{"status": "ok"}` when healthy, `{"status": "degraded"}` with HTTP 503 when the video directory is inaccessible). Full readiness details require a valid session cookie or `X-Health-Token` when `VIDEO_SERVER_HEALTH_TOKEN` is configured.
+Unauthenticated callers receive minimal readiness (`{"status": "ok"}` when healthy, `{"status": "degraded"}` with HTTP 503 when the video directory is inaccessible or the inode index is not ready). Full readiness details require a valid session cookie or `X-Health-Token` when `VIDEO_SERVER_HEALTH_TOKEN` is configured.
 
 ```bash
 curl http://localhost:5000/health
@@ -504,7 +504,7 @@ curl -H "X-Health-Token: your-health-token" http://localhost:5000/health
 {
     "status": "healthy",
     "timestamp": "2023-12-01T12:00:00.000Z",
-    "version": "1.0.14",
+    "version": "<installed-version>",
     "uptime_seconds": 7200,
     "video_directory_accessible": true
 }

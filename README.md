@@ -169,6 +169,8 @@ Once the server is running, you can access it in your web browser at:
 
 #### Key Environment Variables
 
+See [Configuration Reference](docs/configuration_reference.md) for the complete list. Production-critical settings:
+
 ```bash
 # Server Configuration
 VIDEO_SERVER_HOST=0.0.0.0
@@ -181,8 +183,20 @@ VIDEO_SERVER_USERNAME=your_username                    # Your chosen username
 VIDEO_SERVER_PASSWORD_HASH=your_secure_hash            # Generated password hash
 VIDEO_SERVER_SECRET_KEY=your_secret_key                # Generated Flask secret key
 
+# Production mode (required for live deployment; enforces secure cookies and credential checks)
+VIDEO_SERVER_PRODUCTION=true
+VIDEO_SERVER_RATE_LIMIT=true                           # Required in production
+
+# Reverse proxy (set true ONLY when behind a trusted reverse proxy)
+VIDEO_SERVER_BEHIND_PROXY=false
+VIDEO_SERVER_PROXY_TRUSTED=false                       # Required true with BEHIND_PROXY in production
+
+# Optional monitoring token for detailed /health via X-Health-Token
+# VIDEO_SERVER_HEALTH_TOKEN=
+
 # Performance
 VIDEO_SERVER_RATE_LIMIT_PER_MIN=60
+VIDEO_SERVER_STREAM_RATE_LIMIT_PER_MINUTE=600
 VIDEO_SERVER_SESSION_TIMEOUT=3600
 VIDEO_SERVER_MAX_FILE_SIZE=21474836480  # 20GB default, set to 0 to disable
 
@@ -190,9 +204,6 @@ VIDEO_SERVER_MAX_FILE_SIZE=21474836480  # 20GB default, set to 0 to disable
 VIDEO_SERVER_SESSION_COOKIE_SECURE=true
 VIDEO_SERVER_SESSION_COOKIE_HTTPONLY=true
 VIDEO_SERVER_SESSION_COOKIE_SAMESITE=Strict
-
-# Reverse proxy (set true ONLY when behind a trusted reverse proxy)
-VIDEO_SERVER_BEHIND_PROXY=false
 
 # Account lockout (failed login protection)
 VIDEO_SERVER_LOCKOUT_MAX_ATTEMPTS=5
@@ -202,9 +213,6 @@ VIDEO_SERVER_LOCKOUT_DURATION=900
 VIDEO_SERVER_LOG_LEVEL=INFO
 VIDEO_SERVER_LOG_DIR=./logs
 VIDEO_SERVER_LOG_CONSOLE=true
-
-# Production mode (rejects placeholder credentials)
-VIDEO_SERVER_PRODUCTION=true
 ```
 
 ## Development
@@ -231,6 +239,8 @@ HTTP_BASIC_AUTH + SESSION_MANAGEMENT + SAMESITE_COOKIES
 ```http
 X-Content-Type-Options: nosniff
 X-Frame-Options: SAMEORIGIN
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
 Strict-Transport-Security: max-age=31536000  # When VIDEO_SERVER_HSTS=true or VIDEO_SERVER_BEHIND_PROXY=true
 Content-Security-Policy: default-src 'self'; media-src 'self'; style-src 'self' 'unsafe-inline'
 Referrer-Policy: strict-origin-when-cross-origin

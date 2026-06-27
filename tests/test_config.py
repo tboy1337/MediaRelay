@@ -1795,6 +1795,37 @@ class TestDeploymentConfigValidation:
         ):
             validate_deployment_config(env_file)
 
+    def test_deployment_config_rejects_inode_index_build_failure(
+        self, tmp_path, monkeypatch
+    ):
+        """Inode index build failure fails deployment validation before server start."""
+        video_dir = tmp_path / "videos"
+        video_dir.mkdir()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        _patch_video_dir_readonly(monkeypatch, video_dir)
+
+        env_file = tmp_path / "test.env"
+        env_file.write_text(
+            f"VIDEO_SERVER_PASSWORD_HASH=pbkdf2:sha256:600000$testsalt$deadbeef\n"
+            f"VIDEO_SERVER_SECRET_KEY=test-production-secret-key-32chars-min\n"
+            f"VIDEO_SERVER_DIRECTORY={video_dir}\n"
+            f"VIDEO_SERVER_LOG_DIR={log_dir}\n"
+            f"VIDEO_SERVER_PRODUCTION=true\n"
+            f"VIDEO_SERVER_RATE_LIMIT=true\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.chdir(tmp_path)
+        with patch(
+            "mediarelay.path_utils.InodeLinkIndex.refresh",
+            side_effect=OSError("permission denied"),
+        ):
+            with pytest.raises(
+                ValueError, match="Inode hardlink index failed to build"
+            ):
+                validate_deployment_config(env_file)
+
 
 class TestConfigProductionAuditEdgeCases:
     """Edge-case validation added during production audit."""
